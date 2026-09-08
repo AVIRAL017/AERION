@@ -8,11 +8,13 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.health import router as health_router
+from app.api.auth import router as auth_router
 
 api_router = APIRouter(prefix="/api/v1")
 
 # Mount health & readiness endpoints under /api/v1/health and /api/v1/ready
 api_router.include_router(health_router)
+api_router.include_router(auth_router)
 
 # Future phase routers will be mounted here:
 # Phase 3B: api_router.include_router(projects_router)

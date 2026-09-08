@@ -106,6 +106,40 @@ class ModelUnavailableError(AERIONException):
         )
 
 
+class AuthenticationError(AERIONException):
+    """Raised when client fails authentication (missing, invalid, or expired token)."""
+    def __init__(
+        self,
+        message: str = "Authentication required. Invalid or expired credentials.",
+        details: Optional[List[Dict[str, Any]]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code=StandardErrorCode.AUTHENTICATION_REQUIRED,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            error_type="AuthenticationError",
+            details=details,
+            headers=headers or {"WWW-Authenticate": "Bearer"},
+        )
+
+
+class PermissionDeniedError(AERIONException):
+    """Raised when user lacks required role or access permission."""
+    def __init__(
+        self,
+        message: str = "Access denied. Insufficient permissions.",
+        details: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code=StandardErrorCode.PERMISSION_DENIED,
+            status_code=status.HTTP_403_FORBIDDEN,
+            error_type="AuthorizationError",
+            details=details,
+        )
+
+
 class RateLimitExceededError(AERIONException):
     """Raised when a client exceeds allowed request frequency."""
     def __init__(

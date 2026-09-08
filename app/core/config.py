@@ -43,8 +43,15 @@ class AERIONSettings(BaseSettings):
     PORT: int = Field(default=8000, description="Binding port for Uvicorn")
 
     # ------------------------------------------------------------
-    # SECURITY & CORS SETTINGS
+    # SECURITY, AUTH & JWT SETTINGS (Phase 3D)
     # ------------------------------------------------------------
+    JWT_SECRET_KEY: SecretStr = Field(
+        default=SecretStr("aerion-insecure-dev-secret-key-change-in-production-12345"),
+        description="Cryptographic secret key for signing JWT access tokens",
+    )
+    JWT_ALGORITHM: str = Field(default="HS256", description="JWT signing algorithm")
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, description="Access token expiration lifetime in minutes")
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, description="Refresh token expiration lifetime in days")
     ALLOWED_ORIGINS: Union[List[str], str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
         description="Allowed CORS origins (list of strings or comma-separated string)",
