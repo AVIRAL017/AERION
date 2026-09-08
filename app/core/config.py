@@ -60,6 +60,41 @@ class AERIONSettings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = Field(default=60, description="Sliding window duration in seconds")
 
     # ------------------------------------------------------------
+    # DATABASE SETTINGS (Phase 3B PostgreSQL + PostGIS)
+    # ------------------------------------------------------------
+    POSTGRES_HOST: str = Field(default="localhost", description="PostgreSQL database host")
+    POSTGRES_PORT: int = Field(default=5432, description="PostgreSQL database port")
+    POSTGRES_DB: str = Field(default="aerion_db", description="PostgreSQL database name")
+    POSTGRES_USER: str = Field(default="aerion_user", description="PostgreSQL database user")
+    POSTGRES_PASSWORD: Optional[SecretStr] = Field(default=None, description="PostgreSQL database password")
+    POSTGRES_SSL_MODE: str = Field(default="prefer", description="PostgreSQL SSL mode (disable, prefer, require)")
+    DATABASE_POOL_SIZE: int = Field(default=20, description="SQLAlchemy connection pool size")
+    DATABASE_MAX_OVERFLOW: int = Field(default=10, description="SQLAlchemy max pool overflow")
+    DATABASE_POOL_TIMEOUT: float = Field(default=30.0, description="SQLAlchemy pool timeout in seconds")
+    DATABASE_POOL_RECYCLE: int = Field(default=1800, description="SQLAlchemy connection recycle timeout in seconds")
+    DATABASE_ECHO: bool = Field(default=False, description="Echo SQL statements to stdout")
+    DATABASE_URL_OVERRIDE: Optional[str] = Field(default=None, description="Explicit database URL override (useful for testing)")
+
+    @property
+    def async_database_url(self) -> str:
+        """Construct async PostgreSQL / PostGIS connection URL."""
+        if self.DATABASE_URL_OVERRIDE:
+            return self.DATABASE_URL_OVERRIDE
+        pwd = self.POSTGRES_PASSWORD.get_secret_value() if self.POSTGRES_PASSWORD else ""
+        user_pass = f"{self.POSTGRES_USER}:{pwd}" if pwd else self.POSTGRES_USER
+        return f"postgresql+asyncpg://{user_pass}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}?ssl={self.POSTGRES_SSL_MODE}"
+
+    @property
+    def sync_database_url(self) -> str:
+        """Construct sync PostgreSQL connection URL (e.g. for Alembic migrations)."""
+        if self.DATABASE_URL_OVERRIDE:
+            # If override is asyncpg, swap to psycopg2 or standard postgresql
+            return self.DATABASE_URL_OVERRIDE.replace("+asyncpg", "+psycopg2")
+        pwd = self.POSTGRES_PASSWORD.get_secret_value() if self.POSTGRES_PASSWORD else ""
+        user_pass = f"{self.POSTGRES_USER}:{pwd}" if pwd else self.POSTGRES_USER
+        return f"postgresql+psycopg2://{user_pass}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}?sslmode={self.POSTGRES_SSL_MODE}"
+
+    # ------------------------------------------------------------
     # RUNTIME & INFERENCE MUTEX SETTINGS
     # ------------------------------------------------------------
     DEVICE: str = Field(default="0", description="Ultralytics/PyTorch device identifier (0, cuda:0, cpu)")
