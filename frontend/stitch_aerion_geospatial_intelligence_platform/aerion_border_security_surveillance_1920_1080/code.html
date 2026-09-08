@@ -1,0 +1,237 @@
+<!DOCTYPE html><html class="dark" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>AERION — Spatial Intelligence</title>
+<!-- Google Fonts & Material Symbols -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind CSS with custom plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            graphite: "#0B0F14",
+            panel: "#11161D",
+            elevated: "#171D25",
+            accent: "#38D5F5",
+            critical: "#EF5669",
+            warning: "#E8B34A",
+            success: "#48C995",
+            ai: "#9A8BEF",
+            muted: "#7D8795",
+            subtle: "#2A323D",
+            content: "#EDF1F5"
+          },
+          fontFamily: {
+            sans: ["Geist", "system-ui", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+</script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 18px;
+      line-height: 1;
+      display: inline-block;
+      text-transform: none;
+      letter-spacing: normal;
+      word-wrap: normal;
+      white-space: nowrap;
+      direction: ltr;
+      vertical-align: middle;
+      font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #1e2631;
+      border-radius: 2px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #2b3544;
+    }
+</style>
+</head>
+<body class="bg-graphite text-content antialiased overflow-hidden select-none h-screen w-screen flex flex-col font-sans">
+<!-- ================= MINIMAL TOP NAVIGATION BAR ================= -->
+<header class="flex items-center justify-between px-8 w-full h-16 z-50 fixed top-0 left-0 bg-graphite/90 backdrop-blur border-b border-subtle/40">
+<!-- Left: Minimal Orbital Brand + Mode Switcher -->
+<div class="flex items-center gap-10">
+<div class="flex items-center gap-3">
+<div class="w-5 h-5 rounded-full border border-content/30 flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-content"></div>
+</div>
+<span class="font-sans text-[15px] font-semibold tracking-tight text-content">AERION</span>
+<span class="text-xs text-muted/60 font-mono tracking-normal">4.1</span>
+</div>
+<!-- Clean Mode Switcher -->
+<nav class="flex items-center gap-6 text-[14px]">
+<a class="text-content font-medium relative py-1 after:content-[''] after:absolute after:bottom-0 after:left-0 after:w-full after:h-[1.5px] after:bg-accent" href="#">
+        Border Security
+      </a>
+<a class="text-muted hover:text-content transition-colors duration-150 py-1" href="#">
+        Disaster Response
+      </a>
+</nav>
+</div>
+<!-- Center Search -->
+<div class="hidden md:flex items-center bg-panel/70 border border-subtle/50 rounded-md px-3 py-1.5 w-80 text-muted focus-within:border-accent/60 transition-colors">
+<span class="material-symbols-outlined text-[16px] mr-2 text-muted">search</span>
+<input class="bg-transparent text-[13px] text-content placeholder:text-muted/60 border-none p-0 focus:ring-0 w-full focus:outline-none" placeholder="Search coordinates, tracks, sectors..." type="text">
+<span class="font-mono text-[10px] text-muted/50 bg-elevated px-1.5 py-0.5 rounded">⌘K</span>
+</div>
+<!-- Right: Operational Health, UTC Clock, Profile -->
+<div class="flex items-center gap-7">
+<!-- Quiet Operational Status -->
+<div class="flex items-center gap-2 text-[12px] text-muted">
+<span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+<span class="font-sans">Operational</span>
+</div>
+<!-- UTC Time -->
+<div class="font-mono text-[12px] text-muted tracking-tight">
+      14:32:08 <span class="text-muted/50 text-[10px]">UTC</span>
+</div>
+<!-- User Profile -->
+<div class="flex items-center gap-3 pl-2 cursor-pointer group">
+<img class="w-7 h-7 rounded-full object-cover grayscale opacity-80 group-hover:opacity-100 transition-opacity" data-alt="Portrait of senior communications officer" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBraNnUQUE6PCkVePcYF_qdo5edKZJAiWQgLg9Q3HXUQh6pOwmsnQPpkQ9HQsqveSvkL2njSObcRGUG04QMi-V2JicxTjALSesmEO3umkp24Tvyx3I9Dwuavklgxihanz3pnQdXxD7PxlquhB6OjVHDurhJecY_0a8t2AkJbKvlkVEHV-hkG9Nqy2B5TDyhcayCbUclkGmUACN5mVxOCwct-0wP5L0crSVl5f1xdOaulhmhRYmUX8vlyA">
+<div class="flex flex-col text-left">
+<span class="text-[13px] text-content leading-snug font-medium">V. Mercer</span>
+<span class="text-[11px] text-muted/70 leading-none">Command</span>
+</div>
+</div>
+</div>
+</header>
+<!-- ================= MAIN VIEWPORT CONTAINER ================= -->
+<div class="pt-16 flex h-screen w-screen overflow-hidden">
+<!-- ================= MINIMAL SPACIOUS SIDEBAR ================= -->
+<aside class="flex flex-col justify-between h-[calc(100vh-4rem)] w-56 min-w-[224px] bg-graphite border-r border-subtle/30 py-7 px-4 z-40 select-none">
+<div class="flex flex-col gap-6">
+<div class="px-2">
+<button class="w-full bg-elevated hover:bg-subtle text-content text-[13px] font-medium py-2 px-3 rounded flex items-center justify-center gap-2 transition-colors border border-subtle/50">
+<span class="material-symbols-outlined text-[16px] text-muted">center_focus_weak</span>
+          Acquire Target
+        </button>
+</div>
+<!-- Navigation Links -->
+<nav class="flex flex-col gap-1 text-[13.5px]">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-muted hover:text-content hover:bg-panel transition-colors" href="#">
+<span class="material-symbols-outlined text-[17px]">space_dashboard</span>
+<span class="">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-content bg-panel font-medium" href="#">
+<span class="material-symbols-outlined text-[17px] text-accent">radar</span>
+<span class="">Surveillance</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-muted hover:text-content hover:bg-panel transition-colors" href="#">
+<span class="material-symbols-outlined text-[17px]">crisis_alert</span>
+<span class="">Events</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-muted hover:text-content hover:bg-panel transition-colors" href="#">
+<span class="material-symbols-outlined text-[17px]">map</span>
+<span class="">Tactical Map</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-muted hover:text-content hover:bg-panel transition-colors" href="#">
+<span class="material-symbols-outlined text-[17px]">article</span>
+<span class="">Reports</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-muted hover:text-content hover:bg-panel transition-colors" href="#">
+<span class="material-symbols-outlined text-[17px]">lock_clock</span>
+<span class="">Evidence Vault</span>
+</a>
+</nav>
+</div>
+<!-- Quiet Sidebar Footer -->
+<div class="flex flex-col gap-1.5 px-3 pt-4 border-t border-subtle/25 text-[12px] text-muted/70">
+<a class="hover:text-muted transition-colors py-1 flex items-center justify-between" href="#">
+<span class="">Mesh Network</span>
+<span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+</a>
+<a class="hover:text-muted transition-colors py-1" href="#">System Preferences</a>
+</div>
+</aside>
+<!-- ================= DOMINANT HERO CANVAS (70% Calm Visual Canvas) ================= -->
+<main class="flex-1 relative flex flex-col bg-graphite overflow-hidden border-r border-subtle/30">
+<!-- Visual Stage -->
+<div class="relative w-full flex-1 overflow-hidden"><div class="absolute inset-0 w-full h-full bg-cover bg-center brightness-[0.7] contrast-[1.15] grayscale-[0.35]" data-alt="High-altitude dark cartography aerial topography of border wash sector" style="background-image: radial-gradient(circle at 60% 40%, rgba(17, 22, 29, 0.4) 0%, rgba(11, 15, 20, 0.92) 90%), url(&quot;https://lh3.googleusercontent.com/aida-public/AB6AXuAdqXYPsxoW1QwzlQBCshAQCGQJrYOe64_1iXwYz2qDgUaLrxSQLL1r9TR2nDi1hDeJg55pzPf5bXvX9B8XTnKg3kBRVBlQHbM4m15PKt8qLAiCqvlUUvXK0G_X-9IYxPqrdNhJDoY7pFU9S3bA0A7vmcGEa6CESwXTaxTVdL1olgKmUG5r5jhS3KKcVSadqNYZv5J_2KVG2-eCDIs3uzbGpwCrIKF6QyExHmRbFtPTOGlQIS_ehBJF6w&quot;);"></div><svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg"><polygon fill="rgba(56, 213, 245, 0.015)" points="160,80 640,130 820,380 540,640 120,500" stroke="rgba(237, 241, 245, 0.12)" stroke-dasharray="4 6" stroke-width="1"></polygon><line opacity="0.6" stroke="#E8B34A" stroke-dasharray="2 3" stroke-width="1" x1="528" x2="460" y1="290" y2="340"></line><circle cx="460" cy="340" fill="#E8B34A" opacity="0.7" r="2"></circle><rect fill="none" height="44" opacity="0.6" rx="2" stroke="#E8B34A" stroke-width="1" width="44" x="508" y="268"></rect><rect fill="none" height="36" opacity="0.35" rx="2" stroke="#EDF1F5" stroke-width="1" width="36" x="290" y="190"></rect></svg><div class="absolute top-[260px] left-[512px] pointer-events-auto transform -translate-y-full mb-2"><div class="bg-panel/90 backdrop-blur-md border border-subtle/60 px-2.5 py-1.5 rounded shadow-xl flex items-center gap-2 text-[12px]"><span class="w-1.5 h-1.5 rounded-full bg-warning"></span><span class="font-mono text-content font-medium">TRK-12</span><span class="text-muted">Motorbike</span><span class="text-muted/40">·</span><span class="font-mono text-muted text-[11px]">91.8%</span></div></div><div class="absolute top-[182px] left-[294px] pointer-events-auto transform -translate-y-full mb-2"><div class="bg-panel/90 backdrop-blur-md border border-subtle/50 px-2.5 py-1.5 rounded shadow-xl flex items-center gap-2 text-[12px]"><span class="w-1.5 h-1.5 rounded-full bg-muted/60"></span><span class="font-mono text-content font-medium">TRK-104</span><span class="text-muted">Person</span><span class="text-muted/40">·</span><span class="font-mono text-muted text-[11px]">94%</span></div></div><div class="absolute top-6 left-7 z-30 pointer-events-auto"><div class="bg-panel/90 backdrop-blur-md border border-subtle/40 rounded-md px-3.5 py-2 flex items-center gap-2.5 text-[12px] font-mono text-muted shadow-sm"><span class="w-1.5 h-1.5 rounded-full bg-accent"></span><span class="text-content font-medium">FLIR Boson 640</span><span class="text-muted/40">·</span><span class="">4K IR</span><span class="text-muted/40">·</span><span class="">420m AGL</span></div></div></div>
+<!-- ================= REFINED EDITORIAL TIMELINE SCRUBBER ================= -->
+<footer class="h-20 bg-panel border-t border-subtle/30 px-8 py-3 flex flex-col justify-between z-30 select-none">
+<div class="flex items-center justify-between">
+<!-- Minimal Playback Controls -->
+<div class="flex items-center gap-4">
+<button class="w-7 h-7 rounded bg-elevated hover:bg-subtle text-content flex items-center justify-center transition-colors border border-subtle/40" title="Play/Pause">
+<span class="material-symbols-outlined text-[16px]">pause</span>
+</button>
+<div class="flex items-baseline gap-1.5 font-mono text-[13px]">
+<span class="text-content font-medium">14:32:08</span>
+<span class="text-muted/60 text-[11px]">/ 14:45:00</span>
+</div>
+</div>
+<!-- Clean Keyframe Legend -->
+<div class="flex items-center gap-6 text-[11px] text-muted">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-critical"></span>
+<span class="">Priority Anomaly</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-warning"></span>
+<span class="">Crossing Ingress</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-accent"></span>
+<span class="">Sensor Handover</span>
+</div>
+</div>
+</div>
+<!-- Thin Elegant Track Scrubber -->
+<div class="relative w-full h-4 flex items-center cursor-pointer group">
+<div class="w-full h-[3px] bg-subtle/50 rounded-full relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-[78%] bg-muted/40"></div>
+<div class="absolute left-[66%] top-0 bottom-0 w-[12%] bg-warning/30"></div>
+</div>
+<!-- Scrubber Nodes -->
+<div class="absolute left-[44%] w-1.5 h-1.5 rounded-full bg-accent -top-[1.5px]" title="14:24 Sensor Handover"></div>
+<div class="absolute left-[70%] w-2 h-2 rounded-full bg-critical -top-[2.5px]" title="14:31 Ingress Alert"></div>
+<!-- Playhead Handle -->
+<div class="absolute left-[78%] -top-1 w-2.5 h-3.5 bg-content rounded-[2px] shadow-sm -ml-1"></div>
+</div>
+</footer>
+</main>
+<!-- ================= UNIFIED RIGHT INTELLIGENCE PANEL (Calm Editorial Dominance) ================= -->
+<aside class="w-[450px] min-w-[420px] bg-panel flex flex-col h-[calc(100vh-4rem)] border-l border-subtle/30 overflow-hidden select-none">
+<!-- Unified Editorial Content Area -->
+<div class="flex-1 overflow-y-auto custom-scrollbar p-8 flex flex-col gap-8"><div class="flex flex-col gap-2.5 pb-6 border-b border-subtle/30"><div class="flex items-center justify-between"><div class="flex items-center gap-2 text-[12px] text-muted"><span class="font-medium text-content">Situation Dossier</span><span class="">/</span><span class="">Delta-9</span></div><div class="flex items-center gap-1.5 text-[12px] text-warning font-medium"><span class="w-1.5 h-1.5 rounded-full bg-warning"></span><span class="">Elevated</span></div></div><h1 class="text-[32px] font-semibold tracking-tight text-content leading-tight mt-1">South Perimeter</h1><p class="text-[14px] text-muted leading-relaxed">Lateral boundary discrepancy detected along desert wash sector 14.</p><div class="flex items-center gap-8 mt-3 pt-2"><div><div class="text-[38px] font-light text-content leading-none font-sans">02</div><div class="text-[12px] text-muted mt-1">Active Tracks</div></div><div class="h-8 w-px bg-subtle/40"></div><div><div class="text-[38px] font-light text-warning leading-none font-sans">01</div><div class="text-[12px] text-muted mt-1">Priority Event</div></div></div></div><section class="flex flex-col gap-4"><div class="flex items-center justify-between"><h3 class="text-[13px] font-medium text-muted uppercase tracking-wider">Potential Unauthorized Crossing</h3><span class="text-[11px] font-mono text-muted/70">18 frames</span></div><div class="bg-elevated/70 rounded-lg p-5 flex flex-col gap-4 border border-subtle/30"><div class="flex items-start justify-between"><div class="flex items-center gap-2.5"><span class="text-[11px] font-semibold px-2 py-0.5 rounded bg-critical/15 text-critical">CRITICAL</span><span class="font-mono text-[14px] font-medium text-content">TRK-12</span><span class="text-muted text-[13px]">· Motorbike</span></div><span class="font-mono text-[12px] text-muted">91.8% Confidence</span></div><div class="grid grid-cols-3 gap-3 py-1"><div><div class="text-[11px] text-muted">Velocity</div><div class="font-mono text-[15px] font-medium text-content mt-0.5">14.5 m/s</div><div class="text-[11px] text-muted/60">52 km/h</div></div><div><div class="text-[11px] text-muted">Trajectory</div><div class="font-mono text-[15px] font-medium text-content mt-0.5">034° NE</div><div class="text-[11px] text-warning">Ingress</div></div><div><div class="text-[11px] text-muted">ETA Fence</div><div class="font-mono text-[15px] font-medium text-content mt-0.5">03m 42s</div><div class="text-[11px] text-muted/60">Wash Cut</div></div></div><div class="flex items-center gap-4 pt-1"><div class="w-16 h-12 rounded bg-graphite overflow-hidden flex-shrink-0 border border-subtle/40"><img class="w-full h-full object-cover grayscale contrast-125" data-alt="Thermal crop of motorbike in desert" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJ8oR-CKaVPi0mpB4zQWCccUyTiDFeoQFfTv_mIPeXTSYwGqIGQmMmPNQSLlma0rvNVzyWLlhEHvf5x_BOtzjisBMj8aUku7H2wDq_ckrpJmUkV2r2ceK0Iip7NOk2veOv5M4RLA4TqMp2XrtYNaUMpaJmYWn3zE78q8e0uvNRUt0Vz85io7Cl3HfOYpTXI1FRh80kYsCIki40UiEfM91xYkDol4u7qbEb-UoRo0PXY40Vii79NZKjzg"></div><div class="flex-1 flex flex-col justify-between"><p class="text-[13px] text-muted leading-snug">Crossing outer buffer fence gap near culvert line 14.</p><div class="mt-1.5"><a class="text-[13px] text-accent hover:underline font-medium inline-flex items-center gap-1" href="#">Review Evidence<span class="material-symbols-outlined text-[14px]">arrow_forward</span></a></div></div></div></div></section><section class="flex flex-col gap-3"><div class="flex items-center justify-between"><h3 class="text-[13px] font-medium text-muted uppercase tracking-wider">Vulnerability Index</h3><div class="flex items-baseline gap-1.5"><span class="font-mono text-[17px] font-medium text-warning">74.2</span><span class="text-[11px] text-muted font-medium">HIGH</span></div></div><div class="w-full bg-elevated h-1 rounded-full overflow-hidden"><div class="bg-warning h-full rounded-full" style="width: 74.2%;"></div></div><div class="flex items-center justify-between pt-1 text-[12px] text-muted"><span class="">3 verified factors · 2 unavailable</span><a class="text-accent hover:underline inline-flex items-center gap-0.5" href="#">View factor analysis<span class="material-symbols-outlined text-[13px]">arrow_forward</span></a></div></section><section class="flex flex-col gap-2.5 pt-2 border-t border-subtle/25"><div class="flex items-center justify-between"><h3 class="text-[13px] font-medium text-muted uppercase tracking-wider">Environmental Context</h3><span class="text-[11px] font-mono text-warning">Marginal</span></div><div class="flex items-center justify-between py-2 px-3 rounded bg-elevated/40 text-[12.5px]"><span class="text-content font-mono">28.4°C · 14.2 m/s NW · 15% Cloud</span><a class="text-[12px] text-accent hover:underline inline-flex items-center gap-0.5" href="#">View details<span class="material-symbols-outlined text-[13px]">arrow_forward</span></a></div></section></div>
+<!-- Panel Footer: Restrained Primary Action -->
+<div class="p-6 border-t border-subtle/30 bg-panel flex flex-col gap-3">
+<div class="flex items-center gap-3">
+<button class="flex-1 bg-content hover:bg-white text-graphite font-medium text-[14px] py-2.5 px-4 rounded transition-colors duration-150 flex items-center justify-center gap-2">
+<span class="">Dispatch Sector Intercept</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+<button class="bg-elevated hover:bg-subtle text-muted hover:text-content p-2.5 rounded border border-subtle/40 transition-colors" title="Export Dataset">
+<span class="material-symbols-outlined text-[18px]">download</span>
+</button>
+</div>
+<div class="flex items-center justify-between text-[11px] text-muted/60 font-mono pt-1">
+<span class="">Orbital Link 4/4 Synchronized</span>
+<span class="">42ms</span>
+</div>
+</div>
+</aside>
+</div>
+
+
+</body></html>

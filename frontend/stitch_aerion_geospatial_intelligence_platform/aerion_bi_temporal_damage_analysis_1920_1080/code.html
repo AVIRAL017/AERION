@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AERION // Disaster Response - Bi-Temporal Damage Analysis</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts: Geist & JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            graphite: {
+              DEFAULT: '#0B0F14',
+              surface: '#0B0F14',
+              container: '#11161D',
+              elevated: '#171D25',
+              subtle: '#1F2630'
+            },
+            accent: {
+              DEFAULT: '#38D5F5',
+              muted: 'rgba(56, 213, 245, 0.12)',
+            },
+            status: {
+              critical: '#EF5669',
+              warning: '#E8B34A',
+              success: '#48C995',
+              ai: '#9A8BEF',
+            },
+            muted: '#8D9CAE',
+            faint: '#4C5868',
+            paper: '#EDF2F7',
+          },
+          fontFamily: {
+            sans: ['Geist', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 350, 'GRAD' 0, 'opsz' 20;
+      font-size: 18px;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .slider-curtain {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 50%;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .slider-inner {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .telemetry-grid {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+    }
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0B0F14;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1F2630;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body class="bg-graphite text-paper antialiased overflow-hidden select-none h-screen w-screen flex flex-col font-sans text-[13px] tracking-normal">
+<!-- ===================================================================== -->
+<!-- TOP HEADER BAR                                                        -->
+<!-- ===================================================================== -->
+<header class="flex items-center justify-between px-7 w-full h-15 flex-shrink-0 z-50 bg-[#0B0F14]/95 border-b border-white/[0.06] backdrop-blur-md">
+<!-- Brand & Search & Mode Switch -->
+<div class="flex items-center gap-7">
+<div class="flex items-center gap-2.5">
+<div class="w-6 h-6 rounded flex items-center justify-center bg-accent/10 border border-accent/20">
+<span class="material-symbols-outlined text-accent text-[17px]">radar</span>
+</div>
+<span class="font-semibold text-sm tracking-wider uppercase text-white">AERION</span>
+<span class="font-mono text-[10px] text-muted tracking-widest px-1.5 py-0.5 rounded bg-graphite-elevated/70 border border-white/[0.05]">STUDIO v4.2</span>
+</div>
+<!-- Search Input -->
+<div class="relative flex items-center">
+<span class="material-symbols-outlined text-faint absolute left-3 pointer-events-none text-[15px]">search</span>
+<input class="h-8 pl-8.5 pr-3 w-72 bg-graphite-container border border-white/[0.06] rounded text-[12px] text-paper placeholder:text-faint font-mono focus:outline-none focus:border-accent/40 focus:ring-1 focus:ring-accent/20 transition-all" placeholder="Search coordinates, MGRS, incident..." type="text"/>
+</div>
+<!-- Primary Navigation Context -->
+<nav class="hidden md:flex items-center gap-6 ml-2 font-mono text-[11px] uppercase tracking-wider">
+<a class="text-muted hover:text-white transition-colors duration-150" href="#border-security">Border Security</a>
+<a class="text-accent font-medium flex items-center gap-1.5 transition-colors duration-150" href="#disaster-response">
+<span class="w-1.5 h-1.5 rounded-full bg-accent"></span>
+        Disaster Response
+      </a>
+</nav>
+</div>
+<!-- Telemetry, UTC, Secondary Controls, Profile -->
+<div class="flex items-center gap-5">
+<div class="flex items-center gap-2 px-3 py-1 rounded bg-graphite-container border border-white/[0.05]">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+<span class="font-mono text-[11px] text-muted tracking-wider">Telemetry</span>
+<span class="font-mono text-[11px] text-paper font-medium border-l border-white/[0.08] pl-2">432.18 MB/s</span>
+</div>
+<div class="font-mono text-[11px] text-muted px-2.5 py-1 tracking-widest bg-graphite-container rounded border border-white/[0.05]">
+      UTC <span class="text-paper">14:32:08</span>
+</div>
+<div class="flex items-center gap-1 border-l border-white/[0.08] pl-3 text-muted">
+<button aria-label="Notifications" class="p-1.5 hover:text-white hover:bg-graphite-elevated rounded transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">notifications</span>
+</button>
+<button aria-label="Settings" class="p-1.5 hover:text-white hover:bg-graphite-elevated rounded transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">tune</span>
+</button>
+<button aria-label="Documentation" class="p-1.5 hover:text-white hover:bg-graphite-elevated rounded transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">help</span>
+</button>
+</div>
+<!-- User Profile Badge -->
+<div class="flex items-center gap-2.5 pl-3 border-l border-white/[0.08]">
+<div class="w-7 h-7 rounded bg-graphite-elevated border border-white/[0.1] overflow-hidden">
+<img alt="Chief Intelligence Officer" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAHvwdH3maDpBj-rnyZ1w1GRv-xs_A2XhB6yvXVDHh-WtBP-jieLiLqVvNd-HSRCEonfoM04tRPBhn5eg-ApB9vdKdX_sks3Xz6tpi7mFgKoOXLcb5FnTFA72ryk8x96X2ijiBXircsGqY2JQ-52GNCLDdOxoLWL2cYmLFH2Na9ORPmgWeClV1dT4MtRLCwoqyB1Iwbxv5iIBmfkmQaKumR1cKWLpEQlczs3oIHLMHG_PYUoT_H6eoUhg"/>
+</div>
+<div class="hidden xl:flex flex-col text-left leading-tight">
+<span class="font-mono text-[10px] font-semibold text-white tracking-wider">DR. V. ARLOV</span>
+<span class="font-mono text-[9px] text-muted">CHIEF INTEL OFF.</span>
+</div>
+</div>
+</div>
+</header>
+<!-- ===================================================================== -->
+<!-- MAIN WORKSPACE                                                        -->
+<!-- ===================================================================== -->
+<div class="flex flex-1 w-full overflow-hidden">
+<!-- LEFT NAVIGATION RAIL -->
+<aside class="w-[200px] flex-shrink-0 flex flex-col justify-between h-full bg-[#0B0F14] border-r border-white/[0.06] py-4 px-2.5 z-40">
+<div class="flex flex-col gap-4">
+<div class="px-2.5 py-2 rounded bg-graphite-container/80 border border-white/[0.04]">
+<div class="flex items-center justify-between">
+<span class="font-mono text-[10px] text-muted uppercase tracking-wider">GEOINT TAC-OPS</span>
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+</div>
+<div class="font-mono text-[10px] text-white/90 mt-0.5">Orbital Mesh 04</div>
+</div>
+<nav class="flex flex-col gap-0.5">
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">dashboard</span>
+<span class="font-mono text-[11px] tracking-wide">Overview</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">radar</span>
+<span class="font-mono text-[11px] tracking-wide">Surveillance</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">emergency_home</span>
+<span class="font-mono text-[11px] tracking-wide">Events</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">public</span>
+<span class="font-mono text-[11px] tracking-wide">Tactical Map</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">description</span>
+<span class="font-mono text-[11px] tracking-wide">Reports</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-accent bg-graphite-elevated border-l border-accent font-medium shadow-sm transition-all" type="button">
+<span class="material-symbols-outlined text-[17px]">analytics</span>
+<span class="font-mono text-[11px] tracking-wide">Damage Analysis</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">route</span>
+<span class="font-mono text-[11px] tracking-wide">Evacuation</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">night_shelter</span>
+<span class="font-mono text-[11px] tracking-wide">Shelter Ops</span>
+</button>
+<button class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-left text-muted hover:bg-graphite-container/60 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">lock</span>
+<span class="font-mono text-[11px] tracking-wide">Evidence Vault</span>
+</button>
+</nav>
+<div class="px-1 pt-1">
+<button class="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded bg-graphite-elevated text-paper hover:bg-graphite-subtle border border-white/[0.08] font-mono text-[11px] transition-colors" type="button">
+<span class="material-symbols-outlined text-[15px] text-accent">my_location</span>
+<span>Acquire Target</span>
+</button>
+</div>
+</div>
+<!-- Lower Utility Items -->
+<div class="flex flex-col gap-0.5 pt-3 border-t border-white/[0.05]">
+<button class="w-full flex items-center gap-2 px-2 py-1 rounded text-left text-faint hover:text-muted transition-colors font-mono text-[10px]" type="button">
+<span class="material-symbols-outlined text-[14px]">data_usage</span>
+<span>Usage Telemetry</span>
+</button>
+<button class="w-full flex items-center gap-2 px-2 py-1 rounded text-left text-faint hover:text-muted transition-colors font-mono text-[10px]" type="button">
+<span class="material-symbols-outlined text-[14px]">dns</span>
+<span>System Status</span>
+</button>
+<button class="w-full flex items-center gap-2 px-2 py-1 rounded text-left text-faint hover:text-muted transition-colors font-mono text-[10px]" type="button">
+<span class="material-symbols-outlined text-[14px]">manage_accounts</span>
+<span>Account Profile</span>
+</button>
+</div>
+</aside>
+<!-- =================================================================== -->
+<!-- HERO IMAGE ANALYSIS STUDIO CANVAS (73% Primary Stage)               -->
+<!-- =================================================================== -->
+<main class="relative flex-1 h-full bg-[#080B10] overflow-hidden select-none flex flex-col" id="studio-viewport">
+<!-- FLOATING TOP TOOLBAR (High-end scientific HUD) -->
+<div class="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-[#11161D]/90 backdrop-blur-xl border border-white/[0.08] rounded-md px-3 py-1.5 flex items-center gap-3 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+<!-- Split / Overlay View -->
+<div class="flex items-center bg-[#0B0F14] rounded p-0.5 border border-white/[0.05]">
+<button class="px-2.5 py-1 rounded bg-[#171D25] text-white font-mono text-[10px] flex items-center gap-1.5 transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[13px] text-accent">splitscreen</span>
+<span>Split View</span>
+</button>
+<button class="px-2.5 py-1 rounded text-muted hover:text-white font-mono text-[10px] flex items-center gap-1.5 transition-colors" type="button">
+<span class="material-symbols-outlined text-[13px]">layers</span>
+<span>Overlay</span>
+</button>
+</div>
+<div class="w-[1px] h-4 bg-white/[0.08]"></div>
+<!-- Heatmap Toggle -->
+<button class="px-2.5 py-1 rounded bg-[#171D25] text-status-warning/90 hover:text-status-warning border border-status-warning/20 font-mono text-[10px] flex items-center gap-1.5 transition-colors" id="btn-toggle-heatmap" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning"></span>
+<span>Flood Mask</span>
+</button>
+<!-- Opacity Slider -->
+<div class="flex items-center gap-2 px-2 py-0.5 bg-[#0B0F14] rounded border border-white/[0.05]">
+<span class="font-mono text-[9px] text-muted">OPACITY</span>
+<input class="w-16 h-1 bg-graphite-subtle rounded-lg appearance-none cursor-pointer accent-accent" id="opacity-slider" max="100" min="0" type="range" value="75"/>
+<span class="font-mono text-[10px] text-paper w-6 text-right" id="opacity-val">75%</span>
+</div>
+<div class="w-[1px] h-4 bg-white/[0.08]"></div>
+<!-- Spectral Band Selector: True Color / SWIR -->
+<div class="flex items-center gap-1.5">
+<span class="font-mono text-[9px] text-muted">BAND</span>
+<div class="flex bg-[#0B0F14] rounded p-0.5 border border-white/[0.05]">
+<button class="px-2 py-0.5 rounded bg-[#171D25] text-white font-mono text-[10px]" type="button">True Color</button>
+<button class="px-2 py-0.5 rounded text-muted hover:text-white font-mono text-[10px]" type="button">SWIR</button>
+</div>
+</div>
+<div class="w-[1px] h-4 bg-white/[0.08]"></div>
+<!-- Zoom and reset tools -->
+<div class="flex items-center gap-1 text-muted">
+<button class="p-1 hover:text-white transition-colors" title="Zoom In" type="button">
+<span class="material-symbols-outlined text-[15px]">zoom_in</span>
+</button>
+<span class="font-mono text-[10px] text-paper px-1">100%</span>
+<button class="p-1 hover:text-white transition-colors" title="Zoom Out" type="button">
+<span class="material-symbols-outlined text-[15px]">zoom_out</span>
+</button>
+<button class="p-1 hover:text-white transition-colors ml-0.5" title="Pan Map" type="button">
+<span class="material-symbols-outlined text-[15px]">pan_tool</span>
+</button>
+<button class="p-1 hover:text-white transition-colors" title="Reset Viewport" type="button">
+<span class="material-symbols-outlined text-[15px]">restart_alt</span>
+</button>
+</div>
+</div>
+<!-- CANVAS WRAPPER -->
+<div class="relative flex-1 w-full h-full overflow-hidden" id="canvas-container">
+<!-- BASE LAYER: POST-DISASTER SATELLITE (Flood Impact) -->
+<div class="absolute inset-0 w-full h-full">
+<img alt="WorldView-3 Post-Disaster Satellite Imagery" class="w-full h-full object-cover object-center" src="https://lh3.googleusercontent.com/aida-public/AB6AXuACtGWRtX-89NlYzwpX4hqgfWC0vOSCJwnGsHHk865_cAnufxwULismmZhnSI1bzCVWiFpNiTgTi8JJFHvtCf19mEjXxct6pPB6BCmLAvPrmTjXxh1qImiW_A84Z6aehioL_cBhb82S2Xow2o7R40OBL_JvJ1QooSVINtxS4jnwSYnmjYaMMBc9GWuK4Q50zZrElW7YlE_NnoMnzbD5oKlOREusDNo34vAr4Y7CBf-UJ4MgcQdODktzjA"/>
+<!-- RESTRAINED SCIENTIFIC FLOOD MASK OVERLAY (Translucent soft amber/coral inundation) -->
+<div class="absolute inset-0 pointer-events-none transition-opacity duration-200" id="heatmap-overlay" style="opacity: 0.75;">
+<svg class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<!-- Refined scientific gradient: translucent soft amber/coral with gentle diffusion -->
+<radialgradient cx="48%" cy="45%" id="flood-gradient" r="45%">
+<stop offset="0%" stop-color="#EF5669" stop-opacity="0.38"></stop>
+<stop offset="50%" stop-color="#E8B34A" stop-opacity="0.28"></stop>
+<stop offset="100%" stop-color="#E8B34A" stop-opacity="0"></stop>
+</radialgradient>
+<!-- Fine subtle contour hatch -->
+<pattern height="10" id="contour-pattern" patterntransform="rotate(45 0 0)" patternunits="userSpaceOnUse" width="10">
+<line stroke="#EF5669" stroke-opacity="0.25" stroke-width="1" x1="0" x2="0" y1="0" y2="10"></line>
+</pattern>
+</defs>
+<!-- Inundation polygon -->
+<path d="M 320 180 Q 430 140 590 220 T 800 350 L 730 530 Q 530 490 390 440 Z" fill="url(#flood-gradient)" stroke="#E8B34A" stroke-dasharray="3 3" stroke-opacity="0.55" stroke-width="1.2"></path>
+<!-- Sector B damage polygon -->
+<polygon fill="url(#contour-pattern)" points="560,320 650,305 690,405 605,445 540,380" stroke="#EF5669" stroke-opacity="0.45" stroke-width="1"></polygon>
+<!-- Target Anomaly 44-B Reticle -->
+<circle cx="620" cy="380" fill="none" opacity="0.6" r="26" stroke="#38D5F5" stroke-dasharray="2 3" stroke-width="1"></circle>
+<circle cx="620" cy="380" fill="#38D5F5" fill-opacity="0.1" r="5"></circle>
+<line opacity="0.4" stroke="#38D5F5" stroke-width="0.8" x1="620" x2="620" y1="344" y2="416"></line>
+<line opacity="0.4" stroke="#38D5F5" stroke-width="0.8" x1="584" x2="656" y1="380" y2="380"></line>
+<text class="font-mono text-[9px]" fill="#38D5F5" fill-opacity="0.8" font-family="JetBrains Mono" x="655" y="376">ANOMALY 44-B // LEVEE BREACH</text>
+<text class="font-mono text-[8px]" fill="#8D9CAE" fill-opacity="0.75" font-family="JetBrains Mono" x="655" y="389">CONFIDENCE 94.2%</text>
+</svg>
+</div>
+</div>
+<!-- TOP CURTAIN LAYER: PRE-DISASTER BASELINE (Sentinel-2) -->
+<div class="slider-curtain" id="slider-curtain" style="width: 50%;">
+<div class="slider-inner" id="slider-inner">
+<img alt="Sentinel-2 Pre-Disaster Baseline Imagery" class="absolute inset-0 w-[100vw] max-w-none h-full object-cover object-center" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCwERluOKe1VGAKF3azeGs_s6-ZNhhg5KV3AFfBQLCfZ2zZA0zZ5y1ZNobOKh9tt_qbKK7Q11sAsmd1A0yQ8_L6d-arm-ivQJIjghnyK5fMoyLGynOIj2qRNcJbZKlx9mTwqU2Mfo8cmeoQentUO_bC2sTuiqIqO72893tJ10Elm-VMk43LaDWoaLPquZtTyVDj_AFyRbjzewoctK0I1wM2OSwJL__YYDaZkHYqc3VVxHKhPsQnChLiXg"/>
+</div>
+</div>
+<!-- PHYSICAL SPLIT SLIDER HANDLE WITH SUBTLE DEPTH -->
+<div class="absolute top-0 bottom-0 z-30 cursor-ew-resize flex items-center justify-center" id="split-handle" style="left: 50%; transform: translateX(-50%);">
+<!-- Physical divider blade with soft gradient glow -->
+<div class="w-[1px] h-full bg-accent/70 shadow-[0_0_8px_rgba(56,213,245,0.4)]"></div>
+<!-- Physical grip capsule with tactile micro-depth -->
+<div class="absolute w-7 h-11 bg-[#171D25] border border-white/[0.12] rounded-md flex flex-col items-center justify-center gap-0.5 shadow-[0_4px_16px_rgba(0,0,0,0.6)] backdrop-blur-md">
+<div class="flex items-center text-accent/90">
+<span class="material-symbols-outlined text-[12px] leading-none">chevron_left</span>
+<span class="material-symbols-outlined text-[12px] leading-none -ml-1">chevron_right</span>
+</div>
+<div class="w-3 h-[1px] bg-white/[0.12] my-0.5"></div>
+<span class="font-mono text-[7px] tracking-wider text-muted font-medium uppercase">Split</span>
+</div>
+</div>
+<!-- CORNER LABELS: PRE vs POST -->
+<div class="absolute top-4 left-4 pointer-events-none z-20">
+<div class="flex items-center gap-2 bg-[#11161D]/85 backdrop-blur-md px-2.5 py-1 rounded border border-white/[0.06]">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+<span class="font-mono text-[10px] text-white font-medium">PRE-EVENT BASELINE</span>
+<span class="font-mono text-[10px] text-muted">| Sentinel-2 MSI (10m)</span>
+</div>
+</div>
+<div class="absolute top-4 right-4 pointer-events-none z-20">
+<div class="flex items-center gap-2 bg-[#11161D]/85 backdrop-blur-md px-2.5 py-1 rounded border border-white/[0.06]">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning"></span>
+<span class="font-mono text-[10px] text-white font-medium">POST-EVENT IMPACT</span>
+<span class="font-mono text-[10px] text-muted">| WorldView-3 (0.3m)</span>
+</div>
+</div>
+</div>
+<!-- MINIMAL SCIENTIFIC FOOTER BAR -->
+<footer class="h-10 px-5 flex-shrink-0 bg-[#0B0F14] border-t border-white/[0.06] flex items-center justify-between z-20">
+<div class="flex items-center gap-6 font-mono text-[11px]">
+<div class="flex items-center gap-2 text-muted">
+<span class="text-faint text-[10px] uppercase">WGS-84:</span>
+<span class="text-paper">29° 18' 42.1" N, 89° 57' 11.4" W</span>
+</div>
+<div class="w-[1px] h-3 bg-white/[0.08]"></div>
+<div class="flex items-center gap-2 text-muted">
+<span class="text-faint text-[10px] uppercase">GSD:</span>
+<span class="text-accent font-medium">31 cm/px</span>
+</div>
+<div class="w-[1px] h-3 bg-white/[0.08]"></div>
+<div class="flex items-center gap-2 text-muted">
+<span class="text-faint text-[10px] uppercase">Sun Azimuth:</span>
+<span class="text-paper">142.6° // 58.2° Elev</span>
+</div>
+</div>
+<!-- Scale bar -->
+<div class="flex items-center gap-2 font-mono text-[10px] text-muted">
+<span>500 m</span>
+<div class="w-20 h-1 bg-graphite-subtle relative rounded-sm overflow-hidden flex">
+<div class="w-1/2 h-full bg-white/70"></div>
+<div class="w-1/2 h-full bg-white/20"></div>
+</div>
+</div>
+</footer>
+</main>
+<!-- =================================================================== -->
+<!-- UNIFIED RIGHT INTELLIGENCE SURFACE (Single Editorial Rail)          -->
+<!-- =================================================================== -->
+<aside class="w-[390px] xl:w-[430px] flex-shrink-0 h-full bg-graphite-container border-l border-white/[0.06] overflow-y-auto flex flex-col justify-between p-7 z-30">
+<div class="flex flex-col gap-6">
+<!-- INCIDENT OVERVIEW -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono text-[10px] text-status-critical tracking-wider font-semibold uppercase flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-status-critical"></span>
+            ACTIVE DISASTER EVENT
+          </span>
+<span class="font-mono text-[10px] px-2 py-0.5 rounded bg-graphite-elevated border border-white/[0.05] text-muted">SECTOR GULF-04</span>
+</div>
+<div>
+<h2 class="text-2xl font-semibold tracking-tight text-white">Cyclone Epsilon Flooding</h2>
+<div class="flex items-center gap-1.5 mt-1 text-muted text-[13px]">
+<span class="material-symbols-outlined text-[15px]">location_on</span>
+<span>Sector Gulf Coast // Delta Reach</span>
+</div>
+</div>
+</div>
+<!-- PRIMARY METRIC: AGGREGATE DAMAGE RATIO -->
+<div class="bg-graphite-elevated/70 border border-white/[0.06] rounded-md p-5 flex flex-col gap-3.5 shadow-sm">
+<div class="flex items-center justify-between pb-2 border-b border-white/[0.05]">
+<span class="font-mono text-[10px] uppercase text-muted tracking-wider">AGGREGATE DAMAGE RATIO</span>
+<span class="font-mono text-[9px] text-status-warning px-2 py-0.5 rounded bg-status-warning/10 border border-status-warning/20 font-medium">CRITICAL THRESHOLD</span>
+</div>
+<div class="flex items-baseline gap-4">
+<span class="font-sans text-[48px] font-semibold leading-none tracking-tight text-status-warning">9.69%</span>
+<div class="flex flex-col">
+<span class="font-mono text-xs text-status-critical font-medium flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[14px]">arrow_drop_up</span> +3.12%
+            </span>
+<span class="font-mono text-[10px] text-muted">vs T-12h model</span>
+</div>
+</div>
+<!-- Integrated Secondary Pixel & Confidence Data -->
+<div class="grid grid-cols-2 gap-2 pt-2 border-t border-white/[0.05]">
+<div class="flex flex-col">
+<span class="font-mono text-[9px] text-muted uppercase">Damaged Pixels</span>
+<span class="font-mono text-[13px] text-white font-medium mt-0.5">418,290</span>
+<span class="font-mono text-[10px] text-faint">of 4,316,000 total</span>
+</div>
+<div class="flex flex-col">
+<span class="font-mono text-[9px] text-muted uppercase">Mean Probability</span>
+<span class="font-mono text-[13px] text-accent font-medium mt-0.5">88.4%</span>
+<span class="font-mono text-[10px] text-faint">ML Confidence σ=0.04</span>
+</div>
+</div>
+<!-- Progress Distribution Bar -->
+<div class="w-full bg-graphite-subtle h-1 rounded overflow-hidden flex mt-1">
+<div class="bg-status-critical h-full" style="width: 9.69%;"></div>
+<div class="bg-status-warning h-full" style="width: 18.4%;"></div>
+<div class="bg-white/[0.08] h-full" style="width: 71.91%;"></div>
+</div>
+<div class="flex justify-between items-center font-mono text-[10px] text-faint">
+<span>Severe Impact 9.69%</span>
+<span>Buffer Zone 18.4%</span>
+</div>
+</div>
+<!-- ROAD ACCESSIBILITY STATUS -->
+<div class="bg-graphite-elevated/70 border border-white/[0.06] rounded-md p-5 flex flex-col gap-3">
+<div class="flex items-center justify-between pb-1.5 border-b border-white/[0.05]">
+<span class="font-mono text-[10px] uppercase text-muted tracking-wider flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">alt_route</span>
+            ROAD ACCESSIBILITY STATUS
+          </span>
+<span class="font-mono text-[10px] text-faint">4 Arterial Routes</span>
+</div>
+<div class="flex flex-col gap-2 font-mono text-[11px]">
+<!-- Route 1 -->
+<div class="flex items-center justify-between p-2 rounded bg-graphite/60 border border-white/[0.04]">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+<span class="text-white">Ridge Highway (Rt 84)</span>
+</div>
+<span class="text-status-success text-[10px] font-medium tracking-wider">SAFEST FEASIBLE</span>
+</div>
+<!-- Route 2 -->
+<div class="flex items-center justify-between p-2 rounded bg-graphite/60 border border-white/[0.04]">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+<span class="text-white">Crestline Boulevard</span>
+</div>
+<span class="text-status-success text-[10px] font-medium tracking-wider">SAFEST FEASIBLE</span>
+</div>
+<!-- Route 3 -->
+<div class="flex items-center justify-between p-2 rounded bg-graphite/60 border border-status-critical/20">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-status-critical"></span>
+<span class="text-white">Coastal Pass Arterial (Rt 1)</span>
+</div>
+<span class="text-status-critical text-[10px] font-medium tracking-wider">CONFIRMED WASHOUT</span>
+</div>
+<!-- Route 4 -->
+<div class="flex items-center justify-between p-2 rounded bg-graphite/60 border border-white/[0.04]">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-status-warning"></span>
+<span class="text-white">Bayou Ferry Link</span>
+</div>
+<span class="text-status-warning text-[10px] font-medium tracking-wider">PASSABLE w/ 4x4 ONLY</span>
+</div>
+</div>
+</div>
+<!-- EDITORIAL AI ADVISORY (open-mistral-nemo) -->
+<div class="bg-[#151321]/90 border border-status-ai/25 rounded-md p-5 flex flex-col gap-2.5 relative">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-status-ai text-[16px]">neurology</span>
+<span class="font-mono text-[10px] text-status-ai font-semibold tracking-wider uppercase">AI ADVISORY // OPEN-MISTRAL-NEMO</span>
+</div>
+<span class="font-mono text-[9px] text-faint">LATENCY 42ms</span>
+</div>
+<p class="text-[13px] text-paper/95 leading-relaxed font-normal">
+          "Advisory: Northern levee breach detected at Grid 44-B; reroute secondary response logistics via Ridge Highway."
+        </p>
+<div class="pt-2 border-t border-white/[0.06] flex items-center justify-between font-mono text-[10px]">
+<span class="text-muted tracking-wide text-[9.5px]">ADVISORY ONLY — Human operator verification required</span>
+<span class="text-status-ai font-medium">TOKEN 8,241</span>
+</div>
+</div>
+</div>
+<!-- LOWER DISPATCH BAR -->
+<div class="pt-5 border-t border-white/[0.06] flex items-center gap-3">
+<button class="flex-1 py-2 px-3 rounded bg-graphite-elevated hover:bg-graphite-subtle border border-white/[0.08] text-paper font-mono text-[11px] flex items-center justify-center gap-2 transition-colors" type="button">
+<span class="material-symbols-outlined text-[15px] text-muted">download</span>
+<span>GeoJSON Mask</span>
+</button>
+<button class="flex-1 py-2 px-3 rounded bg-white text-graphite font-sans font-medium text-[12px] hover:bg-white/90 flex items-center justify-center gap-2 transition-colors shadow-sm" type="button">
+<span class="material-symbols-outlined text-[15px]">send</span>
+<span>Transmit Dispatch</span>
+</button>
+</div>
+</aside>
+</div>
+<!-- SPLIT CURTAIN JAVASCRIPT LOGIC -->
+<script>
+  (function () {
+    const container = document.getElementById('canvas-container');
+    const curtain = document.getElementById('slider-curtain');
+    const handle = document.getElementById('split-handle');
+    const opacitySlider = document.getElementById('opacity-slider');
+    const opacityVal = document.getElementById('opacity-val');
+    const heatmapOverlay = document.getElementById('heatmap-overlay');
+    const btnToggleHeatmap = document.getElementById('btn-toggle-heatmap');
+
+    let isDragging = false;
+
+    function updateSplit(clientX) {
+      const rect = container.getBoundingClientRect();
+      let offsetX = clientX - rect.left;
+      if (offsetX < 30) offsetX = 30;
+      if (offsetX > rect.width - 30) offsetX = rect.width - 30;
+
+      const percentage = (offsetX / rect.width) * 100;
+      curtain.style.width = percentage + '%';
+      handle.style.left = percentage + '%';
+    }
+
+    handle.addEventListener('mousedown', function () {
+      isDragging = true;
+      document.body.classList.add('cursor-ew-resize');
+    });
+
+    window.addEventListener('mousemove', function (e) {
+      if (!isDragging) return;
+      updateSplit(e.clientX);
+    });
+
+    window.addEventListener('mouseup', function () {
+      if (isDragging) {
+        isDragging = false;
+        document.body.classList.remove('cursor-ew-resize');
+      }
+    });
+
+    if (opacitySlider && opacityVal && heatmapOverlay) {
+      opacitySlider.addEventListener('input', function (e) {
+        const val = e.target.value;
+        opacityVal.textContent = val + '%';
+        heatmapOverlay.style.opacity = val / 100;
+      });
+    }
+
+    if (btnToggleHeatmap && heatmapOverlay) {
+      let active = true;
+      btnToggleHeatmap.addEventListener('click', function () {
+        active = !active;
+        if (active) {
+          heatmapOverlay.style.opacity = (opacitySlider ? opacitySlider.value / 100 : 0.75);
+          btnToggleHeatmap.classList.remove('opacity-40');
+        } else {
+          heatmapOverlay.style.opacity = '0';
+          btnToggleHeatmap.classList.add('opacity-40');
+        }
+      });
+    }
+  })();
+</script>
+</body></html>
