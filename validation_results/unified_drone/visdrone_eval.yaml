@@ -1,0 +1,15 @@
+path: C:\Users\avira\yolo_project\datasets\VisDrone
+train: C:\Users\avira\yolo_project\datasets\VisDrone\images\train
+val: C:\Users\avira\yolo_project\datasets\VisDrone\images\val
+nc: 10
+names:
+- person
+- light_vehicle
+- bus
+- truck
+- motorbike
+- other_transport
+- boat
+- jetski
+- life_saving_appliance
+- buoy

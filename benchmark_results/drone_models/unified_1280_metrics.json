@@ -1,0 +1,32 @@
+{
+  "model": "unified",
+  "model_path": "D:\\mp-1\\runs\\detect\\unified_drone_20ep\\weights\\best.pt",
+  "video": "D:\\mp-1\\border_test_videos\\border_test_urban.mp4.mp4",
+  "video_width": 3840,
+  "video_height": 2160,
+  "video_fps": 24.0,
+  "test_imgsz": 1280,
+  "confidence_threshold": 0.25,
+  "iou_threshold": 0.5,
+  "frames": 725,
+  "total_detections": 20327,
+  "detections_per_frame": 28.037241379310345,
+  "benchmark_time_seconds": 73.85661270003766,
+  "benchmark_fps": 9.816318045135995,
+  "average_inference_ms": 60.73702386195033,
+  "minimum_inference_ms": 44.08490000059828,
+  "maximum_inference_ms": 162.84250002354383,
+  "average_confidence": 0.4838411379342542,
+  "class_counts": {
+    "person": 6378,
+    "light_vehicle": 13745,
+    "bus": 41,
+    "truck": 15,
+    "motorbike": 0,
+    "other_transport": 3,
+    "boat": 145,
+    "jetski": 0,
+    "life_saving_appliance": 0,
+    "buoy": 0
+  }
+}

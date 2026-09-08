@@ -1,0 +1,119 @@
+# ============================================================
+# AERION v1 — Git Ignore Rules
+# ============================================================
+
+# ------------------------------------------------------------
+# 1. Python Virtual Environments
+# ------------------------------------------------------------
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------
+# 2. Python Bytecode & Caches
+# ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ------------------------------------------------------------
+# 3. Environment & Secrets (NEVER COMMIT CREDENTIALS)
+# ------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------
+# 4. Machine Learning Model Weights & Binaries
+# ------------------------------------------------------------
+*.pt
+*.pth
+*.onnx
+*.engine
+*.safetensors
+*.bin
+*.ckpt
+*.h5
+
+# ------------------------------------------------------------
+# 5. Datasets & Raw/Processed Imagery
+# ------------------------------------------------------------
+dataset/
+datasets/
+xBD/
+xBD_processed/
+xBD_damage_processed/
+xBD_damage_processed_v2/
+uavdt/
+uavdt_validation/
+seadronessee_yolo/
+seadronessee_unified_eval/
+seadronessee_validation/
+seadronessee_validation_ap50/
+unified_drone_dataset/
+DOTAv1.5-split/
+VisDrone/
+SeaDronesSee/
+
+# Dataset split directory (2.7GB, not tests/ package)
+test/
+
+# Scratch dataset listings and scratch image artifacts
+*_structure.txt
+*.png
+*.jpg
+*.jpeg
+!assets/*.png
+!assets/*.jpg
+
+# ------------------------------------------------------------
+# 6. Training Outputs & Experiment Artifacts
+# ------------------------------------------------------------
+runs/
+change_detection_runs/
+change_detection_runs_v2/
+change_detection_runs*/
+wandb/
+mlruns/
+
+# ------------------------------------------------------------
+# 7. Media & Video Files
+# ------------------------------------------------------------
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+border_test_videos/
+
+# ------------------------------------------------------------
+# 8. Compressed Archives
+# ------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+
+# ------------------------------------------------------------
+# 9. Logs, Cache & Temporary Files
+# ------------------------------------------------------------
+*.log
+*.tmp
+*.cache
+tempCodeRunnerFile.py
+
+# ------------------------------------------------------------
+# 10. IDE & OS Artifacts
+# ------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

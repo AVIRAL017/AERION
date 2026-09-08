@@ -1,0 +1,113 @@
+{
+  "project": "AERION",
+  "version": "v1",
+  "subsystem": "drone_detection",
+  "freeze_status": "FROZEN",
+  "freeze_timestamp_utc": "2026-09-08T08:49:27.343742Z",
+  "models": {
+    "drone_visdrone_only": {
+      "model_path": "D:\\mp-1\\runs\\detect\\visdrone_8s_1280_30ep\\weights\\best.pt",
+      "file_size_mb": 21.54,
+      "sha256": "343215ac779c1683eef66801b9d0fbf315361074ea71be4356bcb2a40d7a8a2f",
+      "architecture": "YOLOv8s",
+      "input_size": 1280,
+      "training_dataset": "VisDrone custom 6-class",
+      "classes": [
+        "person",
+        "light_vehicle",
+        "bus",
+        "truck",
+        "motorbike",
+        "other_transport"
+      ],
+      "primary_metrics": {
+        "precision": 0.591,
+        "recall": 0.516,
+        "mAP50": 0.477,
+        "mAP50_95": 0.295
+      },
+      "external_validation": {
+        "UAVDT": {
+          "frames": 2043,
+          "instances": 40423,
+          "precision": 0.568,
+          "recall": 0.569,
+          "mAP50": 0.515,
+          "mAP50_95": 0.307
+        },
+        "SeaDronesSee": {
+          "precision": 0.86,
+          "recall": 0.765,
+          "mAP50": 0.792,
+          "mAP50_95": 0.475
+        }
+      },
+      "runtime_benchmark": {
+        "video": "border_test_urban.mp4.mp4",
+        "input_size": 1280,
+        "frames": 725,
+        "detections": 29427,
+        "fps": 14.79,
+        "avg_inference_ms": 41.23
+      },
+      "status": "FROZEN"
+    },
+    "drone_unified": {
+      "model_path": "D:\\mp-1\\runs\\detect\\unified_drone_20ep\\weights\\best.pt",
+      "file_size_mb": 21.56,
+      "sha256": "05281a43dc81ab015491fa1a7c821bdd9b9f13b1d78d80b2a0d549cf30a0a630",
+      "architecture": "YOLOv8s",
+      "input_size": 1280,
+      "training_dataset": "Unified VisDrone + SeaDronesSee",
+      "classes": [
+        "person",
+        "light_vehicle",
+        "bus",
+        "truck",
+        "motorbike",
+        "other_transport",
+        "boat",
+        "jetski",
+        "life_saving_appliance",
+        "buoy"
+      ],
+      "primary_metrics": {
+        "mAP50": 0.575,
+        "mAP50_95": 0.354
+      },
+      "external_validation": {
+        "UAVDT": {
+          "frames": 2043,
+          "instances": 40423,
+          "precision": 0.515,
+          "recall": 0.572,
+          "mAP50": 0.504,
+          "mAP50_95": 0.295
+        },
+        "SeaDronesSee": {
+          "precision": 0.86,
+          "recall": 0.765,
+          "mAP50": 0.792,
+          "mAP50_95": 0.475
+        }
+      },
+      "runtime_benchmark": {
+        "video": "border_test_urban.mp4.mp4",
+        "input_size": 1280,
+        "frames": 725,
+        "detections": 20327,
+        "fps": 9.82,
+        "avg_inference_ms": 60.74
+      },
+      "status": "FROZEN"
+    }
+  },
+  "notes": [
+    "Models are frozen for AERION v1 integration.",
+    "No further drone training is required for v1.",
+    "VisDrone-only model is preferred for land/border vehicle surveillance.",
+    "Unified model is retained for maritime/multi-domain capability.",
+    "UAVDT results are from a reproducible external-validation subset.",
+    "SeaDronesSee results use the corrected unified 10-class evaluation."
+  ]
+}

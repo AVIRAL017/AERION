@@ -1,0 +1,53 @@
+{
+  "model": "D:\\mp-1\\runs\\detect\\unified_drone_20ep\\weights\\best.pt",
+  "model_type": "YOLOv8s Unified Drone Detector",
+  "imgsz": 1280,
+  "classes": [
+    "person",
+    "light_vehicle",
+    "bus",
+    "truck",
+    "motorbike",
+    "other_transport",
+    "boat",
+    "jetski",
+    "life_saving_appliance",
+    "buoy"
+  ],
+  "visdrone": {
+    "precision": 0.5079699854938995,
+    "recall": 0.45169214271921204,
+    "map50": 0.4118874432929858,
+    "map50_95": 0.24794835685128486,
+    "per_class_map50_95": {
+      "person": 0.19703505250353842,
+      "light_vehicle": 0.48867716053372473,
+      "bus": 0.342706897731513,
+      "truck": 0.1839878674885165,
+      "motorbike": 0.16902637976123658,
+      "other_transport": 0.10625678308917981,
+      "boat": 0.24794835685128486,
+      "jetski": 0.24794835685128486,
+      "life_saving_appliance": 0.24794835685128486,
+      "buoy": 0.24794835685128486
+    }
+  },
+  "seadronessee": {
+    "precision": 0.9633661769817206,
+    "recall": 0.1576216564614889,
+    "map50": 0.15828627838647433,
+    "map50_95": 0.0710797828239961,
+    "per_class_map50_95": {
+      "person": 0.35164910915408154,
+      "light_vehicle": 0.0037498049658989804,
+      "bus": 0.0,
+      "truck": 0.0,
+      "motorbike": 0.0,
+      "other_transport": 0.0710797828239961,
+      "boat": 0.0710797828239961,
+      "jetski": 0.0710797828239961,
+      "life_saving_appliance": 0.0710797828239961,
+      "buoy": 0.0710797828239961
+    }
+  }
+}

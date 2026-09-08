@@ -1,0 +1,32 @@
+{
+  "model": "visdrone_only",
+  "model_path": "D:\\mp-1\\runs\\detect\\visdrone_8s_1280_30ep\\weights\\best.pt",
+  "video": "D:\\mp-1\\border_test_videos\\border_test_urban.mp4.mp4",
+  "video_width": 3840,
+  "video_height": 2160,
+  "video_fps": 24.0,
+  "test_imgsz": 1280,
+  "confidence_threshold": 0.25,
+  "iou_threshold": 0.5,
+  "frames": 725,
+  "total_detections": 29427,
+  "detections_per_frame": 40.58896551724138,
+  "benchmark_time_seconds": 49.03527979995124,
+  "benchmark_fps": 14.785273031127293,
+  "average_inference_ms": 41.23264744893872,
+  "minimum_inference_ms": 28.532100026495755,
+  "maximum_inference_ms": 559.040600026492,
+  "average_confidence": 0.5441045809882649,
+  "class_counts": {
+    "person": 11239,
+    "light_vehicle": 18001,
+    "bus": 37,
+    "truck": 31,
+    "motorbike": 104,
+    "other_transport": 15,
+    "boat": 0,
+    "jetski": 0,
+    "life_saving_appliance": 0,
+    "buoy": 0
+  }
+}

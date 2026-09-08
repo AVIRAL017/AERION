@@ -1,0 +1,55 @@
+{
+  "project": "AERION",
+  "version": "v1",
+  "subsystem": "satellite_detection",
+  "freeze_status": "FROZEN",
+  "freeze_timestamp_utc": "2026-09-08T08:51:18.065303+00:00",
+  "model": {
+    "model_path": "D:\\mp-1\\runs\\obb\\train-6\\weights\\best.pt",
+    "file_size_mb": 6.14,
+    "sha256": "d96c42323b83826db9781981ef34c4c8673ddee9cf84ea0117e473ab040560dd",
+    "architecture": "YOLOv8n-OBB",
+    "dataset": "DOTA-v1.5",
+    "dataset_format": "Oriented Bounding Boxes",
+    "training_configuration": {
+      "tile_size": "1024x1024",
+      "tile_gap": 200,
+      "scale": [
+        1.0
+      ],
+      "selected_checkpoint": "train-6/best.pt"
+    },
+    "classes": [
+      "plane",
+      "ship",
+      "storage_tank",
+      "baseball_diamond",
+      "tennis_court",
+      "basketball_court",
+      "ground_track_field",
+      "harbor",
+      "bridge",
+      "large_vehicle",
+      "small_vehicle",
+      "helicopter",
+      "roundabout",
+      "soccer_ball_field",
+      "swimming_pool",
+      "container_crane"
+    ],
+    "validation_metrics": {
+      "precision": 0.808,
+      "recall": 0.649,
+      "mAP50": 0.695,
+      "mAP50_95": 0.523
+    },
+    "status": "FROZEN"
+  },
+  "notes": [
+    "This is the selected AERION v1 satellite model.",
+    "The 1280px fine-tuning experiment was not selected as the final model.",
+    "The selected model is YOLOv8n-OBB trained on tiled DOTA-v1.5 imagery.",
+    "No further satellite training is required for AERION v1 integration.",
+    "The model file was not modified during freezing."
+  ]
+}

@@ -1,0 +1,332 @@
+{
+  "project": "AERION",
+  "version": "v1",
+  "manifest_type": "final_ml_verification",
+  "status": "ML_FREEZE_VERIFIED",
+  "generated_at": "2026-09-08T09:05:10.503262+00:00",
+  "models": {
+    "drone_visdrone_only": {
+      "model_path": "D:\\mp-1\\runs\\detect\\visdrone_8s_1280_30ep\\weights\\best.pt",
+      "architecture": "YOLOv8s",
+      "input_size": 1280,
+      "training_dataset": "VisDrone custom 6-class",
+      "classes": [
+        "person",
+        "light_vehicle",
+        "bus",
+        "truck",
+        "motorbike",
+        "other_transport"
+      ],
+      "file_size_mb": 21.54,
+      "sha256": "343215ac779c1683eef66801b9d0fbf315361074ea71be4356bcb2a40d7a8a2f",
+      "primary_metrics": {
+        "precision": 0.591,
+        "recall": 0.516,
+        "mAP50": 0.477,
+        "mAP50_95": 0.295
+      },
+      "status": "FROZEN"
+    },
+    "drone_unified": {
+      "model_path": "D:\\mp-1\\runs\\detect\\unified_drone_20ep\\weights\\best.pt",
+      "architecture": "YOLOv8s",
+      "input_size": 1280,
+      "training_dataset": "Unified VisDrone + SeaDronesSee",
+      "classes": [
+        "person",
+        "light_vehicle",
+        "bus",
+        "truck",
+        "motorbike",
+        "other_transport",
+        "boat",
+        "jetski",
+        "life_saving_appliance",
+        "buoy"
+      ],
+      "file_size_mb": 21.56,
+      "sha256": "05281a43dc81ab015491fa1a7c821bdd9b9f13b1d78d80b2a0d549cf30a0a630",
+      "primary_metrics": {
+        "mAP50": 0.575,
+        "mAP50_95": 0.354
+      },
+      "status": "FROZEN"
+    },
+    "satellite": {
+      "model_path": "D:\\mp-1\\runs\\obb\\train-6\\weights\\best.pt",
+      "architecture": "YOLOv8n-OBB",
+      "dataset": "DOTA-v1.5",
+      "dataset_format": "Oriented Bounding Boxes",
+      "training_configuration": {
+        "tile_size": "1024x1024",
+        "tile_gap": 200,
+        "scale": [
+          1.0
+        ],
+        "selected_checkpoint": "train-6/best.pt"
+      },
+      "classes": [
+        "plane",
+        "ship",
+        "storage_tank",
+        "baseball_diamond",
+        "tennis_court",
+        "basketball_court",
+        "ground_track_field",
+        "harbor",
+        "bridge",
+        "large_vehicle",
+        "small_vehicle",
+        "helicopter",
+        "roundabout",
+        "soccer_ball_field",
+        "swimming_pool",
+        "container_crane"
+      ],
+      "file_size_mb": 6.14,
+      "sha256": "d96c42323b83826db9781981ef34c4c8673ddee9cf84ea0117e473ab040560dd",
+      "validation_metrics": {
+        "precision": 0.808,
+        "recall": 0.649,
+        "mAP50": 0.695,
+        "mAP50_95": 0.523
+      },
+      "status": "FROZEN"
+    },
+    "damage": {
+      "model_path": "D:\\mp-1\\change_detection_runs_v2\\best_model.pth",
+      "architecture": "Siamese ResNet18",
+      "framework": "PyTorch",
+      "dataset": "xBD / xView2 Challenge Training Set",
+      "file_size_mb": 164.08,
+      "sha256": "0dc2d422693030f5e2446b54e58bda896bc3ecfc05a250e8df78bf2648d61f6b",
+      "validation": {
+        "mean_iou": 0.6515,
+        "mean_dice": 0.6867,
+        "threshold": 0.5
+      },
+      "status": "FROZEN"
+    }
+  },
+  "validation": {
+    "drone": {
+      "VisDrone_internal": {
+        "precision": 0.591,
+        "recall": 0.516,
+        "mAP50": 0.477,
+        "mAP50_95": 0.295
+      },
+      "Unified_internal": {
+        "mAP50": 0.575,
+        "mAP50_95": 0.354
+      },
+      "UAVDT_external_subset": {
+        "visdrone_only": {
+          "frames": 2043,
+          "instances": 40423,
+          "precision": 0.568,
+          "recall": 0.569,
+          "mAP50": 0.515,
+          "mAP50_95": 0.307
+        },
+        "unified": {
+          "frames": 2043,
+          "instances": 40423,
+          "precision": 0.515,
+          "recall": 0.572,
+          "mAP50": 0.504,
+          "mAP50_95": 0.295
+        },
+        "note": "Results are from a reproducible UAVDT external-validation subset and are not official UAVDT leaderboard scores."
+      },
+      "SeaDronesSee_external": {
+        "visdrone_only": {
+          "precision": 0.86,
+          "recall": 0.765,
+          "mAP50": 0.792,
+          "mAP50_95": 0.475
+        },
+        "unified": {
+          "precision": 0.86,
+          "recall": 0.765,
+          "mAP50": 0.792,
+          "mAP50_95": 0.475
+        },
+        "note": "SeaDronesSee results use the corrected unified 10-class evaluation."
+      },
+      "real_video_benchmark": {
+        "video": "border_test_urban.mp4.mp4",
+        "frames": 725,
+        "visdrone_only": {
+          "detections": 29427,
+          "fps": 14.79,
+          "avg_inference_ms": 41.23
+        },
+        "unified": {
+          "detections": 20327,
+          "fps": 9.82,
+          "avg_inference_ms": 60.74
+        }
+      }
+    },
+    "satellite": {
+      "dataset": "DOTA-v1.5",
+      "architecture": "YOLOv8n-OBB",
+      "metrics": {
+        "precision": 0.808,
+        "recall": 0.649,
+        "mAP50": 0.695,
+        "mAP50_95": 0.523
+      },
+      "training_configuration": {
+        "tile_size": "1024x1024",
+        "tile_gap": 200,
+        "scale": [
+          1.0
+        ],
+        "selected_checkpoint": "train-6/best.pt"
+      },
+      "selected_checkpoint": "train-6/best.pt",
+      "note": "The 1280px fine-tuning experiment was not selected as the final AERION v1 satellite model."
+    },
+    "damage": {
+      "dataset": "xBD / xView2 Challenge Training Set",
+      "validation": {
+        "mean_iou": 0.6515,
+        "mean_dice": 0.6867,
+        "threshold": 0.5
+      },
+      "training": {
+        "epochs_configured": 40,
+        "early_stopping": true,
+        "best_epoch": 7,
+        "optimizer": "AdamW",
+        "learning_rate": 0.0001,
+        "weight_decay": 0.0001,
+        "batch_size": 2,
+        "input_size": 512
+      },
+      "note": "AERION v1 uses the frozen Siamese ResNet18 damage model from the validated v2 processing pipeline."
+    }
+  },
+  "taxonomies": {
+    "drone_unified": [
+      "person",
+      "light_vehicle",
+      "bus",
+      "truck",
+      "motorbike",
+      "other_transport",
+      "boat",
+      "jetski",
+      "life_saving_appliance",
+      "buoy"
+    ],
+    "satellite_dota": [
+      "plane",
+      "ship",
+      "storage_tank",
+      "baseball_diamond",
+      "tennis_court",
+      "basketball_court",
+      "ground_track_field",
+      "harbor",
+      "bridge",
+      "large_vehicle",
+      "small_vehicle",
+      "helicopter",
+      "roundabout",
+      "soccer_ball_field",
+      "swimming_pool",
+      "container_crane"
+    ]
+  },
+  "change_detection": {
+    "method": "Hybrid SSIM + learned damage detection",
+    "damage_model": "D:\\mp-1\\change_detection_runs_v2\\best_model.pth",
+    "damage_threshold": 0.5,
+    "priority_formula": "0.5 * (class_weight * confidence) + 0.5 * max(0, (background_ssim - local_ssim) / background_ssim)",
+    "priority_buckets": {
+      "critical": ">= 0.75",
+      "high": ">= 0.50",
+      "medium": ">= 0.25",
+      "low": "< 0.25"
+    },
+    "validated_ssim_examples": {
+      "Palm Jumeirah": 0.5609,
+      "Guatemala volcano": 0.3657
+    },
+    "validated_priority_examples": {
+      "minor_damage_1": 0.568,
+      "minor_damage_2": 0.604,
+      "destroyed": 0.425
+    }
+  },
+  "border_intelligence": {
+    "tracking": {
+      "tracker": "ByteTrack",
+      "persistence_threshold": 10,
+      "movement_threshold": 2.0,
+      "history_length": 30
+    },
+    "zone_analysis": {
+      "dwell_threshold": 5,
+      "point_in_polygon": true,
+      "direction_analysis": true,
+      "boundary_distance": true
+    },
+    "priority_weights": {
+      "zone_entry": 0.4,
+      "approach": 0.15,
+      "movement": 0.15,
+      "persistence": 0.1,
+      "confidence": 0.05,
+      "zone_dwell": 0.05,
+      "movement_inside": 0.1
+    },
+    "event_filter": {
+      "minimum_confidence": 0.3,
+      "minimum_persistence": 0.3,
+      "cooldown_frames": 30
+    },
+    "real_video_result": {
+      "frames": 725,
+      "filtered_alerts": 34,
+      "critical_alerts": 3,
+      "high_alerts": 31,
+      "medium_alerts": 0
+    }
+  },
+  "intelligence": {
+    "deterministic_protocols": true,
+    "scene_analysis": true,
+    "detection_analysis": true,
+    "rag_grounding": true,
+    "llm": "Mistral",
+    "fabricated_detections_allowed": false,
+    "fabricated_confidence_allowed": false,
+    "fabricated_counts_allowed": false,
+    "grounding_policy": "Intelligence output must remain grounded in actual detections, model results, configured geographic or terrain context, and available protocol information.",
+    "unsupported_capabilities_must_be_reported": true
+  },
+  "production_constraints": {
+    "fake_detection": false,
+    "fake_counts": false,
+    "fake_confidence": false,
+    "simulated_intelligence": false,
+    "external_substitute_resources": false,
+    "unimplemented_capabilities_must_be_reported": true,
+    "trained_models_are_frozen": true,
+    "deployment_started": false,
+    "backend_integration_started": false,
+    "frontend_integration_started": false,
+    "model_retraining_allowed_for_v1": false
+  },
+  "freeze_records": {
+    "drone": "D:\\mp-1\\test_results\\model_freeze\\aerion_v1_drone_freeze.json",
+    "satellite": "D:\\mp-1\\test_results\\model_freeze\\aerion_v1_satellite_freeze.json",
+    "damage": "D:\\mp-1\\test_results\\model_freeze\\aerion_v1_damage_freeze.json"
+  },
+  "verification_statement": "AERION v1 trained ML artifacts have been frozen and recorded with integrity hashes. This verification manifest performs no training and does not modify any model artifact."
+}

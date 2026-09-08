@@ -1,0 +1,15 @@
+path: D:\mp-1\seadronessee_yolo
+train: D:\mp-1\seadronessee_yolo\images\train
+val: D:\mp-1\seadronessee_yolo\images\val
+nc: 10
+names:
+- person
+- light_vehicle
+- bus
+- truck
+- motorbike
+- other_transport
+- boat
+- jetski
+- life_saving_appliance
+- buoy

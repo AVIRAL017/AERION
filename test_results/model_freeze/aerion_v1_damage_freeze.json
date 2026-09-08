@@ -1,0 +1,41 @@
+{
+  "project": "AERION",
+  "version": "v1",
+  "component": "damage_detection",
+  "status": "FROZEN",
+  "model": {
+    "path": "D:\\mp-1\\change_detection_runs_v2\\best_model.pth",
+    "architecture": "Siamese ResNet18",
+    "framework": "PyTorch",
+    "weights": "ImageNet pretrained backbone"
+  },
+  "dataset": {
+    "name": "xBD / xView2 Challenge Training Set",
+    "processing": "AERION damage processing v2",
+    "train_images": 2240,
+    "validation_images": 559,
+    "validation_patches": 2236
+  },
+  "training": {
+    "epochs_configured": 40,
+    "early_stopping": true,
+    "best_epoch": 7,
+    "optimizer": "AdamW",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001,
+    "batch_size": 2,
+    "input_size": 512
+  },
+  "validation": {
+    "mean_iou": 0.6515,
+    "mean_dice": 0.6867,
+    "threshold": 0.5
+  },
+  "integrity": {
+    "sha256": "0dc2d422693030f5e2446b54e58bda896bc3ecfc05a250e8df78bf2648d61f6b",
+    "size_bytes": 172052682,
+    "size_mb": 164.08
+  },
+  "frozen_at": "2026-09-08T08:53:54.170550+00:00",
+  "model_files_modified": false
+}
