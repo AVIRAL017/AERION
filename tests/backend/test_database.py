@@ -44,8 +44,8 @@ class TestDatabaseConfiguration(unittest.TestCase):
 
     def test_default_database_settings(self):
         settings = AERIONSettings()
-        self.assertEqual(settings.POSTGRES_DB, "aerion_db")
-        self.assertEqual(settings.POSTGRES_PORT, 5432)
+        self.assertEqual(settings.POSTGRES_DB, "aerion")
+        self.assertEqual(settings.POSTGRES_PORT, 5433)
         self.assertIn("postgresql+asyncpg://", settings.async_database_url)
         self.assertIn("postgresql+psycopg2://", settings.sync_database_url)
 

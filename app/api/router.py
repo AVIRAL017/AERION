@@ -9,17 +9,15 @@ from fastapi import APIRouter
 
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
+from app.api.situations import router as situations_router
+from app.api.analysis import router as analysis_router
+from app.api.usage import router as usage_router
 
 api_router = APIRouter(prefix="/api/v1")
 
-# Mount health & readiness endpoints under /api/v1/health and /api/v1/ready
+# Mount versioned endpoints
 api_router.include_router(health_router)
 api_router.include_router(auth_router)
-
-# Future phase routers will be mounted here:
-# Phase 3B: api_router.include_router(projects_router)
-# Phase 3B: api_router.include_router(assets_router)
-# Phase 3C: api_router.include_router(situations_router)
-# Phase 3D: api_router.include_router(auth_router)
-# Phase 3E: api_router.include_router(analysis_router)
-# Phase 3H: api_router.include_router(usage_router)
+api_router.include_router(situations_router)
+api_router.include_router(analysis_router)
+api_router.include_router(usage_router)

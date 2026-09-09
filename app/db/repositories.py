@@ -6,7 +6,7 @@ Clean repository boundary isolating business logic from direct SQLAlchemy querie
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,8 @@ from app.db.models import (
     Geofence,
     AnalysisJob,
     AnalysisResult,
+    Detection,
+    DamageAnalysis,
     EvidenceRecord,
     Situation,
     SituationEvent,
@@ -31,7 +33,7 @@ from app.db.models import (
 T = TypeVar("T")
 
 
-class BaseRepository:
+class BaseRepository(Generic[T]):
     """Base generic repository for CRUD operations."""
     def __init__(self, session: AsyncSession, model: Type[T]):
         self.session = session
@@ -128,3 +130,43 @@ class SituationRepository(BaseRepository):
         )
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
+
+
+class AnalysisResultRepository(BaseRepository):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, AnalysisResult)
+
+    async def get_by_analysis_id(self, analysis_id: uuid.UUID) -> Optional[AnalysisResult]:
+        stmt = select(AnalysisResult).where(AnalysisResult.analysis_id == analysis_id)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+
+class DetectionRepository(BaseRepository[Detection]):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, Detection)
+
+    async def list_by_result_id(self, result_id: uuid.UUID) -> List[Detection]:
+        stmt = select(Detection).where(Detection.result_id == result_id)
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+
+class DamageAnalysisRepository(BaseRepository[DamageAnalysis]):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, DamageAnalysis)
+
+    async def get_by_result_id(self, result_id: uuid.UUID) -> Optional[DamageAnalysis]:
+        stmt = select(DamageAnalysis).where(DamageAnalysis.result_id == result_id)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
+
+class SituationEventRepository(BaseRepository):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, SituationEvent)
+
+    async def list_by_situation(self, situation_id: uuid.UUID) -> List[SituationEvent]:
+        stmt = select(SituationEvent).where(SituationEvent.situation_id == situation_id).order_by(SituationEvent.sequence_number.asc())
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())

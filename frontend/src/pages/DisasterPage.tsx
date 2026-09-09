@@ -1,11 +1,16 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { situationsApi } from '../api';
-import { DamageSummary } from '../types';
+import { DamageSummary, AERIONAnalysisResultData } from '../types';
+import { UploadModal } from '../components/UploadModal';
 
 export const DisasterPage: React.FC = () => {
   const [sliderPosition, setSliderPosition] = useState<number>(50);
   const [damage, setDamage] = useState<DamageSummary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [activeAnalysisResult, setActiveAnalysisResult] = useState<AERIONAnalysisResultData | null>(null);
+  const [customPreUrl, setCustomPreUrl] = useState<string | null>(null);
+  const [customPostUrl, setCustomPostUrl] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,6 +49,10 @@ export const DisasterPage: React.FC = () => {
     );
   }
 
+  // Determine current pre/post image display
+  const preImgUrl = customPreUrl || damage?.pre_image_url;
+  const postImgUrl = customPostUrl || damage?.post_image_url;
+
   return (
     <div className="flex-1 flex h-full w-full overflow-hidden bg-graphite">
       {/* ============================================================ */}
@@ -51,17 +60,28 @@ export const DisasterPage: React.FC = () => {
       {/* ============================================================ */}
       <section className="flex-1 relative flex flex-col border-r border-white/[0.06] overflow-hidden">
         {/* Workspace Toolbar */}
-        <div className="h-10 px-5 flex items-center justify-between border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20">
+        <div className="h-11 px-5 flex items-center justify-between border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20">
           <div className="flex items-center gap-4 font-mono text-[11px]">
             <span className="text-muted uppercase">ANALYSIS MODE:</span>
             <span className="text-paper font-medium">BI-TEMPORAL DAMAGE WORKSPACE</span>
-            <span className="px-2 py-0.5 rounded text-[10px] bg-accent/10 text-accent border border-accent/20">
-              SIAMESE FUSED
+            <span className={`px-2 py-0.5 rounded text-[10px] ${
+              activeAnalysisResult
+                ? 'bg-status-critical/15 text-status-critical border border-status-critical/30'
+                : 'bg-accent/10 text-accent border border-accent/20'
+            }`}>
+              {activeAnalysisResult ? 'SIAMESE INFERENCE VERIFIED' : 'SIAMESE FUSED'}
             </span>
           </div>
 
-          <div className="flex items-center gap-3 font-mono text-[11px] text-muted">
-            <span>CURTAIN SPLIT: {Math.round(sliderPosition)}%</span>
+          <div className="flex items-center gap-3 font-mono text-[11px]">
+            <span className="text-muted mr-2">CURTAIN SPLIT: {Math.round(sliderPosition)}%</span>
+            <button
+              onClick={() => setIsUploadOpen(true)}
+              className="px-3 py-1 rounded bg-accent text-graphite font-bold text-[10px] hover:bg-accent/90 transition-all flex items-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[14px]">compare</span>
+              <span>INGEST DAMAGE PAIR</span>
+            </button>
           </div>
         </div>
 
@@ -71,11 +91,11 @@ export const DisasterPage: React.FC = () => {
           onMouseMove={handleMouseMove}
           className="flex-1 relative bg-[#07090C] telemetry-grid overflow-hidden cursor-ew-resize select-none"
         >
-          {damage?.pre_image_url && damage?.post_image_url ? (
+          {preImgUrl && postImgUrl ? (
             <div className="relative w-full h-full">
               {/* Post-Disaster Layer (Underneath / Right side) */}
               <img
-                src={damage.post_image_url}
+                src={postImgUrl}
                 alt="Post-Disaster Observation"
                 className="absolute inset-0 w-full h-full object-cover pointer-events-none"
               />
@@ -86,7 +106,7 @@ export const DisasterPage: React.FC = () => {
                 style={{ width: `${sliderPosition}%` }}
               >
                 <img
-                  src={damage.pre_image_url}
+                  src={preImgUrl}
                   alt="Pre-Disaster Baseline"
                   className="slider-inner object-cover"
                 />
@@ -113,18 +133,25 @@ export const DisasterPage: React.FC = () => {
               <p className="text-[11px] text-faint mt-1 max-w-sm">
                 Awaiting bi-temporal satellite pair (pre-disaster baseline + post-disaster scene).
               </p>
+              <button
+                onClick={() => setIsUploadOpen(true)}
+                className="mt-4 px-3 py-1.5 rounded bg-accent/15 border border-accent/40 text-accent text-xs font-mono hover:bg-accent/25 transition-all flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[15px]">compare</span>
+                <span>INGEST DAMAGE PAIR</span>
+              </button>
             </div>
           )}
 
           {/* Left/Right Overlays */}
           <div className="absolute bottom-4 left-4 z-20 pointer-events-none">
             <span className="px-2 py-1 rounded bg-graphite/80 border border-white/[0.08] text-[10px] font-mono text-muted">
-              PRE-DISASTER BASELINE
+              PRE-DISASTER BASELINE (T0)
             </span>
           </div>
           <div className="absolute bottom-4 right-4 z-20 pointer-events-none">
             <span className="px-2 py-1 rounded bg-graphite/80 border border-white/[0.08] text-[10px] font-mono text-accent">
-              POST-DISASTER OBSERVATION
+              POST-DISASTER OBSERVATION (T1)
             </span>
           </div>
         </div>
@@ -154,7 +181,22 @@ export const DisasterPage: React.FC = () => {
             <span className="text-[10px] font-mono text-muted uppercase tracking-wider block mb-1">
               AGGREGATE DAMAGE LEVEL
             </span>
-            {damage ? (
+            {activeAnalysisResult?.damage_analysis ? (
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-mono font-bold text-status-critical">
+                  {activeAnalysisResult.damage_analysis.damage_percentage.toFixed(1)}%
+                </span>
+                <span className="text-xs font-mono text-accent uppercase">
+                  {activeAnalysisResult.damage_analysis.damage_percentage > 50
+                    ? 'SEVERE'
+                    : activeAnalysisResult.damage_analysis.damage_percentage > 20
+                    ? 'MODERATE'
+                    : activeAnalysisResult.damage_analysis.damage_percentage > 0
+                    ? 'MINOR'
+                    : 'NO_DAMAGE'}
+                </span>
+              </div>
+            ) : damage ? (
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-mono font-bold text-status-critical">
                   {damage.damage_percentage.toFixed(1)}%
@@ -172,7 +214,30 @@ export const DisasterPage: React.FC = () => {
             )}
           </div>
 
-          {damage && (
+          {activeAnalysisResult?.damage_analysis ? (
+            <div className="space-y-2 text-xs font-mono">
+              <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                <span className="text-faint">DAMAGED PIXELS:</span>
+                <span className="text-paper">{activeAnalysisResult.damage_analysis.damage_pixels.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                <span className="text-faint">TOTAL PIXELS:</span>
+                <span className="text-paper">{activeAnalysisResult.damage_analysis.total_pixels.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                <span className="text-faint">MEAN PROBABILITY:</span>
+                <span className="text-accent">
+                  {(activeAnalysisResult.damage_analysis.probability_mean * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                <span className="text-faint">DAMAGE RATIO:</span>
+                <span className="text-paper">
+                  {activeAnalysisResult.damage_analysis.damage_ratio.toFixed(4)}
+                </span>
+              </div>
+            </div>
+          ) : damage && (
             <div className="space-y-2 text-xs font-mono">
               <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
                 <span className="text-faint">DAMAGED PIXELS:</span>
@@ -204,6 +269,18 @@ export const DisasterPage: React.FC = () => {
           </div>
         </div>
       </aside>
+
+      {/* Upload Damage Pair Modal */}
+      <UploadModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        defaultMode="damage_pair"
+        onAnalysisSuccess={(res, meta) => {
+          setActiveAnalysisResult(res);
+          if (meta?.preUrl) setCustomPreUrl(meta.preUrl);
+          if (meta?.postUrl) setCustomPostUrl(meta.postUrl);
+        }}
+      />
     </div>
   );
 };

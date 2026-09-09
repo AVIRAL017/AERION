@@ -154,3 +154,81 @@ export interface HealthStatus {
   environment: string;
   timestamp: string;
 }
+
+export interface BoundingBox2D {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface Point2DCoord {
+  x: number;
+  y: number;
+}
+
+export interface RuntimeDetection {
+  source: string;
+  class_id: number;
+  class_name: string;
+  confidence: number;
+  bbox?: BoundingBox2D | null;
+  obb_points?: Point2DCoord[] | null;
+  track_id?: number | null;
+  frame_number?: number | null;
+}
+
+export interface RuntimeDamageAnalysis {
+  before_width: number;
+  before_height: number;
+  after_width: number;
+  after_height: number;
+  probability_min: number;
+  probability_max: number;
+  probability_mean: number;
+  threshold: number;
+  damage_pixels: number;
+  total_pixels: number;
+  damage_ratio: number;
+  damage_percentage: number;
+  probability_map_available: boolean;
+  damage_mask_available: boolean;
+}
+
+export interface RuntimeSceneSummary {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export interface RuntimeIntelligenceItem {
+  object_class: string;
+  confidence: number;
+  class_weight: number;
+  change_score: number;
+  priority_score: number;
+  priority: string;
+  mode: string;
+  protocol: string;
+}
+
+export interface AERIONAnalysisResultData {
+  project: string;
+  version: string;
+  analysis_id: string;
+  mode: string;
+  source_type: string;
+  image_width?: number | null;
+  image_height?: number | null;
+  frame_number?: number | null;
+  detections: RuntimeDetection[];
+  tracks: any[];
+  border_analysis: any[];
+  damage_analysis?: RuntimeDamageAnalysis | null;
+  intelligence: RuntimeIntelligenceItem[];
+  summary: RuntimeSceneSummary;
+  overall_status: string;
+  metadata: Record<string, any>;
+  annotated_image_base64?: string | null;
+}

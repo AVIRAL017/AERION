@@ -232,3 +232,62 @@ class DisasterSituationReport(BaseModel):
     mistral_advisory: Optional[Dict[str, Any]] = None
     evidence_manifest: Dict[str, Any]
     confidence_and_limitations: Dict[str, Any]
+
+
+# ============================================================================
+# API ENDPOINT RESPONSE SCHEMAS (Roadmap Step 12)
+# ============================================================================
+
+class SituationItemResponse(BaseModel):
+    id: str
+    title: str
+    situation_type: str
+    status: str
+    location_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    vulnerability_score: Optional[float] = None
+    threat_level: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class SituationDetailResponse(SituationItemResponse):
+    detections: List[Dict[str, Any]] = Field(default_factory=list)
+    events: List[Dict[str, Any]] = Field(default_factory=list)
+    weather: Optional[Dict[str, Any]] = None
+    routes: Optional[List[Dict[str, Any]]] = None
+    shelters: Optional[List[Dict[str, Any]]] = None
+    damage: Optional[Dict[str, Any]] = None
+
+
+class SituationEventResponse(BaseModel):
+    id: str
+    situation_id: str
+    event_type: str
+    title: str
+    description: Optional[str] = None
+    severity: str
+    created_at: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class RouteOptionResponse(BaseModel):
+    id: str
+    name: str
+    type: str
+    distance_km: float
+    duration_min: float
+    hazard_clearance_score: Optional[float] = None
+    is_viable: bool
+    waypoints: Optional[List[List[float]]] = None
+
+
+class SituationReportResponse(BaseModel):
+    situation_id: str
+    generated_at: str
+    executive_summary: str
+    verified_facts: List[str] = Field(default_factory=list)
+    derived_metrics: Dict[str, Any] = Field(default_factory=dict)
+    ai_advisory: Optional[Dict[str, Any]] = None
+    evidence_lineage: Optional[List[Dict[str, Any]]] = None

@@ -18,6 +18,13 @@ from app.core.jobs import JobManager, JobRecord, JobStatus, default_job_manager
 from app.core.logging import get_logger, request_id_ctx, setup_logging
 from app.core.rate_limit import InMemoryRateLimiter, RateLimiter, RateLimitDependency, default_rate_limiter
 from app.core.security import RequestIDMiddleware, SecurityHeadersMiddleware, configure_cors
+from app.core.security_utils import (
+    MAX_IMAGE_B64_BYTES,
+    MAX_VIDEO_B64_BYTES,
+    sanitize_local_path,
+    validate_base64_payload,
+    write_temp_base64_file,
+)
 
 __all__ = [
     "AERIONSettings",
@@ -45,4 +52,9 @@ __all__ = [
     "RequestIDMiddleware",
     "SecurityHeadersMiddleware",
     "configure_cors",
+    "MAX_IMAGE_B64_BYTES",
+    "MAX_VIDEO_B64_BYTES",
+    "sanitize_local_path",
+    "validate_base64_payload",
+    "write_temp_base64_file",
 ]

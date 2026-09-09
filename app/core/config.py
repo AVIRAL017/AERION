@@ -70,8 +70,8 @@ class AERIONSettings(BaseSettings):
     # DATABASE SETTINGS (Phase 3B PostgreSQL + PostGIS)
     # ------------------------------------------------------------
     POSTGRES_HOST: str = Field(default="localhost", description="PostgreSQL database host")
-    POSTGRES_PORT: int = Field(default=5432, description="PostgreSQL database port")
-    POSTGRES_DB: str = Field(default="aerion_db", description="PostgreSQL database name")
+    POSTGRES_PORT: int = Field(default=5433, description="PostgreSQL database port")
+    POSTGRES_DB: str = Field(default="aerion", description="PostgreSQL database name")
     POSTGRES_USER: str = Field(default="aerion_user", description="PostgreSQL database user")
     POSTGRES_PASSWORD: Optional[SecretStr] = Field(default=None, description="PostgreSQL database password")
     POSTGRES_SSL_MODE: str = Field(default="prefer", description="PostgreSQL SSL mode (disable, prefer, require)")

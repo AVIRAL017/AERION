@@ -1,14 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { Situation, SituationEvent, WeatherData, DetectionTarget } from '../types';
+import { Situation, SituationEvent, WeatherData, DetectionTarget, AERIONAnalysisResultData, RuntimeDetection } from '../types';
 import { situationsApi } from '../api';
+import { UploadModal, UploadMode } from '../components/UploadModal';
 
 export const BorderPage: React.FC = () => {
   const [situation, setSituation] = useState<Situation | null>(null);
   const [events, setEvents] = useState<SituationEvent[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<DetectionTarget | null>(null);
+  const [selectedRuntimeDetection, setSelectedRuntimeDetection] = useState<RuntimeDetection | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Analysis / Upload Modal State
+  const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [uploadMode, setUploadMode] = useState<UploadMode>('drone_image');
+  const [activeAnalysisResult, setActiveAnalysisResult] = useState<AERIONAnalysisResultData | null>(null);
+  const [analyzedImageUrl, setAnalyzedImageUrl] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'annotated' | 'raw'>('annotated');
 
   useEffect(() => {
     const fetchSituationData = async () => {
@@ -68,27 +77,284 @@ export const BorderPage: React.FC = () => {
         {/* CENTRAL SURVEILLANCE CANVAS                                 */}
         {/* ============================================================ */}
         <section className="flex-1 relative flex flex-col border-r border-white/[0.06] overflow-hidden">
-          {/* Top Bar with Status and Coordinates */}
-          <div className="h-10 px-5 flex items-center justify-between border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20">
+          {/* Top Bar with Status, Coordinates, and Ingest Triggers */}
+          <div className="h-11 px-5 flex items-center justify-between border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20">
             <div className="flex items-center gap-3 font-mono text-[11px]">
               <span className="text-muted uppercase tracking-wider">SECTOR:</span>
               <span className="text-paper font-medium">
-                {situation?.location_name || 'SECTOR DELTA-9 (MONITORED)'}
+                {activeAnalysisResult ? `INGESTED ASSET [${activeAnalysisResult.analysis_id.substring(0, 8)}]` : (situation?.location_name || 'SECTOR DELTA-9 (MONITORED)')}
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] bg-status-ai/10 text-status-ai border border-status-ai/20">
-                RECORDED
+              <span className={`px-2 py-0.5 rounded text-[10px] ${
+                activeAnalysisResult
+                  ? 'bg-accent/15 text-accent border border-accent/30'
+                  : 'bg-status-ai/10 text-status-ai border border-status-ai/20'
+              }`}>
+                {activeAnalysisResult ? `${activeAnalysisResult.source_type.toUpperCase()} VERIFIED` : 'RECORDED'}
               </span>
+
+              {/* Roadmap Step 15: Annotated Evidence vs Raw Toggle */}
+              {activeAnalysisResult && activeAnalysisResult.annotated_image_base64 && (
+                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-2">
+                  <button
+                    onClick={() => setViewMode('annotated')}
+                    className={`px-2 py-0.5 rounded text-[10px] transition-all ${
+                      viewMode === 'annotated'
+                        ? 'bg-accent text-graphite font-bold shadow'
+                        : 'text-muted hover:text-paper'
+                    }`}
+                  >
+                    ANNOTATED EVIDENCE
+                  </button>
+                  <button
+                    onClick={() => setViewMode('raw')}
+                    className={`px-2 py-0.5 rounded text-[10px] transition-all ${
+                      viewMode === 'raw'
+                        ? 'bg-accent text-graphite font-bold shadow'
+                        : 'text-muted hover:text-paper'
+                    }`}
+                  >
+                    RAW INGEST
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center gap-4 font-mono text-[11px] text-muted">
-              <span>LAT: {situation?.latitude ? situation.latitude.toFixed(5) : 'GEOGRAPHIC POSITION UNAVAILABLE'}</span>
-              <span>LON: {situation?.longitude ? situation.longitude.toFixed(5) : ''}</span>
+            <div className="flex items-center gap-3 font-mono text-[11px]">
+              <button
+                onClick={() => { setUploadMode('drone_image'); setIsUploadOpen(true); }}
+                className="px-2.5 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1.5 text-[10px]"
+              >
+                <span className="material-symbols-outlined text-[14px]">flight</span>
+                <span>INGEST DRONE</span>
+              </button>
+
+              <button
+                onClick={() => { setUploadMode('satellite_image'); setIsUploadOpen(true); }}
+                className="px-2.5 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1.5 text-[10px]"
+              >
+                <span className="material-symbols-outlined text-[14px]">satellite_alt</span>
+                <span>INGEST SATELLITE</span>
+              </button>
+
+              <button
+                onClick={() => { setUploadMode('border_video'); setIsUploadOpen(true); }}
+                className="px-2.5 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1.5 text-[10px]"
+              >
+                <span className="material-symbols-outlined text-[14px]">videocam</span>
+                <span>INGEST VIDEO</span>
+              </button>
             </div>
           </div>
 
           {/* Surveillance Visual Canvas */}
           <div className="flex-1 relative bg-[#07090C] telemetry-grid flex items-center justify-center overflow-hidden">
-            {situation?.detections && situation.detections.length > 0 ? (
+            {activeAnalysisResult ? (
+              <div className="relative w-full h-full p-4 flex flex-col items-center justify-center">
+                {/* Real Ingested Visual Container */}
+                <div className="relative border border-white/[0.12] rounded-lg bg-panel/40 w-full h-full max-h-[85vh] overflow-hidden flex items-center justify-center">
+                  {analyzedImageUrl ? (
+                    <div className="relative max-w-full max-h-full flex items-center justify-center">
+                      {/* If viewMode is 'annotated' and backend generated annotated_image_base64 exists, display the authoritative annotated visual artifact */}
+                      {viewMode === 'annotated' && activeAnalysisResult.annotated_image_base64 ? (
+                        <div className="relative max-w-full max-h-full flex items-center justify-center">
+                          <img
+                            src={`data:image/jpeg;base64,${activeAnalysisResult.annotated_image_base64}`}
+                            alt="Authoritative Annotated Visual Evidence"
+                            className="max-w-full max-h-[78vh] object-contain select-none shadow-2xl"
+                          />
+                          <div className="absolute top-2 left-2 z-10">
+                            <span className="px-2 py-0.5 rounded bg-graphite/90 border border-accent/40 text-[9px] font-mono text-accent">
+                              BACKEND DERIVED ARTIFACT (SHA-256 VERIFIED)
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <img
+                            src={analyzedImageUrl}
+                            alt="Analyzed Aerial Ingest"
+                            className="max-w-full max-h-[78vh] object-contain select-none pointer-events-none"
+                          />
+                          <div className="absolute top-2 left-2 z-10">
+                            <span className="px-2 py-0.5 rounded bg-graphite/90 border border-white/[0.15] text-[9px] font-mono text-muted">
+                              RAW SOURCE INGEST
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Interactive SVG overlay shown in raw view or when no pre-rendered base64 is available */}
+                      {(viewMode === 'raw' || !activeAnalysisResult.annotated_image_base64) && activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 && activeAnalysisResult.image_width && activeAnalysisResult.image_height && (
+                        <svg
+                          className="absolute inset-0 w-full h-full pointer-events-auto"
+                          viewBox={`0 0 ${activeAnalysisResult.image_width} ${activeAnalysisResult.image_height}`}
+                          preserveAspectRatio="xMidYMid meet"
+                        >
+                          {activeAnalysisResult.detections.map((det, idx) => {
+                            if (det.bbox) {
+                              const x = det.bbox.x1;
+                              const y = det.bbox.y1;
+                              const w = det.bbox.x2 - det.bbox.x1;
+                              const h = det.bbox.y2 - det.bbox.y1;
+                              const isSelected = selectedRuntimeDetection === det;
+                              return (
+                                <g
+                                  key={`det-${idx}`}
+                                  onClick={() => setSelectedRuntimeDetection(det)}
+                                  className="cursor-pointer"
+                                >
+                                  <rect
+                                    x={x}
+                                    y={y}
+                                    width={w}
+                                    height={h}
+                                    fill={isSelected ? 'rgba(56, 213, 245, 0.25)' : 'rgba(239, 68, 68, 0.15)'}
+                                    stroke={isSelected ? '#38D5F5' : '#EF4444'}
+                                    strokeWidth={Math.max(2, (activeAnalysisResult.image_width || 1000) / 400)}
+                                  />
+                                  <rect
+                                    x={x}
+                                    y={Math.max(0, y - 22)}
+                                    width={Math.max(80, det.class_name.length * 11 + 45)}
+                                    height={20}
+                                    fill={isSelected ? '#38D5F5' : '#EF4444'}
+                                  />
+                                  <text
+                                    x={x + 4}
+                                    y={Math.max(14, y - 8)}
+                                    fill="#07090C"
+                                    fontSize={Math.max(12, (activeAnalysisResult.image_width || 1000) / 80)}
+                                    fontFamily="monospace"
+                                    fontWeight="bold"
+                                  >
+                                    {det.class_name.toUpperCase()} {Math.round(det.confidence * 100)}%
+                                  </text>
+                                </g>
+                              );
+                            } else if (det.obb_points && det.obb_points.length === 4) {
+                              const pts = det.obb_points.map(p => `${p.x},${p.y}`).join(' ');
+                              const isSelected = selectedRuntimeDetection === det;
+                              return (
+                                <g
+                                  key={`obb-${idx}`}
+                                  onClick={() => setSelectedRuntimeDetection(det)}
+                                  className="cursor-pointer"
+                                >
+                                  <polygon
+                                    points={pts}
+                                    fill={isSelected ? 'rgba(56, 213, 245, 0.3)' : 'rgba(56, 213, 245, 0.15)'}
+                                    stroke="#38D5F5"
+                                    strokeWidth={Math.max(2, (activeAnalysisResult.image_width || 1000) / 400)}
+                                  />
+                                  <text
+                                    x={det.obb_points[0].x}
+                                    y={det.obb_points[0].y - 5}
+                                    fill="#38D5F5"
+                                    fontSize={Math.max(12, (activeAnalysisResult.image_width || 1000) / 80)}
+                                    fontFamily="monospace"
+                                    fontWeight="bold"
+                                  >
+                                    {det.class_name.toUpperCase()} {Math.round(det.confidence * 100)}%
+                                  </text>
+                                </g>
+                              );
+                            }
+                            return null;
+                          })}
+                        </svg>
+                      )}
+
+                      {/* Honest zero-detection indicator banner overlay if detections is empty */}
+                      {(!activeAnalysisResult.detections || activeAnalysisResult.detections.length === 0) && (
+                        <div className="absolute bottom-4 inset-x-8 flex justify-center pointer-events-none">
+                          <div className="px-4 py-2 rounded bg-graphite/90 border border-white/[0.2] text-faint font-mono text-xs shadow-lg flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-muted"></span>
+                            <span>VERIFIED SCENE ANALYSIS: NO DETECTIONS (COUNT = 0)</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Video / Structured Results without single preview image */
+                    <div className="w-full h-full p-6 flex flex-col overflow-y-auto custom-scrollbar">
+                      <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
+                        <div className="flex items-center gap-2 text-accent font-mono text-xs">
+                          <span className="material-symbols-outlined">analytics</span>
+                          <span>BATCH INFERENCE RESULT — {activeAnalysisResult.overall_status || 'COMPLETED'}</span>
+                        </div>
+                        <span className="text-muted font-mono text-[11px]">
+                          ANALYSIS ID: {activeAnalysisResult.analysis_id}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 my-4">
+                        <div className="p-3 rounded bg-elevated/40 border border-white/[0.06] text-center">
+                          <span className="text-[10px] text-muted block">VERIFIED DETECTIONS</span>
+                          <span className="text-2xl font-mono font-bold text-paper">
+                            {activeAnalysisResult.detections ? activeAnalysisResult.detections.length : 0}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded bg-elevated/40 border border-white/[0.06] text-center">
+                          <span className="text-[10px] text-muted block">ACTIVE TRACKS</span>
+                          <span className="text-2xl font-mono font-bold text-accent">
+                            {activeAnalysisResult.tracks ? activeAnalysisResult.tracks.length : 0}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded bg-elevated/40 border border-white/[0.06] text-center">
+                          <span className="text-[10px] text-muted block">TACTICAL THREAT LEVEL</span>
+                          <span className="text-xl font-mono font-bold text-status-warning">
+                            {activeAnalysisResult.overall_status || 'NOMINAL'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Real Detections List */}
+                      <div className="flex-1 overflow-y-auto">
+                        <span className="text-[11px] font-mono text-muted uppercase block mb-2">
+                          VERIFIED DETECTIONS STREAM
+                        </span>
+                        {activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {activeAnalysisResult.detections.map((d, i) => (
+                              <div
+                                key={i}
+                                onClick={() => setSelectedRuntimeDetection(d)}
+                                className={`p-2 rounded border font-mono text-xs flex items-center justify-between cursor-pointer transition-all ${
+                                  selectedRuntimeDetection === d
+                                    ? 'border-accent bg-accent/15 text-accent'
+                                    : 'border-white/[0.06] bg-elevated/20 text-paper hover:border-white/[0.2]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className="text-faint">#{i + 1}</span>
+                                  <span className="font-bold uppercase">{d.class_name}</span>
+                                </div>
+                                <div className="flex items-center gap-4 text-muted text-[11px]">
+                                  {d.bbox && <span>[{d.bbox.x1}, {d.bbox.y1}, {d.bbox.x2}, {d.bbox.y2}]</span>}
+                                  <span className="text-accent font-semibold">{Math.round(d.confidence * 100)}%</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-6 text-center text-muted font-mono text-xs">
+                            NO VERIFIED DETECTIONS FOUND IN PROCESSED FRAMES
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Clear Button */}
+                  <button
+                    onClick={() => { setActiveAnalysisResult(null); setAnalyzedImageUrl(null); setSelectedRuntimeDetection(null); }}
+                    className="absolute top-3 right-3 px-2 py-1 rounded bg-panel/90 border border-white/[0.1] text-[10px] font-mono text-muted hover:text-paper z-30 flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[13px]">refresh</span>
+                    <span>RESET TO LIVE</span>
+                  </button>
+                </div>
+              </div>
+            ) : situation?.detections && situation.detections.length > 0 ? (
               <div className="relative w-full h-full p-8 flex items-center justify-center">
                 {/* Visual Canvas with detected targets */}
                 <div className="relative border border-white/[0.08] rounded-lg bg-panel/30 w-full h-full overflow-hidden flex items-center justify-center">
@@ -134,6 +400,13 @@ export const BorderPage: React.FC = () => {
                 <p className="text-[11px] text-faint mt-1">
                   Active video/satellite stream is clear or awaiting sensor frame ingest.
                 </p>
+                <button
+                  onClick={() => { setUploadMode('drone_image'); setIsUploadOpen(true); }}
+                  className="mt-4 px-3 py-1.5 rounded bg-accent/15 border border-accent/40 text-accent text-xs font-mono hover:bg-accent/25 transition-all flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[15px]">upload</span>
+                  <span>INGEST TEST ASSET</span>
+                </button>
               </div>
             )}
           </div>
@@ -224,7 +497,38 @@ export const BorderPage: React.FC = () => {
             <span className="text-[11px] font-mono text-muted uppercase tracking-wider block mb-2">
               SELECTED TARGET TELEMETRY
             </span>
-            {selectedTarget ? (
+            {selectedRuntimeDetection ? (
+              <div className="space-y-2 text-xs font-mono bg-graphite/40 p-3 rounded border border-accent/20">
+                <div className="flex justify-between">
+                  <span className="text-faint">SOURCE:</span>
+                  <span className="text-paper uppercase">{selectedRuntimeDetection.source}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-faint">CLASS:</span>
+                  <span className="text-accent uppercase font-bold">{selectedRuntimeDetection.class_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-faint">CONFIDENCE:</span>
+                  <span className="text-accent font-semibold">{Math.round(selectedRuntimeDetection.confidence * 100)}%</span>
+                </div>
+                {selectedRuntimeDetection.bbox && (
+                  <div className="flex justify-between">
+                    <span className="text-faint">BOUNDING BOX:</span>
+                    <span className="text-paper text-[10px]">
+                      [{selectedRuntimeDetection.bbox.x1}, {selectedRuntimeDetection.bbox.y1}, {selectedRuntimeDetection.bbox.x2}, {selectedRuntimeDetection.bbox.y2}]
+                    </span>
+                  </div>
+                )}
+                {selectedRuntimeDetection.obb_points && (
+                  <div>
+                    <span className="text-faint block mb-1">OBB VERTICES (4-PT):</span>
+                    <span className="text-paper text-[9px] block">
+                      {selectedRuntimeDetection.obb_points.map(p => `(${p.x},${p.y})`).join(' ')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : selectedTarget ? (
               <div className="space-y-2 text-xs font-mono bg-graphite/40 p-3 rounded border border-white/[0.04]">
                 <div className="flex justify-between">
                   <span className="text-faint">TRACK ID:</span>
@@ -296,6 +600,22 @@ export const BorderPage: React.FC = () => {
           )}
         </div>
       </footer>
+
+      {/* Upload & Perception Modal */}
+      <UploadModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        defaultMode={uploadMode}
+        onAnalysisSuccess={(res, meta) => {
+          setActiveAnalysisResult(res);
+          if (meta?.imageUrl) {
+            setAnalyzedImageUrl(meta.imageUrl);
+          }
+          if (res.detections && res.detections.length > 0) {
+            setSelectedRuntimeDetection(res.detections[0]);
+          }
+        }}
+      />
     </div>
   );
 };

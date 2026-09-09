@@ -82,3 +82,41 @@ export const systemApi = {
     return apiClient.get<any>('/ready');
   },
 };
+
+export const analysisApi = {
+  analyzeImage: async (payload: {
+    image_base64?: string;
+    image_path?: string;
+    source_type?: string;
+    mode?: string;
+    drone_model?: string;
+    confidence_threshold?: number;
+    iou_threshold?: number;
+    terrain_context?: string;
+    run_intelligence?: boolean;
+  }): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/image', payload);
+  },
+
+  analyzeDamage: async (payload: {
+    before_base64?: string;
+    after_base64?: string;
+    before_image_path?: string;
+    after_image_path?: string;
+    threshold?: number;
+    run_intelligence?: boolean;
+  }): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/damage', payload);
+  },
+
+  analyzeBorderVideo: async (payload: {
+    video_path?: string;
+    video_base64?: string;
+    project_id?: string;
+    max_frames?: number;
+    frame_stride?: number;
+    terrain_context?: string;
+  }): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/border/video', payload);
+  },
+};
