@@ -213,6 +213,22 @@ export interface RuntimeIntelligenceItem {
   protocol: string;
 }
 
+export interface AnnotatedVideoArtifact {
+  artifact_key: string;
+  sha256: string;
+  file_size_bytes: number;
+  mime_type: string;
+  width: number;
+  height: number;
+  fps: number;
+  frame_count: number;
+  source_frame_count: number;
+  codec: string;
+  duration_seconds: number;
+  unique_tracks_count: number;
+  total_detections_count: number;
+}
+
 export interface AERIONAnalysisResultData {
   project: string;
   version: string;
@@ -231,4 +247,5 @@ export interface AERIONAnalysisResultData {
   overall_status: string;
   metadata: Record<string, any>;
   annotated_image_base64?: string | null;
+  annotated_video_artifact?: AnnotatedVideoArtifact | null;
 }

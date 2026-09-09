@@ -122,6 +122,7 @@ class BorderVideoAnalysisRequest(BaseModel):
     max_frames: Optional[int] = Field(default=30, ge=1, le=300)
     frame_stride: int = Field(default=5, ge=1, le=30)
     terrain_context: Optional[str] = Field(default="arid")
+    generate_annotated_video: bool = Field(default=True, description="Whether to generate derived annotated video artifact")
 
 
 
@@ -357,7 +358,21 @@ async def analyze_border_video(
             max_frames=req.max_frames,
             frame_stride=req.frame_stride,
             terrain_context=req.terrain_context,
+            generate_annotated_video=req.generate_annotated_video,
         )
+
+        annotated_artifact = report_data.get("annotated_video_artifact")
+        annotated_key = annotated_artifact.get("artifact_key") if annotated_artifact else None
+        last_result = report_data.pop("last_analysis_result", None)
+
+        if last_result is not None and annotated_key is not None:
+            persist_info = await _safely_persist_result(
+                result=last_result,
+                project_id_str=req.project_id,
+                situation_id_str=req.situation_id,
+                annotated_artifact_key=annotated_key,
+            )
+            report_data["persistence"] = persist_info
 
         meta = MetaBlock(
             timestamp=utc_now_iso(),

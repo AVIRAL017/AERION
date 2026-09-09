@@ -8,7 +8,7 @@ interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultMode?: UploadMode;
-  onAnalysisSuccess: (result: AERIONAnalysisResultData, sourceMeta?: { preUrl?: string; postUrl?: string; imageUrl?: string }) => void;
+  onAnalysisSuccess: (result: AERIONAnalysisResultData, sourceMeta?: { preUrl?: string; postUrl?: string; imageUrl?: string; videoUrl?: string }) => void;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -213,9 +213,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
         if (resp.success && resp.data) {
           setStatusMessage('VIDEO ANALYSIS COMPLETE...');
-          // Video returns { processed_frames, total_video_frames, report }
           const reportData = resp.data.report || resp.data;
-          onAnalysisSuccess(reportData, { imageUrl: undefined });
+          // Attach video artifact metadata if present
+          if (resp.data.annotated_video_artifact) {
+            reportData.annotated_video_artifact = resp.data.annotated_video_artifact;
+          }
+          const rawVideoUrl = selectedFile ? URL.createObjectURL(selectedFile) : undefined;
+          onAnalysisSuccess(reportData, {
+            imageUrl: undefined,
+            videoUrl: rawVideoUrl,
+          });
           onClose();
         } else {
           throw new Error(typeof resp.error === 'string' ? resp.error : (resp.error as any)?.message || 'Video stream processing failed.');

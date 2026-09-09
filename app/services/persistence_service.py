@@ -230,12 +230,13 @@ class AnalysisPersistenceService:
                 )
                 session.add(db_ev_dmg)
             if annotated_artifact_key:
+                is_video = (result.source_type.lower() == "video" or annotated_artifact_key.endswith(".mp4"))
                 db_ev_annot = DBEvidenceRecord(
                     id=uuid.uuid4(),
                     project_id=project_id,
                     parent_evidence_ids=list(created_evidence_ids),  # Derived from original detection evidences
                     source_type=f"ANNOTATED_VISUAL_EVIDENCE_{result.source_type.upper()}",
-                    temporal_mode="STATIC_IMAGE",
+                    temporal_mode="RECORDED_FOOTAGE" if is_video else "STATIC_IMAGE",
                     asset_timestamp_utc=utcnow(),
                     modality="DERIVED",
                     confidence=1.0,
@@ -244,7 +245,7 @@ class AnalysisPersistenceService:
                     sensor_metadata={
                         "analysis_id": str(analysis_uuid),
                         "detection_count": len(result.detections),
-                        "artifact_type": "annotated_image",
+                        "artifact_type": "annotated_video" if is_video else "annotated_image",
                     },
                     raw_payload_uri=annotated_artifact_key,
                 )

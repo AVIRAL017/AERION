@@ -17,6 +17,7 @@ export const BorderPage: React.FC = () => {
   const [uploadMode, setUploadMode] = useState<UploadMode>('drone_image');
   const [activeAnalysisResult, setActiveAnalysisResult] = useState<AERIONAnalysisResultData | null>(null);
   const [analyzedImageUrl, setAnalyzedImageUrl] = useState<string | null>(null);
+  const [analyzedVideoUrl, setAnalyzedVideoUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'annotated' | 'raw'>('annotated');
 
   useEffect(() => {
@@ -92,8 +93,8 @@ export const BorderPage: React.FC = () => {
                 {activeAnalysisResult ? `${activeAnalysisResult.source_type.toUpperCase()} VERIFIED` : 'RECORDED'}
               </span>
 
-              {/* Roadmap Step 15: Annotated Evidence vs Raw Toggle */}
-              {activeAnalysisResult && activeAnalysisResult.annotated_image_base64 && (
+              {/* Roadmap Step 15 & 16: Annotated Evidence vs Raw Toggle */}
+              {activeAnalysisResult && (activeAnalysisResult.annotated_image_base64 || activeAnalysisResult.annotated_video_artifact) && (
                 <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-2">
                   <button
                     onClick={() => setViewMode('annotated')}
@@ -274,8 +275,51 @@ export const BorderPage: React.FC = () => {
                         </div>
                       )}
                     </div>
+                  ) : analyzedVideoUrl || activeAnalysisResult.annotated_video_artifact ? (
+                    /* Video Evidence Container */
+                    <div className="relative max-w-full max-h-full flex flex-col items-center justify-center p-2">
+                      <div className="relative border border-white/[0.1] rounded overflow-hidden max-h-[72vh] flex items-center justify-center bg-black shadow-2xl">
+                        {analyzedVideoUrl ? (
+                          <video
+                            src={analyzedVideoUrl}
+                            controls
+                            autoPlay
+                            loop
+                            muted
+                            className="max-w-full max-h-[70vh] object-contain select-none"
+                          />
+                        ) : (
+                          <div className="p-12 text-center font-mono text-xs text-muted">
+                            <span className="material-symbols-outlined text-3xl text-accent block mb-2">videocam</span>
+                            <span>DERIVED VIDEO ARTIFACT PERSISTED</span>
+                            <span className="block text-[10px] text-faint mt-1">KEY: {activeAnalysisResult.annotated_video_artifact?.artifact_key}</span>
+                          </div>
+                        )}
+
+                        <div className="absolute top-2 left-2 z-10 flex flex-col gap-1">
+                          {activeAnalysisResult.annotated_video_artifact && viewMode === 'annotated' ? (
+                            <span className="px-2 py-0.5 rounded bg-graphite/90 border border-accent/40 text-[9px] font-mono text-accent">
+                              BACKEND DERIVED VIDEO EVIDENCE (SHA-256 VERIFIED)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded bg-graphite/90 border border-white/[0.15] text-[9px] font-mono text-muted">
+                              RAW SURVEILLANCE VIDEO INGEST
+                            </span>
+                          )}
+                        </div>
+
+                        {activeAnalysisResult.annotated_video_artifact && (
+                          <div className="absolute bottom-2 left-2 z-10 bg-graphite/90 border border-white/[0.1] rounded px-2.5 py-1 text-[10px] font-mono text-muted flex items-center gap-3">
+                            <span>FPS: {activeAnalysisResult.annotated_video_artifact.fps}</span>
+                            <span>FRAMES: {activeAnalysisResult.annotated_video_artifact.frame_count}/{activeAnalysisResult.annotated_video_artifact.source_frame_count}</span>
+                            <span>TRACKS: {activeAnalysisResult.annotated_video_artifact.unique_tracks_count}</span>
+                            <span>SHA: {activeAnalysisResult.annotated_video_artifact.sha256.substring(0, 10)}...</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   ) : (
-                    /* Video / Structured Results without single preview image */
+                    /* Structured Results without preview */
                     <div className="w-full h-full p-6 flex flex-col overflow-y-auto custom-scrollbar">
                       <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
                         <div className="flex items-center gap-2 text-accent font-mono text-xs">
@@ -610,6 +654,10 @@ export const BorderPage: React.FC = () => {
           setActiveAnalysisResult(res);
           if (meta?.imageUrl) {
             setAnalyzedImageUrl(meta.imageUrl);
+            setAnalyzedVideoUrl(null);
+          } else if (meta?.videoUrl) {
+            setAnalyzedVideoUrl(meta.videoUrl);
+            setAnalyzedImageUrl(null);
           }
           if (res.detections && res.detections.length > 0) {
             setSelectedRuntimeDetection(res.detections[0]);
