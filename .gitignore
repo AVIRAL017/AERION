@@ -60,6 +60,8 @@ unified_drone_dataset/
 DOTAv1.5-split/
 VisDrone/
 SeaDronesSee/
+data/raw/
+data/processed/
 
 # Dataset split directory (2.7GB, not tests/ package)
 test/

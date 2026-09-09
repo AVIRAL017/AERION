@@ -1,0 +1,21 @@
+{
+  "dataset_name": "India Flood Inventory (V3)",
+  "source_organization": "India Meteorological Department (IMD) / Disaster Management Portals",
+  "download_date": "2026-09-07",
+  "version": "v3.0",
+  "format": "GeoJSON FeatureCollection",
+  "crs": "urn:ogc:def:crs:OGC:1.3:CRS84 (WGS84 EPSG:4326)",
+  "coverage": "Historical & active flood events across Indian states and districts",
+  "feature_count": 1006,
+  "license_conditions": "Public disaster inventory records for humanitarian and scientific research.",
+  "canonical_storage_path": "dataset/INDIA_FLOOD_INVENTORY_V3.geojson",
+  "files": [
+    {
+      "filename": "INDIA_FLOOD_INVENTORY_V3.geojson",
+      "path": "dataset/INDIA_FLOOD_INVENTORY_V3.geojson",
+      "size_bytes": 29992356,
+      "sha256": "74766a467efdef1ff82fcbf1303ac0a0133d095ef711cbe817f29de373217fae"
+    }
+  ],
+  "operational_note": "Authoritative flood hazard incident registry. Used for hazard polygon avoidance in evacuation routing and threat scoring."
+}

@@ -1,61 +1,56 @@
 # AERION — Aerial Reconnaissance & Intelligence Operations Network
 
-**Project Status**: Phase 1 Complete — Frozen ML Perception & Unified Runtime Integration  
-**Architecture Version**: AERION v1  
-**Default Repository Branch**: `main`  
-
----
-
-## 1. Executive Summary
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141.1-009688.svg)](https://fastapi.tiangolo.com/)
+[![React 18](https://img.shields.io/badge/React-18.3.1-61DAFB.svg)](https://react.dev/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.6.0%2Bcu124-EE4C2C.svg)](https://pytorch.org/)
+[![Status](https://img.shields.io/badge/Status-Phase%205%20Accepted-success.svg)]()
 
 AERION is an advanced multi-modal defense and disaster situational awareness platform integrating aerial/drone computer vision, satellite oriented bounding box (OBB) object detection, bi-temporal Siamese structural damage assessment, real-time border surveillance geofencing, and protocol-grounded advisory incident intelligence.
 
-All four core machine learning models are officially **FROZEN** with cryptographic SHA-256 hashes recorded in authoritative freeze manifests.
+---
+
+## 1. Dual Operational Modes
+
+### 1.1 Border Security & Geofence Surveillance Mode
+- **Aerial Drone Perception**: High-resolution person and vehicle detection using frozen YOLOv8s models.
+- **Multi-Object Tracking**: Trajectory persistence and motion vectors calculated via ByteTrack.
+- **Geofencing & Breach Detection**: Point-in-polygon containment, boundary projection, and dwell timing.
+- **Honest Terminology**: All crossing activities are classified strictly as **`POTENTIAL UNAUTHORIZED CROSSING INDICATOR`** and require human operator verification. Never presents unconfirmed infiltration as established fact.
+
+### 1.2 Disaster Response & Structural Assessment Mode
+- **Bi-Temporal Damage Assessment**: Siamese ResNet18 + U-Net skip decoder analyzing pre- and post-disaster optical imagery (`512x512`), computing probability change maps and quantifying structural damage at frozen decision threshold `0.50`.
+- **Topological Evacuation Routing**: Evaluates genuine road network corridors via OpenRouteService avoiding active flood and disaster hazard boundaries.
+- **Shelter Coordination**: Tracks authorized civil protection shelters, capacities, and generator capabilities.
+- **Road Accessibility Invariant**: Road segments are only marked `BLOCKED` when corroborated by verified damage or obstruction evidence.
 
 ---
 
-## 2. Core Subsystems
+## 2. Frozen Machine Learning Models
 
-### 2.1 Aerial Drone Surveillance
-* **VisDrone-Only Primary**: YOLOv8s fine-tuned on custom 6-class aerial data at `1280x1280` resolution for land/border vehicle and person surveillance.
-* **Unified Aerial/Maritime**: YOLOv8s fine-tuned on a 10-class unified aerial dataset combining VisDrone and SeaDronesSee for multi-domain land and maritime tracking.
+All four machine learning models are officially **FROZEN** with cryptographic SHA-256 hashes recorded in authoritative manifests:
 
-### 2.2 Satellite Detection (Oriented Bounding Boxes)
-* **DOTA-v1.5 YOLOv8n-OBB**: Detects 16 infrastructure, maritime, and vehicle classes using 4-corner oriented bounding box (OBB) geometry on tiled satellite imagery at `1024x1024` resolution.
+| Model | Subsystem | Architecture | Resolution | SHA-256 Checksum |
+| :--- | :--- | :--- | :--- | :--- |
+| **Drone** | Aerial Land Surveillance | YOLOv8s | `1280x1280` | `343215ac779c1683eef66801b9d0fbf315361074ea71be4356bcb2a40d7a8a2f` |
+| **Unified Drone** | Land + Maritime Aerial | YOLOv8s | `1280x1280` | `05281a43dc81ab015491fa1a7c821bdd9b9f13b1d78d80b2a0d549cf30a0a630` |
+| **Satellite** | Satellite OBB Detection | YOLOv8n-OBB | `1024x1024` | `d96c42323b83826db9781981ef34c4c8673ddee9cf84ea0117e473ab040560dd` |
+| **Damage** | Bi-Temporal Damage | Siamese ResNet18 | `512x512` | `0dc2d422693030f5e2446b54e58bda896bc3ecfc05a250e8df78bf2648d61f6b` |
 
-### 2.3 Disaster Damage Assessment
-* **Siamese ResNet18 + U-Net Skip Decoder**: Bi-temporal change detection neural network trained on the xBD / xView2 challenge dataset. Evaluates pre- and post-disaster satellite/aerial image pairs (`512x512`), computing probability maps and quantifying damaged structural area at decision threshold `0.50`.
-
-### 2.4 Border Geofencing & Real-Time Tracking
-* **ByteTrack Integration**: Multi-object trajectory tracking over temporal sliding windows.
-* **Ray-Casting Geofence**: High-performance point-in-polygon containment, boundary Euclidean distance projection, approach vectors, dwell timing, and cooldown-filtered border threat alerts.
-
-### 2.5 Deterministic Intelligence & Advisory Protocols
-* **Threat Scoring Engine**: Mathematical combination of class-risk weights, model confidence, and localized Structural Similarity Index (SSIM) change signals.
-* **Advisory RAG**: Operational guidance retrieval mapped to standard emergency/border protocols, with optional decoupled incident reporting via Mistral AI.
+**Frozen Runtime Thresholds**:
+- Confidence: `0.25`
+- IoU: `0.50`
+- Damage Decision Threshold: `0.50`
 
 ---
 
-## 3. Runtime Layer Architecture (Phase 1)
+## 3. Core Architectural Principles
 
-Phase 1 provides a clean, persistence-agnostic, and serialization-safe runtime contract layer above the frozen ML models:
-
-```
-FROZEN MACHINE LEARNING MODELS
-    ↓
-EXISTING RUNTIME ADAPTERS (drone_detector, satellite_detector, damage_inference, border_pipeline)
-    ↓
-AERION NORMALIZATION (aerion_runtime_normalizer.py)
-    ↓
-AERION UNIFIED CONTRACTS (aerion_runtime_contracts.py)
-    ↓
-AERION ORCHESTRATOR (aerion_orchestrator.py)
-```
-
-### Key Modules:
-* [`aerion_runtime_contracts.py`](aerion_runtime_contracts.py): Standard `@dataclass` contracts (`Point2D`, `BoundingBox`, `Detection`, `TrackState`, `BorderAnalysis`, `DamageAnalysis`, `IntelligenceItem`, `SceneSummary`, and `AERIONAnalysisResult`).
-* [`aerion_runtime_normalizer.py`](aerion_runtime_normalizer.py): Type-safe adapters converting raw detector tensors and tracking outputs into unified dataclasses.
-* [`aerion_orchestrator.py`](aerion_orchestrator.py): High-level operational façade with lazy model loading to preserve GPU memory (6 GB VRAM budget), mode enforcement, and unified analysis entry points.
+1. **Zero Fabrication Policy**: Never invent fake detections, tracks, counts, coordinates, weather, risk scores, routes, shelters, or sensor readings. When data is unavailable, the system explicitly reports `UNAVAILABLE` or `INSUFFICIENT EVIDENCE`.
+2. **Mistral AI is Advisory Only**: The LLM synthesizes concise 5-6 sentence operational advisories strictly bounded to verified facts. It is never the source of truth and is fail-safe with deterministic fallback protocols.
+3. **Coordinate Separation**: Cartesian image/pixel space (`[0, 0]` to `[W, H]`) is strictly segregated from geospatial WGS84 EPSG:4326 geometry.
+4. **Hardware Optimized**: Engineered to run reliably on an NVIDIA RTX 3050 (6 GB VRAM) using asynchronous GPU lock serialization and lazy model loading.
+5. **No Secret Leaks**: Zero credentials or secret tokens tracked in Git.
 
 ---
 
@@ -63,85 +58,78 @@ AERION ORCHESTRATOR (aerion_orchestrator.py)
 
 ```text
 D:\mp-1\
-├── aerion_runtime_contracts.py      # Unified dataclass contracts & schemas
-├── aerion_runtime_normalizer.py     # Subsystem output normalization adapters
-├── aerion_orchestrator.py           # Central runtime mission orchestrator
-├── drone_detector.py                # Frozen YOLOv8s drone inference adapter
-├── satellite_detector.py            # Frozen YOLOv8n-OBB satellite inference adapter
-├── damage_inference.py              # Frozen Siamese ResNet18 damage inference adapter
-├── border_pipeline.py               # Composite YOLO + ByteTrack + Geofence pipeline
-├── border_tracking.py               # Motion vector & trajectory calculation
-├── border_zone.py                   # Ray-casting geofence & boundary projection
-├── border_intelligence.py           # Threat scoring & approach analysis
-├── border_event_filter.py           # Cooldown filtering & alert qualification
-├── terrain_context.py               # Terrain operational environment metadata
-├── intelligence_engine.py           # SSIM-grounded multi-detection scoring
-├── protocols.py                     # Standard operational advisory knowledge base
-├── report_generator.py              # Advisory LLM report generator (Mistral)
-├── rag_intelligence.py              # Orchestration linking protocols and LLM
-├── live_video_input.py              # Threaded non-blocking video stream buffer
-├── video_input.py                   # Synchronous video capture abstraction
-├── tests/
-│   ├── runtime/
-│   │   ├── test_contracts.py        # 12 contract & serialization unit tests
-│   │   ├── test_normalizers.py      # 5 normalization unit tests
-│   │   ├── test_orchestrator.py     # 5 orchestrator lifecycle unit tests
-│   │   └── test_real_integration.py # 4 end-to-end frozen ML integration tests
-├── test_results/
-│   ├── model_freeze/                # Cryptographic freeze records for ML models
-│   └── aerion_v1_ml_verification_manifest.json # Authoritative ML verification manifest
-├── AERION_RUNTIME_CONTRACT.md       # Comprehensive runtime interface specification
-├── AERION_AGENT_HANDOFF.md          # Autonomous agent continuity & handoff brief
-├── .env.example                     # Environment template (NO SECRETS)
-└── .gitignore                       # Strict exclusion of weights, datasets, videos, caches
+├── app/                              # FastAPI Backend Architecture
+│   ├── api/                          # REST route controllers (/auth, /health, /router)
+│   ├── core/                         # Config, security, errors, logging, jobs, GPU lock
+│   ├── db/                           # PostgreSQL 16 + PostGIS models, sessions, repos
+│   ├── runtime/                      # Adapter boundary isolating frozen ML orchestrator
+│   ├── schemas/                      # Pydantic schemas (auth, evidence, situation, health)
+│   └── services/                     # Application services (perception, situation engine)
+├── frontend/                         # React 18 + TypeScript + Vite Desktop Client
+│   ├── src/                          # Pages, components, api client, context, layout
+│   └── package.json                  # Frontend dependencies
+├── data/                             # Dataset Registry & Geospatial Metadata
+│   ├── geospatial/                   # State, district, hazard, road metadata & layers
+│   └── README.md                     # Comprehensive dataset policy
+├── docs/                             # Structured System Documentation
+│   ├── architecture/                 # System architecture & design contracts
+│   ├── api/                          # REST API endpoint catalog
+│   ├── ml/                           # Frozen model weights & runtime contracts
+│   ├── geospatial/                   # Geospatial rules & boundary handling
+│   ├── deployment/                   # Production deployment guide
+│   └── phases/                       # Project progression log
+├── tests/                            # Automated Verification Test Suite
+│   ├── backend/                      # 83 backend unit and integration tests (PASS)
+│   └── runtime/                      # 26 runtime ML contract & integration tests (PASS)
+├── test_results/                     # Cryptographic freeze records & manifests
+├── alembic/                          # PostGIS database migrations
+├── .env.example                      # Production environment template
+├── .gitignore                        # Git exclusion rules
+└── requirements.txt                  # Python runtime dependencies
 ```
 
 ---
 
-## 5. Frozen Model Integrity Registry
+## 5. Development & Testing
 
-| Model Target | Architecture | Resolution | SHA-256 Checksum | Freeze Status |
-| :--- | :--- | :--- | :--- | :--- |
-| **Drone (VisDrone-Only)** | YOLOv8s | 1280x1280 | `343215ac779c1683eef66801b9d0fbf315361074ea71be4356bcb2a40d7a8a2f` | **FROZEN** |
-| **Drone (Unified)** | YOLOv8s | 1280x1280 | `05281a43dc81ab015491fa1a7c821bdd9b9f13b1d78d80b2a0d549cf30a0a630` | **FROZEN** |
-| **Satellite (DOTA OBB)** | YOLOv8n-OBB | 1024x1024 | `d96c42323b83826db9781981ef34c4c8673ddee9cf84ea0117e473ab040560dd` | **FROZEN** |
-| **Damage (ResNet18)** | Siamese ResNet18 | 512x512 | `0dc2d422693030f5e2446b54e58bda896bc3ecfc05a250e8df78bf2648d61f6b` | **FROZEN** |
+### 5.1 Environment Setup
+```powershell
+# Activate local virtual environment
+.\venv\Scripts\Activate.ps1
 
-*Note: Large model binaries (`*.pt`, `*.pth`) and raw datasets are excluded from Git version control and maintained on local storage.*
-
----
-
-## 6. Execution & Testing
-
-### Running Runtime Contract & Normalizer Tests
-```bash
-python -m unittest discover -s tests/runtime -p "test_*.py" -v
+# Install dependencies if needed
+pip install -r requirements.txt
 ```
 
-### Running Real End-to-End ML Integration Tests
-```bash
-python tests/runtime/test_real_integration.py -v
+### 5.2 Running the Backend
+```powershell
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### Basic Orchestrator Usage
-```python
-from aerion_orchestrator import AERIONOrchestrator
+### 5.3 Running the Frontend
+```powershell
+cd frontend
+npm install
+npm run dev
+```
 
-# Initialize orchestrator for disaster analysis
-orchestrator = AERIONOrchestrator(mode="disaster", device=0)
+### 5.4 Test Suite Execution
+```powershell
+# Run backend test suite (83 tests)
+python -m unittest discover -s tests/backend -p "test_*.py"
 
-# Process an aerial image
-result = orchestrator.process_image("path/to/aerial_image.jpg", source_type="drone")
+# Run runtime test suite (26 tests)
+python -m unittest discover -s tests/runtime -p "test_*.py"
 
-# Convert to clean JSON
-json_output = result.to_json(indent=2)
-print(json_output)
+# Test frontend production build
+cd frontend
+npm run build
 ```
 
 ---
 
-## 7. Security Policy
+## 6. Security & Confidentiality
 
-* Do not commit `.env` files or API secrets.
-* Copy `.env.example` to `.env` and populate `MISTRAL_API_KEY` for optional advisory reporting.
-* Model inference and perception operate 100% locally and offline.
+- **Never commit `.env`** or plaintext API keys.
+- Store sensitive configuration variables in operating system environment variables or secure key vaults.
+- Configure explicit origins in `ALLOWED_ORIGINS` for production deployment. Wildcards (`*`) are strictly blocked in production mode.

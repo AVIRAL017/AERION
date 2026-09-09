@@ -1,0 +1,20 @@
+{
+  "dataset_name": "OpenStreetMap India Road Network Extract",
+  "source_organization": "OpenStreetMap Contributors / Geofabrik GmbH",
+  "download_date": "2026-09-07",
+  "version": "2026-09-07 snapshot",
+  "format": "OSM Protocolbuffer Binary Format (.osm.pbf)",
+  "crs": "WGS 84 (EPSG:4326)",
+  "coverage": "Complete road and infrastructure topology for India",
+  "license_conditions": "Open Database License (ODbL) 1.0",
+  "canonical_storage_path": "dataset/india-260907.osm.pbf",
+  "files": [
+    {
+      "filename": "india-260907.osm.pbf",
+      "path": "dataset/india-260907.osm.pbf",
+      "size_bytes": 1705470510,
+      "sha256": "326ee224cd4b2783ee7b4acfeaf738b107f2a75873d2f091b423262bdd6891cd"
+    }
+  ],
+  "operational_note": "Authoritative road graph extract for topological routing graph generation (OpenRouteService / OSRM routing)."
+}

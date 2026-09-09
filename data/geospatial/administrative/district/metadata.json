@@ -1,0 +1,27 @@
+{
+  "dataset_name": "India District Administrative Boundaries (NWIC)",
+  "source_organization": "National Water Informatics Centre (NWIC) / Survey of India (SOI)",
+  "download_date": "2026-09-07",
+  "version": "v1.0",
+  "format": "GeoJSON and ESRI Shapefile",
+  "crs": "EPSG:7755 (WGS 84 / India LCC)",
+  "coverage": "733 Districts of India",
+  "feature_count": 733,
+  "license_conditions": "Government of India Open Data / NWIC Public Dissemination. Official administrative boundaries.",
+  "canonical_storage_path": "dataset/india boundries/district_nwic_geojson/district_nwic.GeoJSON",
+  "files": [
+    {
+      "filename": "district_nwic.GeoJSON",
+      "path": "dataset/india boundries/district_nwic_geojson/district_nwic.GeoJSON",
+      "size_bytes": 168356689,
+      "sha256": "2b27a478e24d8c51b0655e74ce3f4f880e75c752e4597550d6fc925ed06ac201"
+    },
+    {
+      "filename": "district_nwic.shp",
+      "path": "dataset/india boundries/district_nwic_shp/district_nwic.shp",
+      "size_bytes": 50051600,
+      "sha256": "01fa4cb2ee4e672402a808efaec5354c3c20e3e6cc57d819c6764016d0158f90"
+    }
+  ],
+  "operational_note": "District-level administrative boundaries for tactical subdivision and sector mapping."
+}

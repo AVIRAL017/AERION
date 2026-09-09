@@ -1,0 +1,10 @@
+{
+  "dataset_name": "India Authoritative International Boundary (Survey of India)",
+  "source_organization": "Survey of India (SOI), Department of Science & Technology, Government of India",
+  "status": "AWAITING_OFFICIAL_INGEST",
+  "format": "GeoJSON / Shapefile / GML",
+  "expected_crs": "WGS 84 (EPSG:4326) / India LCC (EPSG:7755)",
+  "license_conditions": "National Map Policy (NMP) / Official Survey of India licensing",
+  "expected_directory": "data/geospatial/international_boundary/survey_of_india/",
+  "operational_rule": "CRITICAL: Administrative State/District boundary outer envelopes are NOT automatically the authoritative International Border. Infiltration and border crossing indicators require validated SOI demarcations. Never synthesize or fabricate international boundary geometry."
+}
