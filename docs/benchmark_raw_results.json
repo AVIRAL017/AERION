@@ -1,0 +1,105 @@
+{
+  "environment": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "cpu": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+    "cpu_count_logical": 12,
+    "cpu_count_physical": 8,
+    "python_version": "3.13.13 (tags/v3.13.13:01104ce, Apr  7 2026, 19:25:48) [MSC v.1944 64 bit (AMD64)]",
+    "torch_version": "2.6.0+cu124",
+    "cuda_available": true,
+    "cuda_device_name": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+    "system_ram_mb": 16024.5
+  },
+  "model_hashes": {
+    "Drone (VisDrone)": "343215ac779c1683eef66801b9d0fbf315361074ea71be4356bcb2a40d7a8a2f",
+    "Satellite (OBB)": "d96c42323b83826db9781981ef34c4c8673ddee9cf84ea0117e473ab040560dd",
+    "Damage (Siamese)": "0dc2d422693030f5e2446b54e58bda896bc3ecfc05a250e8df78bf2648d61f6b",
+    "Unified Drone": "05281a43dc81ab015491fa1a7c821bdd9b9f13b1d78d80b2a0d549cf30a0a630"
+  },
+  "measurements": {
+    "1_process_baseline_idle": {
+      "rss_mb": 483.01,
+      "system_ram": {
+        "total_mb": 16024.5,
+        "available_mb": 3688.89,
+        "used_mb": 12335.62,
+        "percent": 77.0
+      }
+    },
+    "2_database_idle": {
+      "status": "AVAILABLE",
+      "ping_latency_ms": 173.52,
+      "rss_mb": 485.87
+    },
+    "5_6_drone_model": {
+      "load_time_s": 0.129,
+      "inference_latency_s": 3.324,
+      "rss_before_mb": 485.87,
+      "rss_peak_mb": 1236.82,
+      "rss_delta_mb": 750.95,
+      "rss_after_unload_mb": 1239.67
+    },
+    "7_8_satellite_model": {
+      "load_time_s": 0.076,
+      "inference_latency_s": 0.273,
+      "rss_before_mb": 1239.67,
+      "rss_peak_mb": 1338.67,
+      "rss_delta_mb": 99.0,
+      "rss_after_unload_mb": 1338.67
+    },
+    "9_10_damage_model": {
+      "load_time_s": 0.463,
+      "inference_latency_s": 0.079,
+      "rss_before_mb": 1338.67,
+      "rss_peak_mb": 1452.69,
+      "rss_delta_mb": 114.02,
+      "rss_after_unload_mb": 1452.69
+    },
+    "11_sequential_switching": {
+      "total_time_s": 0.367,
+      "rss_before_mb": 1452.69,
+      "rss_peak_mb": 1405.29,
+      "rss_delta_mb": -47.4
+    },
+    "12_annotated_image_generation": {
+      "time_s": 0.112,
+      "artifact_size_bytes": 835629,
+      "artifact_key": "00000000-0000-0000-0000-000000000001/annotated_image/c1fb96ed-0e76-45ad-9ee7-a0afad179030.jpg",
+      "sha256": "15132b52130f198d54605a6e79fe8582d3b3e3d4f0be04af7b712df1ff2ce9e5"
+    },
+    "13_video_processing_bounded": {
+      "source_resolution": "3840x2160",
+      "source_fps": 24.0,
+      "total_source_frames": 725,
+      "processed_frames": 20,
+      "frame_stride": 5,
+      "total_processing_time_s": 5.858,
+      "processing_fps": 3.41,
+      "is_real_time": false,
+      "rss_before_mb": 1445.57,
+      "rss_peak_mb": 1527.77,
+      "rss_delta_mb": 82.2,
+      "tracks_active": 0,
+      "crossing_indicators": 0
+    },
+    "14_external_weather_latency": {
+      "status": "AVAILABLE",
+      "latency_ms": 1072.38,
+      "temp_c": 29.1
+    },
+    "15_mistral_overhead": {
+      "provider_status": "AVAILABLE",
+      "model": "open-mistral-nemo",
+      "latency_ms": 1759.76,
+      "output_chars": 283
+    },
+    "concurrency_benchmark": {
+      "1_request_latency_s": 0.381,
+      "1_request_rss_peak_mb": 1528.01,
+      "2_requests_latency_s": 0.109,
+      "2_requests_rss_peak_mb": 1528.01,
+      "serialization_verified": false,
+      "rss_delta_concurrent_mb": 0.0
+    }
+  }
+}

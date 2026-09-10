@@ -27,6 +27,7 @@ from aerion_runtime_contracts import AERIONAnalysisResult
 from app.api.deps import get_current_user_payload
 from app.core.config import get_settings
 from app.core.errors import ResourceNotFoundError, ValidationError
+from app.core.jobs import JobManager, JobRecord, JobStatus, default_job_manager
 from app.schemas.common import MetaBlock, ResponseEnvelope, utc_now_iso
 from app.schemas.evidence import GeoPoint
 from app.schemas.external import AdvisoryPriority, ProviderStatus
@@ -66,6 +67,7 @@ async def _safely_persist_result(
     situation_id_str: Optional[str] = None,
     source_asset_key: Optional[str] = None,
     annotated_artifact_key: Optional[str] = None,
+    existing_job_id_str: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Attempts to persist analysis result to PostgreSQL/PostGIS.
@@ -76,6 +78,7 @@ async def _safely_persist_result(
     try:
         proj_uuid = uuid.UUID(project_id_str) if project_id_str and len(project_id_str) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
         sit_uuid = uuid.UUID(situation_id_str) if situation_id_str and len(situation_id_str) == 36 else None
+        job_uuid = uuid.UUID(existing_job_id_str) if existing_job_id_str and len(existing_job_id_str) == 36 else None
 
         persister = AnalysisPersistenceService()
         persist_info = await persister.persist_analysis(
@@ -84,6 +87,7 @@ async def _safely_persist_result(
             situation_id=sit_uuid,
             source_asset_key=source_asset_key,
             annotated_artifact_key=annotated_artifact_key,
+            existing_job_id=job_uuid,
         )
         persist_info["database_available"] = True
         return persist_info
@@ -483,12 +487,20 @@ async def analyze_disaster_e2e(
     try:
         # 1. Run frozen damage detection model
         damage_service = DamageAnalysisService()
-        runtime_result: AERIONAnalysisResult = await damage_service.analyze_damage_pair(
-            before_path=str(before_path),
-            after_path=str(after_path),
-            threshold=req.threshold,
-            run_intelligence=req.run_intelligence,
-        )
+        try:
+            runtime_result: AERIONAnalysisResult = await damage_service.analyze_damage_pair(
+                before_path=str(before_path),
+                after_path=str(after_path),
+                threshold=req.threshold,
+                run_intelligence=req.run_intelligence,
+            )
+        except Exception as inf_exc:
+            if "identify image" in str(inf_exc).lower() or "unidentified" in str(inf_exc).lower():
+                raise ValidationError(
+                    message=f"Corrupt or unsupported image asset provided: {inf_exc}",
+                    details=[{"field": "before_base64", "issue": "corrupt_image_payload", "provided": None}],
+                )
+            raise
         result_dict = runtime_result.to_dict() if hasattr(runtime_result, "to_dict") else dict(runtime_result)
 
         # 2. Extract damage metrics safely
@@ -958,5 +970,648 @@ async def analyze_border_e2e(
                         shutil.rmtree(target.parent, ignore_errors=True)
                 except Exception as exc:
                     logger.warning(f"Error cleaning up temp file {target}: {exc}")
+
+
+# ============================================================================
+# STEP 27 & 28 — ASYNCHRONOUS JOB PIPELINES & LIFECYCLE MANAGEMENT
+# ============================================================================
+
+class CreateDisasterJobRequest(BaseModel):
+    project_id: Optional[str] = Field(default="00000000-0000-0000-0000-000000000001")
+    situation_id: Optional[str] = Field(default=None)
+    before_image_path: Optional[str] = Field(default=None)
+    after_image_path: Optional[str] = Field(default=None)
+    before_base64: Optional[str] = Field(default=None)
+    after_base64: Optional[str] = Field(default=None)
+    threshold: float = Field(default=0.50, ge=0.0, le=1.0)
+    latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0)
+    longitude: Optional[float] = Field(default=None, ge=-180.0, le=180.0)
+    evacuation_dest_lat: Optional[float] = Field(default=None, ge=-90.0, le=90.0)
+    evacuation_dest_lon: Optional[float] = Field(default=None, ge=-180.0, le=180.0)
+    radius_km: float = Field(default=15.0, ge=0.5, le=100.0)
+    idempotency_key: Optional[str] = Field(default=None, description="Client-provided key to guarantee idempotent submission")
+
+
+class CreateBorderJobRequest(BaseModel):
+    project_id: Optional[str] = Field(default="00000000-0000-0000-0000-000000000001")
+    situation_id: Optional[str] = Field(default=None)
+    video_path: Optional[str] = Field(default=None)
+    video_base64: Optional[str] = Field(default=None)
+    image_path: Optional[str] = Field(default=None)
+    image_base64: Optional[str] = Field(default=None)
+    max_frames: Optional[int] = Field(default=30, ge=1, le=300)
+    frame_stride: int = Field(default=5, ge=1, le=30)
+    terrain_context: Optional[str] = Field(default="arid")
+    latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0)
+    longitude: Optional[float] = Field(default=None, ge=-180.0, le=180.0)
+    generate_annotated_video: bool = Field(default=True)
+    idempotency_key: Optional[str] = Field(default=None, description="Client-provided key to guarantee idempotent submission")
+
+
+async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest, user_id: Optional[str]) -> Dict[str, Any]:
+    """
+    Executes the 9-stage disaster analysis lifecycle:
+    SUBMITTED -> VALIDATING -> QUEUED -> PROCESSING -> ENRICHING -> GENERATING_ADVISORY -> GENERATING_ARTIFACTS -> PERSISTING -> COMPLETED
+    """
+    settings = get_settings()
+    mgr = default_job_manager
+    temp_dirs: List[Path] = []
+    limitations: List[str] = []
+
+    try:
+        # Stage 1: VALIDATING
+        await mgr.update_progress(job_id, stage=JobStatus.VALIDATING.value, progress_percent=10, status=JobStatus.VALIDATING)
+
+        before_path: Optional[Path] = None
+        after_path: Optional[Path] = None
+
+        if req.before_image_path and req.after_image_path:
+            bp = Path(req.before_image_path)
+            ap = Path(req.after_image_path)
+            if not bp.exists():
+                raise ValidationError(f"Pre-disaster image does not exist: {req.before_image_path}")
+            if not ap.exists():
+                raise ValidationError(f"Post-disaster image does not exist: {req.after_image_path}")
+            before_path = bp
+            after_path = ap
+        elif req.before_base64 and req.after_base64:
+            before_path = _write_temp_base64(req.before_base64, field_name="before_base64")
+            after_path = _write_temp_base64(req.after_base64, field_name="after_base64")
+            temp_dirs.extend([before_path.parent, after_path.parent])
+        else:
+            raise ValidationError("Both before and after image sources are required for disaster job.")
+
+        # Stage 2: QUEUED
+        await mgr.update_progress(job_id, stage=JobStatus.QUEUED.value, progress_percent=20, status=JobStatus.QUEUED)
+
+        # Stage 3: PROCESSING (Inference)
+        await mgr.update_progress(job_id, stage=JobStatus.PROCESSING.value, progress_percent=30, status=JobStatus.PROCESSING)
+        damage_service = DamageAnalysisService()
+        runtime_result: AERIONAnalysisResult = await damage_service.analyze_damage_pair(
+            before_path=str(before_path),
+            after_path=str(after_path),
+            threshold=req.threshold,
+            run_intelligence=False,
+        )
+        analysis_id = str(runtime_result.analysis_id)
+        await mgr.update_progress(job_id, stage=JobStatus.PROCESSING.value, progress_percent=45, analysis_id=analysis_id)
+
+        damage_analysis = runtime_result.damage_analysis
+        damage_pixels = getattr(damage_analysis, "damage_pixels", 0)
+        damage_ratio = getattr(damage_analysis, "damage_ratio", 0.0)
+        damage_percentage = getattr(damage_analysis, "damage_percentage", 0.0)
+
+        # Stage 4: ENRICHING (Geospatial & External APIs)
+        await mgr.update_progress(job_id, stage=JobStatus.ENRICHING.value, progress_percent=55, status=JobStatus.ENRICHING)
+        has_coords = req.latitude is not None and req.longitude is not None
+        administrative_context = None
+        seismic_events: List[Dict[str, Any]] = []
+        shelters: List[Dict[str, Any]] = []
+        buildings_count = 0
+        infrastructure_count = 0
+        weather_data: Dict[str, Any] = {"status": "UNAVAILABLE", "reason": "No coordinates provided."}
+        route_data: Dict[str, Any] = {"status": "UNAVAILABLE", "reason": "No coordinates provided."}
+
+        if has_coords:
+            lat = float(req.latitude)  # type: ignore[arg-type]
+            lon = float(req.longitude)  # type: ignore[arg-type]
+            try:
+                geo_svc = GeospatialService()
+                admin_res = await geo_svc.reverse_geocode(latitude=lat, longitude=lon)
+                if admin_res.matched:
+                    administrative_context = {
+                        "state_name": admin_res.state_name,
+                        "district_name": admin_res.district_name,
+                        "state_code": admin_res.state_code,
+                        "district_code": admin_res.district_code,
+                    }
+                seismic_events = await geo_svc.query_historical_hazards(latitude=lat, longitude=lon, radius_km=req.radius_km, limit=10)
+                shelter_svc = ShelterService()
+                shelters = await shelter_svc.query_shelters_proximity(latitude=lat, longitude=lon, radius_km=req.radius_km, limit=5)
+            except Exception as g_err:
+                logger.warning(f"Job {job_id} geospatial enrichment degraded: {g_err}")
+                limitations.append(f"Geospatial enrichment partially degraded: {g_err}")
+
+            # Weather
+            try:
+                weather_svc = ExternalWeatherService()
+                w_rec = await weather_svc.get_weather(latitude=lat, longitude=lon)
+                weather_data = w_rec.model_dump()
+            except Exception as w_err:
+                logger.warning(f"Job {job_id} weather degraded: {w_err}")
+                weather_data = {"status": "UNAVAILABLE", "reason": str(w_err)}
+                limitations.append("Live weather data unavailable.")
+
+            # Routing
+            dest_lat = req.evacuation_dest_lat
+            dest_lon = req.evacuation_dest_lon
+            if (dest_lat is None or dest_lon is None) and shelters:
+                dest_loc = shelters[0].get("location") or {}
+                dest_lat = dest_loc.get("latitude") if isinstance(dest_loc, dict) else getattr(dest_loc, "latitude", None)
+                dest_lon = dest_loc.get("longitude") if isinstance(dest_loc, dict) else getattr(dest_loc, "longitude", None)
+
+            if dest_lat is not None and dest_lon is not None:
+                try:
+                    routing_svc = ExternalRoutingService()
+                    r_rec = await routing_svc.calculate_route(origin_lat=lat, origin_lon=lon, dest_lat=dest_lat, dest_lon=dest_lon)
+                    route_data = r_rec.model_dump()
+                except Exception as r_err:
+                    logger.warning(f"Job {job_id} routing degraded: {r_err}")
+                    route_data = {"status": "UNAVAILABLE", "reason": str(r_err)}
+                    limitations.append("Evacuation routing service unavailable.")
+            else:
+                route_data = {"status": "UNAVAILABLE", "reason": "No evacuation destination coordinates."}
+        else:
+            limitations.append("Geographic coordinates unavailable; external and spatial enrichment skipped.")
+
+        # Stage 5: GENERATING_ADVISORY (Mistral Intelligence)
+        await mgr.update_progress(job_id, stage=JobStatus.GENERATING_ADVISORY.value, progress_percent=70, status=JobStatus.GENERATING_ADVISORY)
+        if damage_ratio >= 0.75:
+            det_priority = AdvisoryPriority.CRITICAL
+        elif damage_ratio >= 0.50:
+            det_priority = AdvisoryPriority.HIGH
+        elif damage_ratio >= 0.25:
+            det_priority = AdvisoryPriority.MEDIUM
+        else:
+            det_priority = AdvisoryPriority.LOW
+
+        evidence_package = {
+            "analysis_id": analysis_id,
+            "mode": "DISASTER_RESPONSE",
+            "coordinates": {"latitude": req.latitude, "longitude": req.longitude} if has_coords else None,
+            "damage_evaluations_count": 1,
+            "damage_pixels": damage_pixels,
+            "mean_damage_ratio": damage_ratio,
+            "damage_percentage": damage_percentage,
+            "administrative_context": administrative_context,
+            "historical_hazards_count": len(seismic_events),
+            "shelters_count": len(shelters),
+            "weather_status": weather_data.get("status"),
+            "routing_status": route_data.get("status"),
+            "limitations": limitations + [
+                "Road blockage cannot be inferred solely from adjacent structural damage.",
+                "Shelter operational status reflects registered dataset records.",
+            ],
+        }
+
+        mistral_client = MistralAdvisoryClient()
+        advisory = await mistral_client.generate_grounded_advisory(
+            mode="DISASTER_RESPONSE",
+            evidence_package=evidence_package,
+            standard_protocol=get_protocol("disaster", "building_damage"),
+            deterministic_priority=det_priority,
+        )
+
+        # Stage 6: GENERATING_ARTIFACTS
+        await mgr.update_progress(job_id, stage=JobStatus.GENERATING_ARTIFACTS.value, progress_percent=85, status=JobStatus.GENERATING_ARTIFACTS)
+        # Damage pair artifact placeholder (if needed)
+
+        # Stage 7: PERSISTING
+        await mgr.update_progress(job_id, stage=JobStatus.PERSISTING.value, progress_percent=92, status=JobStatus.PERSISTING)
+        persist_info = await _safely_persist_result(
+            result=runtime_result,
+            project_id_str=req.project_id,
+            situation_id_str=req.situation_id,
+            existing_job_id_str=job_id,
+        )
+
+        final_status = JobStatus.COMPLETED_WITH_LIMITATIONS if limitations else JobStatus.COMPLETED
+        await mgr.update_progress(
+            job_id,
+            stage=final_status.value,
+            progress_percent=100,
+            status=final_status,
+            analysis_id=analysis_id,
+            limitations=limitations,
+        )
+
+        return {
+            "job_id": job_id,
+            "analysis_id": analysis_id,
+            "mode": "DISASTER_RESPONSE",
+            "damage_analysis": {
+                "damage_pixels": damage_pixels,
+                "damage_ratio": damage_ratio,
+                "damage_percentage": damage_percentage,
+                "threshold_applied": req.threshold,
+            },
+            "geospatial_context": {
+                "administrative": administrative_context,
+                "seismic_events": seismic_events,
+                "shelters": shelters,
+            },
+            "external_context": {
+                "weather": weather_data,
+                "routing": route_data,
+            },
+            "advisory": advisory.model_dump(),
+            "persistence": persist_info,
+            "limitations": advisory.limitations + limitations,
+        }
+
+    finally:
+        for tdir in temp_dirs:
+            try:
+                if tdir.exists():
+                    shutil.rmtree(tdir, ignore_errors=True)
+            except Exception as exc:
+                logger.warning(f"Error cleaning up temp dir {tdir}: {exc}")
+
+
+async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, user_id: Optional[str]) -> Dict[str, Any]:
+    """
+    Executes the 9-stage border analysis lifecycle:
+    SUBMITTED -> VALIDATING -> QUEUED -> PROCESSING -> ENRICHING -> GENERATING_ADVISORY -> GENERATING_ARTIFACTS -> PERSISTING -> COMPLETED
+    """
+    settings = get_settings()
+    mgr = default_job_manager
+    temp_dirs: List[Path] = []
+    limitations: List[str] = []
+
+    try:
+        # Stage 1: VALIDATING
+        await mgr.update_progress(job_id, stage=JobStatus.VALIDATING.value, progress_percent=10, status=JobStatus.VALIDATING)
+
+        target_path: Optional[Path] = None
+        is_video = False
+
+        if req.video_path:
+            vp = Path(req.video_path)
+            if not vp.exists():
+                raise ValidationError(f"Border video file does not exist: {req.video_path}")
+            target_path = vp
+            is_video = True
+        elif req.video_base64:
+            target_path = write_temp_base64_file(req.video_base64, suffix=".mp4", max_bytes=MAX_VIDEO_B64_BYTES, field_name="video_base64")
+            temp_dirs.append(target_path.parent)
+            is_video = True
+        elif req.image_path:
+            ip = Path(req.image_path)
+            if not ip.exists():
+                raise ValidationError(f"Border image file does not exist: {req.image_path}")
+            target_path = ip
+            is_video = False
+        elif req.image_base64:
+            target_path = _write_temp_base64(req.image_base64, field_name="image_base64")
+            temp_dirs.append(target_path.parent)
+            is_video = False
+        else:
+            raise ValidationError("Either video or image input source must be provided for border job.")
+
+        # Stage 2: QUEUED
+        await mgr.update_progress(job_id, stage=JobStatus.QUEUED.value, progress_percent=20, status=JobStatus.QUEUED)
+
+        # Stage 3: PROCESSING (Inference & Tracking)
+        await mgr.update_progress(job_id, stage=JobStatus.PROCESSING.value, progress_percent=30, status=JobStatus.PROCESSING)
+
+        analysis_id = str(uuid.uuid4())
+        total_detections_count = 0
+        crossing_indicators: List[Dict[str, Any]] = []
+        annotated_artifact_info: Optional[Dict[str, Any]] = None
+        annotated_key: Optional[str] = None
+        last_result: Optional[AERIONAnalysisResult] = None
+
+        if is_video:
+            border_job_service = BorderVideoJobService()
+            report_data = await border_job_service.process_video_file(
+                project_id=req.project_id or "00000000-0000-0000-0000-000000000001",
+                video_path=str(target_path),
+                max_frames=req.max_frames,
+                frame_stride=req.frame_stride,
+                terrain_context=req.terrain_context,
+                generate_annotated_video=req.generate_annotated_video,
+            )
+            annotated_video_res = report_data.get("annotated_video")
+            if annotated_video_res:
+                annotated_artifact_info = {
+                    "artifact_key": getattr(annotated_video_res, "artifact_key", None),
+                    "sha256": getattr(annotated_video_res, "sha256", None),
+                    "file_size_bytes": getattr(annotated_video_res, "file_size_bytes", 0),
+                    "mime_type": "video/mp4",
+                }
+                annotated_key = getattr(annotated_video_res, "artifact_key", None)
+            total_detections_count = report_data.get("total_detections_count", 0)
+            crossing_indicators = report_data.get("potential_unauthorized_crossing_indicators", [])
+            last_result = report_data.get("last_analysis_result")
+            if last_result:
+                analysis_id = str(last_result.analysis_id)
+        else:
+            img_service = ImageProcessingService()
+            runtime_result = await img_service.analyze_image(
+                image_path=str(target_path),
+                drone_model="visdrone_only",
+                terrain_context=req.terrain_context,
+                run_intelligence=False,
+            )
+            analysis_id = str(runtime_result.analysis_id)
+            total_detections_count = len(runtime_result.detections)
+            last_result = runtime_result
+
+        await mgr.update_progress(job_id, stage=JobStatus.PROCESSING.value, progress_percent=55, analysis_id=analysis_id)
+
+        # Stage 4: ENRICHING (Geospatial & Boundary Verification)
+        await mgr.update_progress(job_id, stage=JobStatus.ENRICHING.value, progress_percent=65, status=JobStatus.ENRICHING)
+        boundary_svc = InternationalBoundaryService()
+        border_contract = await boundary_svc.get_border_operational_contract()
+
+        has_coords = req.latitude is not None and req.longitude is not None
+        border_proximity_info = None
+        weather_info: Optional[Dict[str, Any]] = None
+
+        if has_coords:
+            prox_res = await boundary_svc.resolve_border_proximity(
+                latitude=float(req.latitude),  # type: ignore[arg-type]
+                longitude=float(req.longitude),  # type: ignore[arg-type]
+            )
+            border_proximity_info = prox_res.model_dump()
+            try:
+                weather_svc = ExternalWeatherService()
+                w_rec = await weather_svc.get_weather(latitude=float(req.latitude), longitude=float(req.longitude))  # type: ignore[arg-type]
+                weather_info = w_rec.model_dump()
+            except Exception as w_err:
+                logger.warning(f"Border job {job_id} weather degraded: {w_err}")
+                weather_info = {"status": "UNAVAILABLE", "error": str(w_err)}
+                limitations.append("Live weather data unavailable.")
+        else:
+            limitations.append("Sensor coordinates not provided; border proximity and weather skipped.")
+
+        # Stage 5: GENERATING_ADVISORY (Mistral Intelligence)
+        await mgr.update_progress(job_id, stage=JobStatus.GENERATING_ADVISORY.value, progress_percent=75, status=JobStatus.GENERATING_ADVISORY)
+        num_indicators = len(crossing_indicators)
+        if num_indicators >= 3:
+            det_priority = AdvisoryPriority.CRITICAL
+        elif num_indicators >= 1:
+            det_priority = AdvisoryPriority.HIGH
+        elif total_detections_count > 0:
+            det_priority = AdvisoryPriority.MEDIUM
+        else:
+            det_priority = AdvisoryPriority.LOW
+
+        evidence_package = {
+            "mode": "BORDER_SECURITY",
+            "detection_count": total_detections_count,
+            "crossing_indicators_count": num_indicators,
+            "indicators": crossing_indicators,
+            "authoritative_border_status": border_contract.acquisition_status.value,
+            "border_contract_message": border_contract.status_message,
+            "sensor_coordinates": {"latitude": req.latitude, "longitude": req.longitude} if has_coords else None,
+            "border_proximity": border_proximity_info,
+            "weather_status": weather_info.get("status") if weather_info else "UNAVAILABLE",
+            "limitations": limitations + [
+                "A detection alone is NOT a confirmed infiltration event.",
+                "Authoritative Survey of India boundary data is NOT acquired; proximity claims are suspended.",
+                "Operational zone alerts reflect configured BorderZone parameters, not official international frontier geometry.",
+            ],
+        }
+
+        mistral_client = MistralAdvisoryClient()
+        advisory = await mistral_client.generate_grounded_advisory(
+            mode="BORDER_SECURITY",
+            evidence_package=evidence_package,
+            standard_protocol=get_protocol("border", "person"),
+            deterministic_priority=det_priority,
+        )
+
+        # Stage 6: GENERATING_ARTIFACTS
+        await mgr.update_progress(job_id, stage=JobStatus.GENERATING_ARTIFACTS.value, progress_percent=85, status=JobStatus.GENERATING_ARTIFACTS)
+
+        # Stage 7: PERSISTING
+        await mgr.update_progress(job_id, stage=JobStatus.PERSISTING.value, progress_percent=92, status=JobStatus.PERSISTING)
+        persist_info: Optional[Dict[str, Any]] = None
+        if last_result is not None:
+            persist_info = await _safely_persist_result(
+                result=last_result,
+                project_id_str=req.project_id,
+                situation_id_str=req.situation_id,
+                annotated_artifact_key=annotated_key,
+                existing_job_id_str=job_id,
+            )
+
+        final_status = JobStatus.COMPLETED_WITH_LIMITATIONS if limitations else JobStatus.COMPLETED
+        await mgr.update_progress(
+            job_id,
+            stage=final_status.value,
+            progress_percent=100,
+            status=final_status,
+            analysis_id=analysis_id,
+            limitations=limitations,
+        )
+
+        return {
+            "job_id": job_id,
+            "analysis_id": analysis_id,
+            "mode": "BORDER_SECURITY",
+            "detection_count": total_detections_count,
+            "potential_unauthorized_crossing_indicators": crossing_indicators,
+            "indicators_count": num_indicators,
+            "authoritative_border_contract": {
+                "operational_border_available": border_contract.operational_border_available,
+                "acquisition_status": border_contract.acquisition_status.value,
+                "status_message": border_contract.status_message,
+            },
+            "border_proximity": border_proximity_info,
+            "external_context": {"weather": weather_info},
+            "annotated_artifact": annotated_artifact_info,
+            "advisory": advisory.model_dump(),
+            "persistence": persist_info,
+            "limitations": advisory.limitations + limitations,
+        }
+
+    finally:
+        for tdir in temp_dirs:
+            try:
+                if tdir.exists():
+                    shutil.rmtree(tdir, ignore_errors=True)
+            except Exception as exc:
+                logger.warning(f"Error cleaning up temp dir {tdir}: {exc}")
+
+
+@router.post(
+    "/jobs/disaster",
+    response_model=ResponseEnvelope[Dict[str, Any]],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Submit an asynchronous Disaster Mode analysis job with idempotency and fine-grained lifecycle tracking",
+)
+async def submit_disaster_job(
+    req: CreateDisasterJobRequest,
+    request: Request,
+    payload: dict = Depends(get_current_user_payload),
+) -> ResponseEnvelope[Dict[str, Any]]:
+    settings = get_settings()
+    user_id = payload.get("sub")
+
+    async def job_runner(jid: str):
+        return await _run_disaster_job_pipeline(jid, req, user_id)
+
+    record = await default_job_manager.submit_job(
+        task_name="disaster_analysis_pipeline",
+        coro_fn=job_runner,
+        mode="disaster",
+        project_id=req.project_id,
+        user_id=user_id,
+        input_asset_reference=req.before_image_path or req.after_image_path or "base64_pair",
+        idempotency_key=req.idempotency_key,
+        initial_status=JobStatus.SUBMITTED,
+        pass_job_context=True,
+    )
+
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(
+        success=True,
+        data=record.to_dict(),
+        meta=meta,
+    )
+
+
+@router.post(
+    "/jobs/border",
+    response_model=ResponseEnvelope[Dict[str, Any]],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Submit an asynchronous Border Security Mode analysis job with idempotency and fine-grained lifecycle tracking",
+)
+async def submit_border_job(
+    req: CreateBorderJobRequest,
+    request: Request,
+    payload: dict = Depends(get_current_user_payload),
+) -> ResponseEnvelope[Dict[str, Any]]:
+    settings = get_settings()
+    user_id = payload.get("sub")
+
+    async def job_runner(jid: str):
+        return await _run_border_job_pipeline(jid, req, user_id)
+
+    record = await default_job_manager.submit_job(
+        task_name="border_analysis_pipeline",
+        coro_fn=job_runner,
+        mode="border",
+        project_id=req.project_id,
+        user_id=user_id,
+        input_asset_reference=req.video_path or req.image_path or "base64_asset",
+        idempotency_key=req.idempotency_key,
+        initial_status=JobStatus.SUBMITTED,
+        pass_job_context=True,
+    )
+
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(
+        success=True,
+        data=record.to_dict(),
+        meta=meta,
+    )
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=ResponseEnvelope[Dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+    summary="Inspect status, progress, stage, and result of an asynchronous analysis job",
+)
+async def get_job_status(
+    job_id: str,
+    request: Request,
+    payload: dict = Depends(get_current_user_payload),
+) -> ResponseEnvelope[Dict[str, Any]]:
+    settings = get_settings()
+    record = await default_job_manager.get_job(job_id)
+    if not record:
+        raise ResourceNotFoundError(f"Analysis job not found: {job_id}")
+
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(
+        success=True,
+        data=record.to_dict(),
+        meta=meta,
+    )
+
+
+@router.post(
+    "/jobs/{job_id}/cancel",
+    response_model=ResponseEnvelope[Dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+    summary="Cancel an active asynchronous analysis job safely without orphaned artifacts",
+)
+async def cancel_job_endpoint(
+    job_id: str,
+    request: Request,
+    payload: dict = Depends(get_current_user_payload),
+) -> ResponseEnvelope[Dict[str, Any]]:
+    settings = get_settings()
+    record = await default_job_manager.get_job(job_id)
+    if not record:
+        raise ResourceNotFoundError(f"Analysis job not found: {job_id}")
+
+    cancelled = await default_job_manager.cancel_job(job_id)
+    record = await default_job_manager.get_job(job_id)
+
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(
+        success=True,
+        data={
+            "job_id": job_id,
+            "cancelled": cancelled,
+            "status": record.status.value if record else "UNKNOWN",
+            "current_stage": record.current_stage if record else "UNKNOWN",
+        },
+        meta=meta,
+    )
+
+
+@router.get(
+    "/jobs",
+    response_model=ResponseEnvelope[List[Dict[str, Any]]],
+    status_code=status.HTTP_200_OK,
+    summary="List recent analysis jobs for the authenticated tenant",
+)
+async def list_jobs_endpoint(
+    request: Request,
+    limit: int = 50,
+    status_filter: Optional[str] = None,
+    project_id: Optional[str] = None,
+    payload: dict = Depends(get_current_user_payload),
+) -> ResponseEnvelope[List[Dict[str, Any]]]:
+    settings = get_settings()
+    user_id = payload.get("sub")
+
+    s_enum = None
+    if status_filter:
+        try:
+            s_enum = JobStatus(status_filter)
+        except ValueError:
+            pass
+
+    records = await default_job_manager.list_jobs(
+        limit=min(max(1, limit), 100),
+        status=s_enum,
+        project_id=project_id,
+        user_id=user_id,
+    )
+
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(
+        success=True,
+        data=[r.to_dict() for r in records],
+        meta=meta,
+    )
+
 
 

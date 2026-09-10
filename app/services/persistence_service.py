@@ -80,10 +80,11 @@ class AnalysisPersistenceService:
         source_asset_key: Optional[str] = None,
         session_id: Optional[uuid.UUID] = None,
         annotated_artifact_key: Optional[str] = None,
+        existing_job_id: Optional[uuid.UUID] = None,
     ) -> Dict[str, Any]:
         """
         Persists a complete AERIONAnalysisResult:
-        1. Creates/verifies DBAnalysisJob
+        1. Creates/verifies DBAnalysisJob (or links to existing_job_id)
         2. Creates DBAnalysisResult
         3. Persists individual DBDetection records (with pixel_bbox / pixel_obb)
         4. Persists DBDamageAnalysis if present
@@ -120,17 +121,38 @@ class AnalysisPersistenceService:
                 await session.flush()
 
             # 2. Check or create DBAnalysisJob
-            job_id = uuid.uuid4()
-            job = DBAnalysisJob(
-                id=job_id,
-                project_id=project_id,
-                mode=result.mode or "disaster",
-                status="completed",
-                progress_percent=100,
-                started_at=utcnow(),
-                completed_at=utcnow(),
-            )
-            session.add(job)
+            if existing_job_id:
+                job = await session.get(DBAnalysisJob, existing_job_id)
+                if not job:
+                    job = DBAnalysisJob(
+                        id=existing_job_id,
+                        project_id=project_id,
+                        mode=result.mode or "disaster",
+                        status="COMPLETED",
+                        current_stage="COMPLETED",
+                        progress_percent=100,
+                        started_at=utcnow(),
+                        completed_at=utcnow(),
+                    )
+                    session.add(job)
+                else:
+                    job.status = "COMPLETED"
+                    job.current_stage = "COMPLETED"
+                    job.progress_percent = 100
+                    job.completed_at = utcnow()
+            else:
+                job_id = uuid.uuid4()
+                job = DBAnalysisJob(
+                    id=job_id,
+                    project_id=project_id,
+                    mode=result.mode or "disaster",
+                    status="COMPLETED",
+                    current_stage="COMPLETED",
+                    progress_percent=100,
+                    started_at=utcnow(),
+                    completed_at=utcnow(),
+                )
+                session.add(job)
             await session.flush()
 
             # 3. Create AnalysisResult row

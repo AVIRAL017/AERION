@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import AERIONSettings
+from app.core.errors import AERIONException
 from app.core.logging import request_id_ctx
 
 # Valid request ID pattern: alphanumeric characters, hyphens, and underscores only
@@ -52,6 +53,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
+        except AERIONException as a_exc:
+            from app.core.errors import aerion_exception_handler
+            response = await aerion_exception_handler(request, a_exc)
         except Exception as exc:
             from app.core.errors import unhandled_exception_handler
             response = await unhandled_exception_handler(request, exc)

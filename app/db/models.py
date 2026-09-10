@@ -144,8 +144,13 @@ class AnalysisJob(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     mode: Mapped[str] = mapped_column(String(50), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="queued", nullable=False, index=True)  # 'queued', 'processing', 'completed', 'failed'
+    status: Mapped[str] = mapped_column(String(50), default="SUBMITTED", nullable=False, index=True)
+    current_stage: Mapped[Optional[str]] = mapped_column(String(100), default="SUBMITTED", nullable=True)
     progress_percent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    input_asset_reference: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    limitations: Mapped[Optional[List[str]]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -154,6 +159,7 @@ class AnalysisJob(Base):
     project: Mapped["Project"] = relationship("Project", back_populates="analysis_jobs")
     analysis_result: Mapped[Optional["AnalysisResult"]] = relationship("AnalysisResult", back_populates="job", uselist=False, cascade="all, delete-orphan")
     usage_events: Mapped[List["UsageEvent"]] = relationship("UsageEvent", back_populates="job")
+
 
 
 # ============================================================================
