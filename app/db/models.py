@@ -458,3 +458,88 @@ class IntelligenceItemModel(Base):
     item_metadata: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
 
     result: Mapped["AnalysisResult"] = relationship("AnalysisResult", back_populates="intelligence_items")
+
+
+# ============================================================================
+# 20. GEOSPATIAL DATASETS (Step 17 Provenance Layer)
+# ============================================================================
+class GeospatialDataset(Base):
+    __tablename__ = "geospatial_datasets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    dataset_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    acquisition_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    license: Mapped[str] = mapped_column(String(255), nullable=False)
+    attribution: Mapped[str] = mapped_column(Text, nullable=False)
+    geographic_scope: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g. 'INDIA_NATIONAL'
+    geometry_type: Mapped[str] = mapped_column(String(50), nullable=False)      # e.g. 'MULTIPOLYGON'
+    crs: Mapped[str] = mapped_column(String(50), nullable=False)                # e.g. 'EPSG:7755' or 'EPSG:4326'
+    source_format: Mapped[str] = mapped_column(String(50), nullable=False)      # e.g. 'GeoJSON', 'Shapefile'
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # SHA-256
+    status: Mapped[str] = mapped_column(String(50), default="ACTIVE", nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    boundaries: Mapped[List["AdministrativeBoundary"]] = relationship("AdministrativeBoundary", back_populates="dataset", cascade="all, delete-orphan")
+    hazard_records: Mapped[List["HistoricalHazardRecord"]] = relationship("HistoricalHazardRecord", back_populates="dataset", cascade="all, delete-orphan")
+
+
+# ============================================================================
+# 21. ADMINISTRATIVE BOUNDARIES (Step 17 Hierarchy ADM0, ADM1, ADM2)
+# ============================================================================
+class AdministrativeBoundary(Base):
+    __tablename__ = "administrative_boundaries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("geospatial_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    level: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # 'ADM0', 'ADM1', 'ADM2'
+    country_code: Mapped[str] = mapped_column(String(10), default="IND", nullable=False, index=True)
+    state_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    district_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    name_canonical: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    source_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    geom_4326 = mapped_column(Geometry(geometry_type="MULTIPOLYGON", srid=4326, spatial_index=True), nullable=False)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    dataset: Mapped["GeospatialDataset"] = relationship("GeospatialDataset", back_populates="boundaries")
+
+    __table_args__ = (
+        Index("ix_admin_boundaries_level_state", "level", "state_code"),
+        Index("ix_admin_boundaries_level_district", "level", "district_code"),
+    )
+
+
+# ============================================================================
+# 22. HISTORICAL HAZARD RECORDS (Step 17 Flood Inventory Reference Layer)
+# ============================================================================
+class HistoricalHazardRecord(Base):
+    __tablename__ = "historical_hazard_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("geospatial_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    hazard_type: Mapped[str] = mapped_column(String(100), default="HISTORICAL_FLOOD", nullable=False, index=True)
+    source_event_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    event_date_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_date_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    state_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    district_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    cause: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    severity_reported: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    impact_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_live_status: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Strictly False for historical inventory
+    geom_4326 = mapped_column(Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=True), nullable=False)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    dataset: Mapped["GeospatialDataset"] = relationship("GeospatialDataset", back_populates="hazard_records")
+
+    __table_args__ = (
+        Index("ix_hist_hazard_type_event", "hazard_type", "source_event_id"),
+    )

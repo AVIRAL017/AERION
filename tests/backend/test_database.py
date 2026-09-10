@@ -78,6 +78,9 @@ class TestDatabaseSchemaEntities(unittest.TestCase):
         "shelters",
         "hazard_zones",
         "intelligence_items",
+        "geospatial_datasets",
+        "administrative_boundaries",
+        "historical_hazard_records",
     }
 
     def test_all_entities_registered_in_metadata(self):

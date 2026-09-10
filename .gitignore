@@ -62,6 +62,13 @@ VisDrone/
 SeaDronesSee/
 data/raw/
 data/processed/
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.osm.pbf
+*.pbf
 
 # Dataset split directory (2.7GB, not tests/ package)
 test/
