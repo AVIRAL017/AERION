@@ -522,6 +522,8 @@ class GeospatialDataset(Base):
     hazard_records: Mapped[List["HistoricalHazardRecord"]] = relationship("HistoricalHazardRecord", back_populates="dataset", cascade="all, delete-orphan")
     shelters: Mapped[List["Shelter"]] = relationship("Shelter", back_populates="dataset")
     international_boundaries: Mapped[List["InternationalBoundary"]] = relationship("InternationalBoundary", back_populates="dataset", cascade="all, delete-orphan")
+    building_footprints: Mapped[List["BuildingFootprint"]] = relationship("BuildingFootprint", back_populates="dataset", cascade="all, delete-orphan")
+    critical_infrastructures: Mapped[List["CriticalInfrastructure"]] = relationship("CriticalInfrastructure", back_populates="dataset", cascade="all, delete-orphan")
 
 
 # ============================================================================
@@ -601,4 +603,58 @@ class HistoricalHazardRecord(Base):
 
     __table_args__ = (
         Index("ix_hist_hazard_type_event", "hazard_type", "source_event_id"),
+    )
+
+
+# ============================================================================
+# 23. BUILDING FOOTPRINTS (Step 20 Building Exposure & Geometry)
+# ============================================================================
+class BuildingFootprint(Base):
+    __tablename__ = "building_footprints"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("geospatial_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_record_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    building_type: Mapped[str] = mapped_column(String(100), default="GENERAL", nullable=False, index=True)
+    damage_status: Mapped[str] = mapped_column(String(50), default="NOT_ASSESSED", nullable=False, index=True)
+    area_m2: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    area_provenance: Mapped[str] = mapped_column(String(50), default="DERIVED", nullable=False)
+    height: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    levels: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    geom_4326 = mapped_column(Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=True), nullable=False)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    dataset: Mapped["GeospatialDataset"] = relationship("GeospatialDataset", back_populates="building_footprints")
+
+
+# ============================================================================
+# 24. CRITICAL INFRASTRUCTURE (Step 20 Lifeline & Facility References)
+# ============================================================================
+class CriticalInfrastructure(Base):
+    __tablename__ = "critical_infrastructure"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("geospatial_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_record_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    infrastructure_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    subtype: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    operational_status: Mapped[str] = mapped_column(String(50), default="UNKNOWN", nullable=False, index=True)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    state_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    district_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    geom_4326 = mapped_column(Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=True), nullable=False)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    dataset: Mapped["GeospatialDataset"] = relationship("GeospatialDataset", back_populates="critical_infrastructures")
+
+    __table_args__ = (
+        Index("ix_critical_infra_state_district", "state_code", "district_code"),
     )

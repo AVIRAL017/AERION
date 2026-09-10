@@ -122,6 +122,12 @@ async def resolve_border_location(
     return await service.resolve_border_proximity(latitude=latitude, longitude=longitude)
 
 
-# Mount Shelters sub-router under /geospatial/shelters
+# Mount sub-routers under /geospatial
 from app.api.shelters import router as shelters_router
+from app.api.buildings import router as buildings_router
+from app.api.infrastructure import router as infrastructure_router
+
 router.include_router(shelters_router)
+router.include_router(buildings_router)
+router.include_router(infrastructure_router)
+

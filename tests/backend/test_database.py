@@ -150,12 +150,41 @@ class TestDatabaseSchemaEntities(unittest.TestCase):
         for col in expected_cols:
             self.assertIn(col, shelter_table.columns, f"Column {col} missing from shelters table")
 
+    def test_building_footprints_schema(self):
+        """Verify building_footprints table and columns in SQLAlchemy metadata."""
+        self.assertIn("building_footprints", Base.metadata.tables)
+        table = Base.metadata.tables["building_footprints"]
+        expected_cols = [
+            "id", "dataset_id", "source_record_id", "building_type", "damage_status",
+            "area_m2", "area_provenance", "height", "levels", "address",
+            "source_url", "geom_4326", "metadata_json", "created_at", "updated_at"
+        ]
+        for col in expected_cols:
+            self.assertIn(col, table.columns, f"Column {col} missing from building_footprints table")
+        self.assertIsInstance(table.columns["geom_4326"].type, Geometry)
+        self.assertEqual(table.columns["geom_4326"].type.srid, 4326)
+
+    def test_critical_infrastructure_schema(self):
+        """Verify critical_infrastructure table and columns in SQLAlchemy metadata."""
+        self.assertIn("critical_infrastructure", Base.metadata.tables)
+        table = Base.metadata.tables["critical_infrastructure"]
+        expected_cols = [
+            "id", "dataset_id", "source_record_id", "name", "infrastructure_type",
+            "subtype", "operational_status", "address", "state_code", "district_code",
+            "source_url", "geom_4326", "metadata_json", "created_at", "updated_at"
+        ]
+        for col in expected_cols:
+            self.assertIn(col, table.columns, f"Column {col} missing from critical_infrastructure table")
+        self.assertIsInstance(table.columns["geom_4326"].type, Geometry)
+        self.assertEqual(table.columns["geom_4326"].type.srid, 4326)
+
     def test_ddl_compilation_for_postgresql(self):
         """Ensure all table DDL compiles cleanly against the PostgreSQL dialect."""
         dialect = postgresql.dialect()
         for table in Base.metadata.sorted_tables:
             stmt = str(CreateTable(table).compile(dialect=dialect)).strip()
             self.assertTrue(stmt.startswith("CREATE TABLE"), f"Table {table.name} failed DDL compilation")
+
 
 
 if __name__ == "__main__":
