@@ -521,6 +521,31 @@ class GeospatialDataset(Base):
     boundaries: Mapped[List["AdministrativeBoundary"]] = relationship("AdministrativeBoundary", back_populates="dataset", cascade="all, delete-orphan")
     hazard_records: Mapped[List["HistoricalHazardRecord"]] = relationship("HistoricalHazardRecord", back_populates="dataset", cascade="all, delete-orphan")
     shelters: Mapped[List["Shelter"]] = relationship("Shelter", back_populates="dataset")
+    international_boundaries: Mapped[List["InternationalBoundary"]] = relationship("InternationalBoundary", back_populates="dataset", cascade="all, delete-orphan")
+
+
+# ============================================================================
+# 20B. INTERNATIONAL BOUNDARIES (Step 19 Authoritative Operational Border)
+# ============================================================================
+class InternationalBoundary(Base):
+    __tablename__ = "international_boundaries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("geospatial_datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_record_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    boundary_type: Mapped[str] = mapped_column(String(100), default="INTERNATIONAL_OPERATIONAL", nullable=False, index=True)  # 'INTERNATIONAL_OPERATIONAL'
+    geom_4326 = mapped_column(Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=True), nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    dataset: Mapped["GeospatialDataset"] = relationship("GeospatialDataset", back_populates="international_boundaries")
+
+    __table_args__ = (
+        Index("ix_intl_boundaries_type_name", "boundary_type", "name"),
+    )
 
 
 # ============================================================================

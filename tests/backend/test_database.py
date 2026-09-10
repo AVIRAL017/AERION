@@ -81,12 +81,24 @@ class TestDatabaseSchemaEntities(unittest.TestCase):
         "geospatial_datasets",
         "administrative_boundaries",
         "historical_hazard_records",
+        "international_boundaries",
     }
 
     def test_all_entities_registered_in_metadata(self):
         registered = set(Base.metadata.tables.keys())
         for expected in self.EXPECTED_TABLES:
             self.assertIn(expected, registered, f"Table {expected} missing from SQLAlchemy metadata")
+
+    def test_international_boundaries_columns(self):
+        """Verify Step 19 columns on international_boundaries table."""
+        table = Base.metadata.tables["international_boundaries"]
+        expected_cols = [
+            "id", "dataset_id", "source_record_id", "name",
+            "boundary_type", "geom_4326", "source_url",
+            "metadata_json", "created_at", "updated_at"
+        ]
+        for col in expected_cols:
+            self.assertIn(col, table.columns, f"Column {col} missing from international_boundaries table")
 
     def test_coordinate_separation_invariance(self):
         """Verify strict separation of image/pixel space vs EPSG:4326 PostGIS geometry columns."""

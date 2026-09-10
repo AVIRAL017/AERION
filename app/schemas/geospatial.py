@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -113,21 +114,96 @@ class HistoricalHazardQueryResponse(BaseModel):
 
 
 # ============================================================================
-# 4. INTERNATIONAL BORDER CONTRACT
+# 4. INTERNATIONAL BORDER CONTRACT & SPATIAL QUERIES (Step 19)
 # ============================================================================
+class BorderAcquisitionStatus(str, Enum):
+    NOT_ACQUIRED = "NOT_ACQUIRED"
+    ACQUIRED = "ACQUIRED"
+    INGESTION_FAILED = "INGESTION_FAILED"
+    INGESTED = "INGESTED"
+
+
 class BorderContractStatus(BaseModel):
     """
     Reports operational international boundary availability for Border Security Mode.
     Zero fabrication: explicit unavailable state when authoritative dataset is absent.
+    Enforces the rule: Generic administrative boundaries (ADM0) != Authoritative operational border.
     """
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     operational_border_available: bool = Field(
         description="Whether an authoritative operational border geometry is loaded"
     )
+    acquisition_status: BorderAcquisitionStatus = Field(
+        default=BorderAcquisitionStatus.NOT_ACQUIRED,
+        description="Lifecycle status of the authoritative boundary acquisition",
+    )
     authoritative_source_name: Optional[str] = Field(
+        default="Survey of India (SOI), Department of Science & Technology, Government of India",
+        description="Designated national mapping authority",
+    )
+    source_organization: Optional[str] = Field(
+        default="Survey of India (SOI) / Ministry of External Affairs",
+        description="Authoritative source agency",
+    )
+    dataset_id: Optional[str] = Field(
         default=None,
-        description="Designated authority (e.g. 'Survey of India official boundary')",
+        description="Associated geospatial_datasets dataset_id if ingested",
+    )
+    dataset_version: Optional[str] = Field(
+        default=None,
+        description="Version or release date of authoritative border vector data",
+    )
+    license_notice: Optional[str] = Field(
+        default="National Map Policy (NMP) / Survey of India Official License",
+        description="Applicable licensing terms",
     )
     status_message: str = Field(description="Operational status description")
+    reason_unavailable: Optional[str] = Field(
+        default=None,
+        description="Explanation of unavailability (e.g. departmental access credentials required)",
+    )
     notes: str = Field(description="Border intelligence operational limitations")
+    disclaimer: str = Field(
+        default="An administrative country polygon is not used as a substitute for the authoritative operational international boundary.",
+        description="Mandatory semantic safety warning",
+    )
+    provenance: Optional[DatasetProvenanceContract] = Field(
+        default=None,
+        description="Dataset provenance record if integrated",
+    )
+
+
+class BorderSpatialQueryResponse(BaseModel):
+    """
+    Structured response for point-to-border spatial resolution.
+    Adheres strictly to the invariant that boundary proximity is an analytical indicator,
+    never a confirmed security breach without independent multi-sensor verification.
+    """
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    available: bool = Field(description="Whether operational boundary is available for spatial testing")
+    query_coordinates: GeoPoint = Field(description="Query coordinate location in WGS-84")
+    is_within_border: Optional[bool] = Field(
+        default=None,
+        description="True if coordinates are contained within authoritative territory, False if outside, None if unavailable",
+    )
+    distance_to_border_km: Optional[float] = Field(
+        default=None,
+        description="Geodesic distance to nearest international boundary segment in kilometers, or None if unavailable",
+    )
+    nearest_boundary_name: Optional[str] = Field(
+        default=None,
+        description="Name of nearest international boundary record if available",
+    )
+    status_message: str = Field(
+        description="Descriptive outcome of the spatial resolution",
+    )
+    disclaimer: str = Field(
+        default="Boundary proximity does not itself establish an unauthorized crossing. A potential unauthorized crossing indicator remains an analytical indicator, not a confirmed security event.",
+        description="Mandatory border security evidence disclaimer",
+    )
+    evidence: Optional[EvidenceRecord] = Field(
+        default=None,
+        description="Associated DERIVED EvidenceRecord",
+    )

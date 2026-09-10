@@ -302,29 +302,9 @@ class GeospatialService:
     async def get_border_contract_status(self) -> BorderContractStatus:
         """
         Reports operational international boundary availability.
-        Zero fabrication: returns unavailable if authoritative operational geometry is absent.
+        Delegates to InternationalBoundaryService to enforce the rule that ADM0/ADM1/ADM2
+        boundaries are never used as a substitute for the authoritative operational international border.
         """
-        # Check if an authoritative international border dataset is registered
-        stmt = select(GeospatialDataset).where(
-            GeospatialDataset.dataset_id.in_(["SURVEY_OF_INDIA_BORDER", "AUTHORITATIVE_INDIA_BORDER"])
-        )
-        res = await self.session.execute(stmt)
-        record = res.scalar_one_or_none()
-
-        if record:
-            return BorderContractStatus(
-                operational_border_available=True,
-                authoritative_source_name=record.source_name,
-                status_message="Authoritative border geometry available for operational geofencing.",
-                notes=record.notes or "Operational border active.",
-            )
-
-        return BorderContractStatus(
-            operational_border_available=False,
-            authoritative_source_name="Survey of India (SOI) / Ministry of External Affairs",
-            status_message="Authoritative international border vector geometry is UNAVAILABLE in local registry.",
-            notes=(
-                "Administrative boundaries (ADM1/ADM2) MUST NOT be substituted as authoritative operational "
-                "borders for Border Security Mode. Pixel-space coordinates and user-defined geofences remain active."
-            ),
-        )
+        from app.services.international_boundary_service import InternationalBoundaryService
+        svc = InternationalBoundaryService(self.session)
+        return await svc.get_border_contract_status()

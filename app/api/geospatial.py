@@ -15,16 +15,22 @@ from app.db.session import get_async_session
 from app.schemas.geospatial import (
     AdminBoundaryResolution,
     BorderContractStatus,
+    BorderSpatialQueryResponse,
     DatasetProvenanceContract,
     HistoricalHazardQueryResponse,
 )
 from app.services.geospatial_service import GeospatialService
+from app.services.international_boundary_service import InternationalBoundaryService
 
 router = APIRouter(prefix="/geospatial", tags=["Geospatial Data"])
 
 
 def get_geospatial_service(session: AsyncSession = Depends(get_async_session)) -> GeospatialService:
     return GeospatialService(session)
+
+
+def get_boundary_service(session: AsyncSession = Depends(get_async_session)) -> InternationalBoundaryService:
+    return InternationalBoundaryService(session)
 
 
 @router.get(
@@ -87,7 +93,7 @@ async def query_historical_hazards(
     summary="Query operational status of international border vector demarcations",
 )
 async def get_border_status(
-    service: GeospatialService = Depends(get_geospatial_service),
+    service: InternationalBoundaryService = Depends(get_boundary_service),
     _user: dict = Depends(get_current_user_payload),
 ) -> BorderContractStatus:
     """
@@ -95,6 +101,25 @@ async def get_border_status(
     Zero fabrication: reports unavailable if authoritative boundary is absent.
     """
     return await service.get_border_contract_status()
+
+
+@router.get(
+    "/border/resolve",
+    response_model=BorderSpatialQueryResponse,
+    summary="Resolve point location relative to the authoritative international border",
+)
+async def resolve_border_location(
+    latitude: float = Query(..., ge=-90.0, le=90.0, description="WGS-84 latitude in decimal degrees"),
+    longitude: float = Query(..., ge=-180.0, le=180.0, description="WGS-84 longitude in decimal degrees"),
+    service: InternationalBoundaryService = Depends(get_boundary_service),
+    _user: dict = Depends(get_current_user_payload),
+) -> BorderSpatialQueryResponse:
+    """
+    Resolves coordinate containment and calculates exact geodesic distance in km
+    against authoritative international boundary vector geometry.
+    Zero fabrication: returns available=False if authoritative boundary is not loaded.
+    """
+    return await service.resolve_border_proximity(latitude=latitude, longitude=longitude)
 
 
 # Mount Shelters sub-router under /geospatial/shelters

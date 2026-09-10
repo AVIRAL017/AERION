@@ -134,15 +134,20 @@ Executes a PostGIS `ST_DWithin` geography query. Returns:
 ```
 
 #### `GET /api/v1/geospatial/border/status`
-Reports operational border status:
+Reports operational border status (extended in Step 19 under `InternationalBoundaryService`):
 ```json
 {
   "operational_border_available": false,
-  "authoritative_source_name": "Survey of India (SOI) / Ministry of External Affairs",
-  "status_message": "Authoritative international border vector geometry is UNAVAILABLE in local registry.",
-  "notes": "Administrative boundaries (ADM1/ADM2) MUST NOT be substituted as authoritative operational borders for Border Security Mode."
+  "acquisition_status": "NOT_ACQUIRED",
+  "authoritative_source_name": "Survey of India (SOI)",
+  "source_organization": "Survey of India, Department of Science & Technology, Government of India",
+  "reason_unavailable": "Survey of India (SOI) authoritative international boundary vector package has not been ingested. Official SOI boundary data requires authorized departmental registration under the National Map Policy.",
+  "disclaimer": "CRITICAL NOTICE: Survey of India (SOI) is the designated authority under the National Map Policy. Generic administrative boundaries (ADM0) or third-party polygons are legally and operationally NOT acceptable substitutes for operational border security decision-making."
 }
 ```
+
+#### `GET /api/v1/geospatial/border/resolve?latitude={lat}&longitude={lon}`
+Resolves geodesic distance and containment against the authoritative international boundary in PostGIS (EPSG:4326 geography ST_Distance). Returns `available=False` if authoritative data has not been ingested, without falling back to ADM0.
 
 ---
 
@@ -150,4 +155,4 @@ Reports operational border status:
 
 1. **Road Network Routing**: The 1.71 GB OSM extract (`india-260907.osm.pbf`) is registered in provenance records. In Step 17, it is intentionally NOT parsed into pgRouting tables to preserve compute resources. Routing engines will be integrated in subsequent roadmap phases.
 2. **Building Footprints**: No building polygon dataset was ingested; building and floor plans are strictly reserved for Step 20.
-3. **Authoritative Border**: Operational geofencing currently relies on user-defined geofences in pixel coordinates or georeferenced operational zones until the official Survey of India international boundary layer is provided.
+3. **Authoritative Border Integration (Step 19)**: Detailed specifications, legal framework under the National Map Policy, and PostGIS schema are documented in [AERION_INTERNATIONAL_BOUNDARY.md](file:///D:/mp-1/docs/AERION_INTERNATIONAL_BOUNDARY.md). Operational geofencing uses configured `border_zones` which remain decoupled from authoritative international borders.

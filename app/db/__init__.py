@@ -17,6 +17,7 @@ from app.db.models import (
     AdministrativeBoundary,
     HistoricalHazardRecord,
     Shelter,
+    InternationalBoundary,
 )
 
 __all__ = [
@@ -29,4 +30,5 @@ __all__ = [
     "AdministrativeBoundary",
     "HistoricalHazardRecord",
     "Shelter",
+    "InternationalBoundary",
 ]
