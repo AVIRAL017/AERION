@@ -144,3 +144,42 @@ class NormalizedGeocodeResult(BaseModel):
     raw_properties: Dict[str, Any] = Field(default_factory=dict)
     cached: bool = False
     evidence: Optional[EvidenceRecord] = None
+
+
+# ============================================================================
+# 4. NORMALIZED MISTRAL ADVISORY CONTRACTS (Step 24)
+# ============================================================================
+
+class AdvisoryPriority(str, Enum):
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+class NormalizedAdvisoryRecord(BaseModel):
+    """
+    Normalized grounded advisory response conforming to Step 24 requirements.
+    CRITICAL INVARIANT: Mistral is advisory only and NEVER a source of truth for detections.
+    """
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    advisory_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    mode: str = Field(description="'DISASTER_RESPONSE' or 'BORDER_SECURITY'")
+    summary: str = Field(description="Executive concise summary of verified situation")
+    priority: AdvisoryPriority = Field(default=AdvisoryPriority.MEDIUM)
+    key_findings: List[str] = Field(default_factory=list, description="Findings directly tied to verified evidence")
+    evidence_references: List[str] = Field(default_factory=list, description="IDs of evidence records grounding this advisory")
+    recommended_actions: List[str] = Field(default_factory=list, description="Protocol-driven actionable recommendations")
+    limitations: List[str] = Field(default_factory=list, description="Explicit statements of missing or unavailable data")
+    generated_at_utc: datetime = Field(default_factory=utcnow)
+    model: str = Field(default="open-mistral-nemo")
+    provider_status: ProviderStatus = Field(default=ProviderStatus.AVAILABLE)
+    grounded: bool = Field(default=True, description="Always True when strictly derived from verified AERION evidence")
+    disclaimer: str = Field(
+        default=(
+            "AI advisory is derived from automated sensor feeds and deterministic risk thresholds. "
+            "Tactical deployment and operational response decisions require human operator verification."
+        )
+    )
+

@@ -119,6 +119,38 @@ export const analysisApi = {
   }): Promise<APIEnvelope<any>> => {
     return apiClient.post('/analysis/border/video', payload);
   },
+
+  analyzeDisasterE2E: async (payload: {
+    before_image_path?: string;
+    after_image_path?: string;
+    before_base64?: string;
+    after_base64?: string;
+    threshold?: number;
+    latitude?: number;
+    longitude?: number;
+    evacuation_dest_lat?: number;
+    evacuation_dest_lon?: number;
+    radius_km?: number;
+    run_intelligence?: boolean;
+  }): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/disaster/e2e', payload);
+  },
+
+  analyzeBorderE2E: async (payload: {
+    video_path?: string;
+    video_base64?: string;
+    image_path?: string;
+    image_base64?: string;
+    max_frames?: number;
+    frame_stride?: number;
+    terrain_context?: string;
+    latitude?: number;
+    longitude?: number;
+    generate_annotated_video?: boolean;
+    run_intelligence?: boolean;
+  }): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/border/e2e', payload);
+  },
 };
 
 export const externalApi = {

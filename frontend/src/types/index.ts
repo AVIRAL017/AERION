@@ -318,3 +318,68 @@ export interface NormalizedGeocodeResult {
   cached: boolean;
 }
 
+export interface NormalizedAdvisoryRecord {
+  advisory_id: string;
+  mode: 'DISASTER_RESPONSE' | 'BORDER_SECURITY';
+  summary: string;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  key_findings: string[];
+  evidence_references: string[];
+  recommended_actions: string[];
+  limitations: string[];
+  generated_at_utc: string;
+  model: string;
+  provider_status: 'AVAILABLE' | 'UNAVAILABLE' | 'AUTH_REQUIRED' | 'TIMEOUT' | 'RATE_LIMITED' | 'INVALID_REQUEST' | 'PROVIDER_ERROR';
+  grounded: boolean;
+  disclaimer: string;
+}
+
+export interface DisasterModeE2EResult {
+  analysis_id: string;
+  mode: 'DISASTER_RESPONSE';
+  georeferencing_status: 'AVAILABLE' | 'UNAVAILABLE';
+  damage_analysis: {
+    damage_pixels: number;
+    damage_ratio: number;
+    damage_percentage: number;
+    threshold_applied: number;
+    claim: string;
+  };
+  geospatial_context: {
+    administrative?: Record<string, any> | null;
+    seismic_events: any[];
+    shelters: any[];
+    buildings_in_radius: number;
+    critical_infrastructure_in_radius: number;
+  };
+  external_context: {
+    weather?: NormalizedExternalWeather | null;
+    routing?: NormalizedExternalRoute | null;
+  };
+  advisory: NormalizedAdvisoryRecord;
+  persistence?: Record<string, any> | null;
+  limitations: string[];
+}
+
+export interface BorderSecurityModeE2EResult {
+  mode: 'BORDER_SECURITY';
+  detection_count: number;
+  potential_unauthorized_crossing_indicators: any[];
+  indicators_count: number;
+  authoritative_border_contract: {
+    operational_border_available: boolean;
+    acquisition_status: string;
+    status_message: string;
+    reason_unavailable?: string | null;
+  };
+  border_proximity?: Record<string, any> | null;
+  external_context: {
+    weather?: NormalizedExternalWeather | null;
+  };
+  annotated_artifact?: Record<string, any> | null;
+  advisory: NormalizedAdvisoryRecord;
+  persistence?: Record<string, any> | null;
+  limitations: string[];
+}
+
+
