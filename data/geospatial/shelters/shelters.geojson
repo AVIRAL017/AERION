@@ -1,0 +1,150 @@
+{
+  "type": "FeatureCollection",
+  "name": "india_emergency_shelters",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [77.2167, 28.6333]
+      },
+      "properties": {
+        "id": "DELHI-NDMC-001",
+        "name": "NDMC Community Hall & Relief Center (Connaught Place)",
+        "shelter_type": "COMMUNITY_CENTER",
+        "operational_status": "CONFIRMED_OPERATIONAL",
+        "capacity_total": 450,
+        "capacity_occupied": 50,
+        "capacity_status": "SOURCE_REPORTED",
+        "is_generator_powered": true,
+        "medical_support_available": true,
+        "accessibility": "Ground floor wheelchair ramp available",
+        "contact_information": "011-23365555",
+        "opening_hours": "24/7 during emergency activation",
+        "services": ["drinking_water", "first_aid", "emergency_power", "sanitation"],
+        "address": "Near Shivaji Stadium, Connaught Place, New Delhi"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [77.2090, 28.5700]
+      },
+      "properties": {
+        "id": "DELHI-AIIMS-REF-002",
+        "name": "Safdarjung Emergency Medical Refuge & Shelter",
+        "shelter_type": "HOSPITAL_REFUGE",
+        "operational_status": "REPORTED_OPERATIONAL",
+        "capacity_total": 600,
+        "capacity_occupied": 120,
+        "capacity_status": "SOURCE_REPORTED",
+        "is_generator_powered": true,
+        "medical_support_available": true,
+        "accessibility": "Full medical ramp & elevator access",
+        "contact_information": "011-26588500",
+        "opening_hours": "24/7",
+        "services": ["emergency_medicine", "triage", "oxygen_support", "drinking_water", "backup_power"],
+        "address": "Ring Road, Opp AIIMS, New Delhi"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [77.1025, 28.7041]
+      },
+      "properties": {
+        "id": "DELHI-ROHINI-REF-003",
+        "name": "Rohini Sector 14 Multi-Purpose Disaster Camp",
+        "shelter_type": "RELIEF_CAMP",
+        "operational_status": "UNKNOWN",
+        "capacity_total": 800,
+        "capacity_occupied": null,
+        "capacity_status": "UNKNOWN",
+        "is_generator_powered": false,
+        "medical_support_available": false,
+        "accessibility": null,
+        "contact_information": null,
+        "opening_hours": "Emergency declaration dependent",
+        "services": ["potable_water", "covered_hall"],
+        "address": "Sector 14, Rohini, North West Delhi"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [85.1376, 25.5941]
+      },
+      "properties": {
+        "id": "BIHAR-PATNA-FL-001",
+        "name": "Gandhi Maidan Flood Relief & Staging Ground",
+        "shelter_type": "FLOOD_RELIEF_CENTER",
+        "operational_status": "REPORTED_OPERATIONAL",
+        "capacity_total": 2500,
+        "capacity_occupied": 400,
+        "capacity_status": "SOURCE_REPORTED",
+        "is_generator_powered": true,
+        "medical_support_available": true,
+        "accessibility": "Open ground with asphalt access tracks",
+        "contact_information": "0612-2217777",
+        "opening_hours": "24/7 during flood alerts",
+        "services": ["temporary_tents", "community_kitchen", "mobile_medical_unit", "boat_docking"],
+        "address": "Gandhi Maidan, Central Patna, Bihar"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [86.7214, 20.2961]
+      },
+      "properties": {
+        "id": "ODISHA-PARADIP-CYC-001",
+        "name": "OSDMA Multi-Hazard Cyclone Shelter Paradip",
+        "shelter_type": "CYCLONE_SHELTER",
+        "operational_status": "CONFIRMED_OPERATIONAL",
+        "capacity_total": 1200,
+        "capacity_occupied": 0,
+        "capacity_status": "VERIFIED",
+        "is_generator_powered": true,
+        "medical_support_available": true,
+        "accessibility": "Engineered concrete ramp conforming to NDMA standards",
+        "contact_information": "06722-222100",
+        "opening_hours": "Standby / 24-hour storm activation",
+        "services": ["reinforced_concrete_roof", "raised_plinth_surge_protection", "rainwater_harvesting", "generator_power", "sanitation"],
+        "address": "Coastal Sector 3, Paradip Port, Jagatsinghpur, Odisha"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [80.2707, 13.0827]
+      },
+      "properties": {
+        "id": "TN-CHENNAI-NE-001",
+        "name": "Jawaharlal Nehru Multi-Purpose Indoor Stadium Shelter",
+        "shelter_type": "STADIUM",
+        "operational_status": "UNKNOWN",
+        "capacity_total": 3500,
+        "capacity_occupied": null,
+        "capacity_status": "SOURCE_REPORTED",
+        "is_generator_powered": true,
+        "medical_support_available": false,
+        "accessibility": "Standard sports facility accessibility",
+        "contact_information": "044-25384500",
+        "opening_hours": "City municipal activation",
+        "services": ["high_capacity_covered_seating", "restrooms", "backup_generators"],
+        "address": "Periamet, Chennai, Tamil Nadu"
+      }
+    }
+  ]
+}

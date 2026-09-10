@@ -122,6 +122,22 @@ class TestDatabaseSchemaEntities(unittest.TestCase):
         self.assertIn("geom_point_4326", ev_table.columns)
         self.assertIn("geom_polygon_4326", ev_table.columns)
 
+    def test_shelter_extended_columns(self):
+        """Verify Step 18 extended operational and capacity columns on shelters table."""
+        shelter_table = Base.metadata.tables["shelters"]
+        expected_cols = [
+            "id", "project_id", "dataset_id", "source_record_id", "name",
+            "geom_point_4326", "shelter_type", "operational_status", "status",
+            "capacity_total", "capacity_occupied", "capacity_status",
+            "is_generator_powered", "medical_support_available",
+            "accessibility", "contact_information", "opening_hours",
+            "services", "address", "state_code", "district_code",
+            "source_registry", "source_url", "last_reported_utc",
+            "metadata_json", "created_at", "updated_at"
+        ]
+        for col in expected_cols:
+            self.assertIn(col, shelter_table.columns, f"Column {col} missing from shelters table")
+
     def test_ddl_compilation_for_postgresql(self):
         """Ensure all table DDL compiles cleanly against the PostgreSQL dialect."""
         dialect = postgresql.dialect()

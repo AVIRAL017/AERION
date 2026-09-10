@@ -88,14 +88,36 @@ async def main():
         metadata_json={"hazard_type": "HISTORICAL_FLOOD", "is_live_status": False},
     )
 
+    shelter_contract = DatasetProvenanceContract(
+        dataset_id="INDIA_EMERGENCY_SHELTERS_V1",
+        dataset_name="India Emergency Shelters & Evacuation Points Registry",
+        source_name="OpenStreetMap Contributors / National Disaster Management Framework",
+        source_url="https://www.openstreetmap.org/",
+        version="v1.0",
+        acquisition_date=datetime(2026, 9, 10, 0, 0, 0, tzinfo=timezone.utc),
+        license="Open Database License (ODbL) 1.0",
+        attribution="OpenStreetMap Contributors / AERION Geospatial Intelligence",
+        geographic_scope="INDIA_NATIONAL",
+        geometry_type="POINT",
+        crs="EPSG:4326",
+        source_format="GeoJSON",
+        processing_status="ACTIVE",
+        checksum="",
+        notes="Verified emergency shelter points. Reference data only; presence does not confirm live operational status.",
+        metadata_json={"domain": "emergency_shelters"},
+    )
+
     # Filepaths
     state_path = root_dir / "dataset" / "india boundries" / "state_nwic_geojson" / "state_NWIC.GeoJSON"
     district_path = root_dir / "dataset" / "india boundries" / "district_nwic_geojson" / "district_nwic.GeoJSON"
     flood_path = root_dir / "dataset" / "INDIA_FLOOD_INVENTORY_V3.geojson"
+    shelter_path = root_dir / "data" / "geospatial" / "shelters" / "shelters.geojson"
 
     session_factory = get_session_factory()
     async with session_factory() as session:
         ingestion_engine = GeospatialIngestionEngine(session)
+        from app.services.shelter_ingestion import ShelterIngestionEngine
+        shelter_engine = ShelterIngestionEngine(session)
 
         # 1. Ingest States (ADM1)
         logger.info(f"Checking state boundary file at: {state_path}")
@@ -138,6 +160,20 @@ async def main():
             logger.info(f"Historical flood inventory: {fl_ing} ingested, {fl_skip} skipped.")
         else:
             logger.warning(f"Flood inventory file not found at {flood_path}")
+
+        # 4. Ingest Emergency Shelters
+        logger.info(f"Checking shelter file at: {shelter_path}")
+        if shelter_path.exists():
+            sh_summary = await shelter_engine.ingest_shelters_geojson(
+                geojson_path=shelter_path,
+                dataset_contract=shelter_contract,
+                batch_size=50,
+            )
+            logger.info(
+                f"Shelters: {sh_summary.inserted_records} inserted, {sh_summary.skipped_duplicates} duplicates skipped, {sh_summary.enriched_with_admin_boundaries} enriched."
+            )
+        else:
+            logger.warning(f"Shelter file not found at {shelter_path}")
 
         await session.commit()
         logger.info("All geospatial datasets committed successfully to PostGIS.")

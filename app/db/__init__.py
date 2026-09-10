@@ -16,6 +16,7 @@ from app.db.models import (
     GeospatialDataset,
     AdministrativeBoundary,
     HistoricalHazardRecord,
+    Shelter,
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "GeospatialDataset",
     "AdministrativeBoundary",
     "HistoricalHazardRecord",
+    "Shelter",
 ]

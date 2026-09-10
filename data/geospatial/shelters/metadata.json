@@ -1,0 +1,13 @@
+{
+  "dataset_name": "India Emergency Shelters & Evacuation Points Registry",
+  "source_organization": "OpenStreetMap Contributors / National Disaster Management Framework",
+  "download_date": "2026-09-10",
+  "version": "v1.0",
+  "format": "GeoJSON FeatureCollection (Point)",
+  "crs": "urn:ogc:def:crs:OGC:1.3:CRS84 (WGS84 EPSG:4326)",
+  "coverage": "Emergency shelters, cyclone shelters, flood relief camps, and community refuges in India",
+  "license_conditions": "Open Database License (ODbL) 1.0 / Public Humanitarian Disaster Relief Records",
+  "attribution": "OpenStreetMap Contributors / AERION Geospatial Intelligence",
+  "canonical_storage_path": "data/geospatial/shelters/shelters.geojson",
+  "operational_rule": "CRITICAL: Presence of a shelter record does NOT confirm that the facility is currently operational or has available capacity. Operational status must remain UNKNOWN unless explicitly verified by authoritative on-ground reports. Distance is an objective spatial metric in kilometers; it is NOT a safety score."
+}

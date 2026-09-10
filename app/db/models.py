@@ -412,19 +412,52 @@ class SituationReport(Base):
 class Shelter(Base):
     __tablename__ = "shelters"
 
-    id: Mapped[str] = mapped_column(String(100), primary_key=True)  # Authoritative registry ID
-    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)  # Authoritative registry ID or generated ID
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    dataset_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("geospatial_datasets.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_record_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     geom_point_4326 = mapped_column(Geometry(geometry_type="POINT", srid=4326, spatial_index=True), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), nullable=False)  # 'OPEN', 'FULL', etc.
-    capacity_total: Mapped[int] = mapped_column(Integer, nullable=False)
-    capacity_occupied: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # Operational semantics (Step 18)
+    shelter_type: Mapped[str] = mapped_column(String(100), default="UNKNOWN", nullable=False, index=True)  # 'CYCLONE_SHELTER', 'RELIEF_CAMP', 'COMMUNITY_CENTER', 'UNKNOWN'
+    operational_status: Mapped[str] = mapped_column(String(50), default="UNKNOWN", nullable=False, index=True)  # 'CONFIRMED_OPERATIONAL', 'REPORTED_OPERATIONAL', 'CLOSED', 'UNKNOWN', 'NOT_PROVIDED'
+    status: Mapped[str] = mapped_column(String(50), default="UNKNOWN", nullable=False)  # Legacy compatibility: 'OPEN', 'FULL', 'CLOSED', 'UNKNOWN'
+    
+    # Capacity semantics (Step 18)
+    capacity_total: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    capacity_occupied: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    capacity_status: Mapped[str] = mapped_column(String(50), default="NOT_PROVIDED", nullable=False)  # 'VERIFIED', 'SOURCE_REPORTED', 'UNKNOWN', 'NOT_PROVIDED'
+    
+    # Services & Facilities
     is_generator_powered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     medical_support_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    source_registry: Mapped[str] = mapped_column(String(255), nullable=False)
-    last_reported_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accessibility: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contact_information: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    opening_hours: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    services: Mapped[List[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Administrative enrichment (Step 17 linkage)
+    state_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    district_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
 
-    project: Mapped["Project"] = relationship("Project", back_populates="shelters")
+    # Provenance
+    source_registry: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    last_reported_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    project: Mapped[Optional["Project"]] = relationship("Project", back_populates="shelters")
+    dataset: Mapped[Optional["GeospatialDataset"]] = relationship("GeospatialDataset", back_populates="shelters")
+
+    __table_args__ = (
+        Index("ix_shelters_state_district", "state_code", "district_code"),
+        Index("ix_shelters_op_status", "operational_status"),
+        Index("ix_shelters_type", "shelter_type"),
+    )
 
 
 # ============================================================================
@@ -487,6 +520,7 @@ class GeospatialDataset(Base):
 
     boundaries: Mapped[List["AdministrativeBoundary"]] = relationship("AdministrativeBoundary", back_populates="dataset", cascade="all, delete-orphan")
     hazard_records: Mapped[List["HistoricalHazardRecord"]] = relationship("HistoricalHazardRecord", back_populates="dataset", cascade="all, delete-orphan")
+    shelters: Mapped[List["Shelter"]] = relationship("Shelter", back_populates="dataset")
 
 
 # ============================================================================

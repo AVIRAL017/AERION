@@ -95,3 +95,8 @@ async def get_border_status(
     Zero fabrication: reports unavailable if authoritative boundary is absent.
     """
     return await service.get_border_contract_status()
+
+
+# Mount Shelters sub-router under /geospatial/shelters
+from app.api.shelters import router as shelters_router
+router.include_router(shelters_router)
