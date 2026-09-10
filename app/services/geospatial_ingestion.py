@@ -302,3 +302,111 @@ class GeospatialIngestionEngine:
 
         logger.info(f"Flood inventory ingestion complete: {ingested} features added, {skipped} skipped.")
         return ingested, skipped
+
+    async def ingest_seismic_geojson(
+        self,
+        geojson_path: Path,
+        dataset_contract: DatasetProvenanceContract,
+        batch_size: int = 100,
+    ) -> Tuple[int, int]:
+        """
+        Ingests USGS/ANSS ComCat seismicity features into historical_hazard_records with PostGIS Point geometries.
+        Extracts magnitude, depth_km, origin event_time, place, and preserves raw USGS properties.
+        """
+        dataset_record = await self.register_dataset_metadata(dataset_contract)
+
+        # Check existing records to support idempotency
+        stmt = select(HistoricalHazardRecord.id).where(HistoricalHazardRecord.dataset_id == dataset_record.id).limit(1)
+        res = await self.session.execute(stmt)
+        if res.scalar_one_or_none():
+            logger.info(f"Seismic hazard records for dataset '{dataset_contract.dataset_id}' already ingested. Skipping.")
+            stmt_count = select(text("COUNT(*)")).select_from(HistoricalHazardRecord).where(HistoricalHazardRecord.dataset_id == dataset_record.id)
+            c_res = await self.session.execute(stmt_count)
+            return c_res.scalar() or 0, 0
+
+        with open(geojson_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        features = data.get("features", [])
+        total = len(features)
+        logger.info(f"Beginning ingestion of {total} seismic records from {geojson_path.name}...")
+
+        ingested = 0
+        skipped = 0
+
+        for chunk_start in range(0, total, batch_size):
+            chunk = features[chunk_start : chunk_start + batch_size]
+            for i, feat in enumerate(chunk):
+                props = feat.get("properties", {})
+                geom_dict = feat.get("geometry")
+
+                if not geom_dict or geom_dict.get("type") != "Point":
+                    skipped += 1
+                    continue
+
+                source_event_id = str(feat.get("id") or props.get("code") or f"USGS-{i}-{uuid.uuid4().hex[:6]}")
+                place = props.get("place", "Unknown location")
+                mag = float(props["mag"]) if props.get("mag") is not None else None
+
+                # Extract depth from 3D coordinates [lon, lat, depth]
+                coords = geom_dict.get("coordinates", [])
+                depth_km = float(coords[2]) if len(coords) >= 3 and coords[2] is not None else None
+
+                # Event origin time (USGS epoch ms)
+                event_time = None
+                time_epoch_ms = props.get("time")
+                if time_epoch_ms:
+                    try:
+                        event_time = datetime.fromtimestamp(time_epoch_ms / 1000.0, tz=timezone.utc)
+                    except Exception:
+                        pass
+
+                impact_summary = f"M{mag} Earthquake - {place}. Depth: {depth_km} km. Alert: {props.get('alert', 'N/A')}. Tsunami: {props.get('tsunami', 0)}"
+
+                geom_json_str = json.dumps({
+                    "type": "Point",
+                    "coordinates": [coords[0], coords[1]]
+                })
+
+                sql = text("""
+                    INSERT INTO historical_hazard_records (
+                        id, dataset_id, hazard_type, source_event_id,
+                        event_date_start, event_date_end, state_name, district_name,
+                        cause, severity_reported, impact_summary, is_live_status,
+                        magnitude, depth_km, event_time,
+                        geom_4326, metadata_json, created_at
+                    ) VALUES (
+                        :id, :dataset_id, 'HISTORICAL_EARTHQUAKE', :source_event_id,
+                        :event_date_start, :event_date_end, :state_name, :district_name,
+                        'Tectonic Seismicity', :severity_reported, :impact_summary, FALSE,
+                        :magnitude, :depth_km, :event_time,
+                        ST_SetSRID(ST_GeomFromGeoJSON(:geom_json), 4326),
+                        :metadata_json, NOW()
+                    )
+                """)
+
+                await self.session.execute(
+                    sql,
+                    {
+                        "id": uuid.uuid4(),
+                        "dataset_id": dataset_record.id,
+                        "source_event_id": source_event_id,
+                        "event_date_start": event_time,
+                        "event_date_end": event_time,
+                        "state_name": place,
+                        "district_name": None,
+                        "severity_reported": f"M{mag}" if mag else "UNAVAILABLE",
+                        "impact_summary": impact_summary,
+                        "magnitude": mag,
+                        "depth_km": depth_km,
+                        "event_time": event_time,
+                        "geom_json": geom_json_str,
+                        "metadata_json": json.dumps(props),
+                    },
+                )
+                ingested += 1
+
+            await self.session.flush()
+
+        logger.info(f"Seismic hazard ingestion complete: {ingested} features added, {skipped} skipped.")
+        return ingested, skipped

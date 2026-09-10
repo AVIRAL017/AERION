@@ -120,3 +120,48 @@ export const analysisApi = {
     return apiClient.post('/analysis/border/video', payload);
   },
 };
+
+export const externalApi = {
+  getWeather: async (latitude: number, longitude: number, timestampUtc?: string): Promise<APIEnvelope<any>> => {
+    const query = new URLSearchParams({
+      latitude: latitude.toString(),
+      longitude: longitude.toString(),
+    });
+    if (timestampUtc) query.append('timestamp_utc', timestampUtc);
+    return apiClient.get(`/external/weather?${query.toString()}`);
+  },
+
+  getRoute: async (
+    originLat: number,
+    originLon: number,
+    destLat: number,
+    destLon: number,
+    profile: string = 'driving-car'
+  ): Promise<APIEnvelope<any>> => {
+    const query = new URLSearchParams({
+      origin_lat: originLat.toString(),
+      origin_lon: originLon.toString(),
+      dest_lat: destLat.toString(),
+      dest_lon: destLon.toString(),
+      profile,
+    });
+    return apiClient.get(`/external/route?${query.toString()}`);
+  },
+
+  forwardGeocode: async (queryText: string, limit: number = 1): Promise<APIEnvelope<any>> => {
+    const query = new URLSearchParams({
+      query: queryText,
+      limit: limit.toString(),
+    });
+    return apiClient.get(`/external/geocode?${query.toString()}`);
+  },
+
+  reverseGeocode: async (latitude: number, longitude: number): Promise<APIEnvelope<any>> => {
+    const query = new URLSearchParams({
+      latitude: latitude.toString(),
+      longitude: longitude.toString(),
+    });
+    return apiClient.get(`/external/reverse-geocode?${query.toString()}`);
+  },
+};
+

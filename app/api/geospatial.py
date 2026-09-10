@@ -73,17 +73,19 @@ async def query_historical_hazards(
     latitude: float = Query(..., ge=-90.0, le=90.0, description="WGS-84 latitude"),
     longitude: float = Query(..., ge=-180.0, le=180.0, description="WGS-84 longitude"),
     radius_km: float = Query(25.0, ge=0.1, le=500.0, description="Search radius in kilometers"),
+    hazard_type: Optional[str] = Query(None, description="Filter hazard type (e.g. 'HISTORICAL_FLOOD', 'HISTORICAL_EARTHQUAKE', or None for all)"),
     service: GeospatialService = Depends(get_geospatial_service),
     _user: dict = Depends(get_current_user_payload),
 ) -> HistoricalHazardQueryResponse:
     """
-    Returns historical flood polygons from PostGIS within proximity radius.
+    Returns historical hazard records (floods, earthquakes) from PostGIS within proximity radius.
     Strict invariant: strictly reference/historical hazard evidence, never live operational status.
     """
     return await service.query_historical_hazards(
         latitude=latitude,
         longitude=longitude,
         radius_km=radius_km,
+        hazard_type=hazard_type,
     )
 
 

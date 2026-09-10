@@ -249,3 +249,72 @@ export interface AERIONAnalysisResultData {
   annotated_image_base64?: string | null;
   annotated_video_artifact?: AnnotatedVideoArtifact | null;
 }
+
+export interface NormalizedExternalWeather {
+  observation_id: string;
+  provider_name: string;
+  status: 'AVAILABLE' | 'UNAVAILABLE' | 'AUTH_REQUIRED' | 'TIMEOUT' | 'RATE_LIMITED' | 'INVALID_REQUEST' | 'PROVIDER_ERROR';
+  observation_timestamp_utc: string;
+  fetched_at_utc: string;
+  is_historical_reconstructed: boolean;
+  latitude: number;
+  longitude: number;
+  temperature_celsius?: number | null;
+  apparent_temperature_celsius?: number | null;
+  relative_humidity_percentage?: number | null;
+  precipitation_mm_hr?: number | null;
+  weather_code?: number | null;
+  condition_description?: string | null;
+  wind_speed_mps?: number | null;
+  wind_direction_deg?: number | null;
+  visibility_meters?: number | null;
+  cloud_cover_percentage?: number | null;
+  flight_suitability: 'OPTIMAL' | 'MARGINAL' | 'GROUNDED' | 'UNAVAILABLE';
+  ground_trafficability_index?: number | null;
+  limitations?: string | null;
+  cached: boolean;
+}
+
+export interface NormalizedExternalRoute {
+  route_id: string;
+  provider_name: string;
+  status: 'AVAILABLE' | 'UNAVAILABLE' | 'AUTH_REQUIRED' | 'TIMEOUT' | 'RATE_LIMITED' | 'INVALID_REQUEST' | 'PROVIDER_ERROR';
+  origin: { latitude: number; longitude: number };
+  destination: { latitude: number; longitude: number };
+  profile: 'driving-car' | 'emergency';
+  total_distance_meters?: number | null;
+  total_duration_seconds?: number | null;
+  elevation_ascent_meters?: number | null;
+  geometry_geojson?: Record<string, any> | null;
+  steps: Array<{
+    step_index: number;
+    instruction: string;
+    name: string;
+    distance_meters: number;
+    duration_seconds: number;
+  }>;
+  hazards_avoided_count: number;
+  fetched_at_utc: string;
+  warnings: string[];
+  is_evacuation_evaluated: boolean;
+  cached: boolean;
+}
+
+export interface NormalizedGeocodeResult {
+  provider_name: string;
+  status: 'AVAILABLE' | 'UNAVAILABLE' | 'AUTH_REQUIRED' | 'TIMEOUT' | 'RATE_LIMITED' | 'INVALID_REQUEST' | 'PROVIDER_ERROR';
+  query?: string | null;
+  latitude: number;
+  longitude: number;
+  display_name: string;
+  locality?: string | null;
+  district?: string | null;
+  state?: string | null;
+  country: string;
+  country_code: string;
+  postcode?: string | null;
+  confidence?: number | null;
+  fetched_at_utc: string;
+  cached: boolean;
+}
+

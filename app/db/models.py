@@ -595,6 +595,9 @@ class HistoricalHazardRecord(Base):
     severity_reported: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     impact_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_live_status: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # Strictly False for historical inventory
+    magnitude: Mapped[Optional[float]] = mapped_column(Numeric(4, 2), nullable=True, index=True)
+    depth_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    event_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     geom_4326 = mapped_column(Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=True), nullable=False)
     metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -603,6 +606,7 @@ class HistoricalHazardRecord(Base):
 
     __table_args__ = (
         Index("ix_hist_hazard_type_event", "hazard_type", "source_event_id"),
+        Index("ix_hist_hazard_magnitude", "magnitude"),
     )
 
 

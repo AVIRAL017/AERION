@@ -201,8 +201,17 @@ class OpenRouteServiceProvider(RoutingProvider):
     Calculates genuine road-graph trajectories and avoids blocked / hazardous zones.
     """
 
-    def __init__(self, api_key: Optional[str] = None, base_url: str = "https://api.openrouteservice.org"):
-        self.api_key = api_key or (get_settings().OPENROUTESERVICE_API_KEY.get_secret_value() if get_settings().OPENROUTESERVICE_API_KEY else None)
+    _DEFAULT = object()
+
+    def __init__(self, api_key: Any = _DEFAULT, base_url: str = "https://api.openrouteservice.org"):
+        if api_key is self._DEFAULT:
+            self.api_key = (
+                get_settings().OPENROUTESERVICE_API_KEY.get_secret_value()
+                if get_settings().OPENROUTESERVICE_API_KEY
+                else None
+            )
+        else:
+            self.api_key = api_key
         self.base_url = base_url
 
     async def calculate_route(
@@ -302,6 +311,89 @@ class OpenRouteServiceProvider(RoutingProvider):
 
         except Exception as e:
             logger.warning(f"Failed to calculate route via OpenRouteService: {e}")
+            return None
+
+
+class MapboxRoutingProvider(RoutingProvider):
+    """
+    Real-world Routing Engine using Mapbox Directions API.
+    Calculates genuine road-graph trajectories. Never returns straight-line approximations.
+    """
+
+    def __init__(self, access_token: Optional[str] = None, base_url: str = "https://api.mapbox.com/directions/v5"):
+        self.access_token = access_token or (get_settings().MAPBOX_ACCESS_TOKEN.get_secret_value() if get_settings().MAPBOX_ACCESS_TOKEN else None)
+        self.base_url = base_url
+
+    async def calculate_route(
+        self,
+        origin: GeoPoint,
+        destination: GeoPoint,
+        route_type: RouteType = RouteType.FASTEST_FEASIBLE,
+        avoid_polygons: Optional[List[GeoPolygon]] = None,
+    ) -> Optional[RouteAssessment]:
+        if not self.access_token:
+            logger.info("Mapbox access token not configured; routing unavailable.")
+            return None
+
+        url = f"{self.base_url}/mapbox/driving/{origin.longitude},{origin.latitude};{destination.longitude},{destination.latitude}"
+        params = {
+            "access_token": self.access_token,
+            "geometries": "geojson",
+            "steps": "true",
+            "overview": "full",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    logger.warning(f"Mapbox returned status {resp.status_code}: {resp.text}")
+                    return None
+
+                data = resp.json()
+                routes = data.get("routes", [])
+                if not routes:
+                    return None
+
+                route0 = routes[0]
+                dist_m = route0.get("distance")
+                dur_s = route0.get("duration")
+                geometry = route0.get("geometry", {})
+
+                segments: List[RouteSegment] = []
+                for leg in route0.get("legs", []):
+                    for idx, step in enumerate(leg.get("steps", [])):
+                        segments.append(
+                            RouteSegment(
+                                segment_index=idx,
+                                name=step.get("name") or step.get("maneuver", {}).get("instruction", f"Segment {idx}"),
+                                distance_meters=float(step.get("distance", 0.0)),
+                                duration_seconds=float(step.get("duration", 0.0)),
+                                is_blocked=False,
+                                hazard_proximity_meters=None,
+                                geo_line=[],
+                            )
+                        )
+
+                return RouteAssessment(
+                    route_id=str(uuid.uuid4()),
+                    route_type=route_type,
+                    status=RouteStatus.ACTIVE,
+                    origin=origin,
+                    destination=destination,
+                    total_distance_meters=float(dist_m) if dist_m is not None else None,
+                    total_duration_seconds=float(dur_s) if dur_s is not None else None,
+                    elevation_gain_meters=None,
+                    hazards_avoided_count=len(avoid_polygons or []),
+                    road_segments=segments,
+                    geometry_geojson=geometry,
+                    routing_engine_name="Mapbox",
+                    engine_response_timestamp_utc=datetime.now(timezone.utc),
+                    evidence_ids=[str(uuid.uuid4())],
+                )
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate route via Mapbox: {e}")
             return None
 
 

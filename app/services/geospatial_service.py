@@ -226,27 +226,31 @@ class GeospatialService:
         radius_meters = float(radius_km) * 1000.0
         query_pt = GeoPoint(latitude=latitude, longitude=longitude)
 
-        sql = text("""
+        where_clauses = ["ST_DWithin(h.geom_4326::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :radius_meters)"]
+        params: Dict[str, Any] = {
+            "lon": longitude,
+            "lat": latitude,
+            "radius_meters": radius_meters,
+        }
+
+        if hazard_type:
+            where_clauses.append("h.hazard_type = :hazard_type")
+            params["hazard_type"] = hazard_type
+
+        where_sql = " AND ".join(where_clauses)
+        sql = text(f"""
             SELECT 
                 h.id, h.hazard_type, h.source_event_id, h.event_date_start, h.event_date_end,
                 h.state_name, h.district_name, h.cause, h.severity_reported, h.impact_summary,
-                h.is_live_status, ST_AsGeoJSON(h.geom_4326) as geom_json, h.metadata_json
+                h.is_live_status, ST_AsGeoJSON(h.geom_4326) as geom_json, h.metadata_json,
+                h.magnitude, h.depth_km, h.event_time
             FROM historical_hazard_records h
-            WHERE h.hazard_type = :hazard_type
-              AND ST_DWithin(h.geom_4326::geography, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :radius_meters)
+            WHERE {where_sql}
             ORDER BY h.event_date_start DESC NULLS LAST
             LIMIT 100;
         """)
 
-        res = await self.session.execute(
-            sql,
-            {
-                "hazard_type": hazard_type,
-                "lon": longitude,
-                "lat": latitude,
-                "radius_meters": radius_meters,
-            },
-        )
+        res = await self.session.execute(sql, params)
         rows = res.fetchall()
 
         items = []
@@ -264,6 +268,9 @@ class GeospatialService:
                     cause=r[7],
                     severity_reported=r[8] or "UNAVAILABLE",
                     impact_summary=r[9],
+                    magnitude=float(r[13]) if r[13] is not None else None,
+                    depth_km=float(r[14]) if r[14] is not None else None,
+                    event_time=r[15],
                     is_live_status=False,  # Strict Invariant
                     geometry_geojson=geom,
                     metadata=r[12] or {},

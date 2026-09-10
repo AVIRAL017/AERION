@@ -100,6 +100,19 @@ class TestDatabaseSchemaEntities(unittest.TestCase):
         for col in expected_cols:
             self.assertIn(col, table.columns, f"Column {col} missing from international_boundaries table")
 
+    def test_historical_hazard_records_columns(self):
+        """Verify Step 21 extended seismic hazard columns on historical_hazard_records table."""
+        table = Base.metadata.tables["historical_hazard_records"]
+        expected_cols = [
+            "id", "dataset_id", "hazard_type", "source_event_id",
+            "event_date_start", "event_date_end", "state_name", "district_name",
+            "cause", "severity_reported", "impact_summary", "is_live_status",
+            "magnitude", "depth_km", "event_time",
+            "geom_4326", "metadata_json", "created_at"
+        ]
+        for col in expected_cols:
+            self.assertIn(col, table.columns, f"Column {col} missing from historical_hazard_records table")
+
     def test_coordinate_separation_invariance(self):
         """Verify strict separation of image/pixel space vs EPSG:4326 PostGIS geometry columns."""
         # 1. Geofence
