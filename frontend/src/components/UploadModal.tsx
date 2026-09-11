@@ -138,7 +138,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     }
 
     setIsProcessing(true);
-    setStatusMessage('ENCODING ASSET TELEMETRY STREAM...');
+    setStatusMessage('ENCODING ASSET PAYLOAD...');
 
     try {
       if (mode === 'drone_image') {
@@ -225,7 +225,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           });
           onClose();
         } else {
-          throw new Error(typeof resp.error === 'string' ? resp.error : (resp.error as any)?.message || 'Video stream processing failed.');
+          throw new Error(typeof resp.error === 'string' ? resp.error : (resp.error as any)?.message || 'Video analysis failed.');
         }
       }
     } catch (err: any) {
@@ -308,7 +308,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-[18px]">videocam</span>
-              <span className="text-[10px] tracking-wide">SURVEILLANCE VID</span>
+              <span className="text-[10px] tracking-wide">VIDEO ANALYSIS</span>
             </button>
           </div>
 
@@ -319,7 +319,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               {mode === 'drone_image' && 'Inference via frozen VisDrone YOLOv8 or Unified Drone detector. Produces real bounding boxes, confidence, and tactical classifications.'}
               {mode === 'satellite_image' && 'Inference via frozen DOTA OBB Oriented Bounding Box detector. Preserves exact 4-corner polygon geometry.'}
               {mode === 'damage_pair' && 'Inference via frozen Siamese ResNet-18 change detection network. Computes pixel-level damage ratio and status.'}
-              {mode === 'border_video' && 'Frame-by-frame inference with ByteTrack multi-target state estimation. Strict GPU mutex serialized inference.'}
+              {mode === 'border_video' && 'Asynchronous frame-by-frame analysis with ByteTrack multi-target state estimation. Optimized for bounded recorded video files.'}
             </div>
           </div>
 

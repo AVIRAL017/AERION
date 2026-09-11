@@ -6,7 +6,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.6.0%2Bcu124-EE4C2C.svg)](https://pytorch.org/)
 [![Status](https://img.shields.io/badge/Status-Phase%205%20Accepted-success.svg)]()
 
-AERION is an advanced multi-modal defense and disaster situational awareness platform integrating aerial/drone computer vision, satellite oriented bounding box (OBB) object detection, bi-temporal Siamese structural damage assessment, real-time border surveillance geofencing, and protocol-grounded advisory incident intelligence.
+AERION is an advanced multi-modal defense and disaster situational awareness platform integrating aerial/drone computer vision, satellite oriented bounding box (OBB) object detection, bi-temporal Siamese structural damage assessment, asynchronous border surveillance geofencing and multi-target tracking, and protocol-grounded advisory incident intelligence.
 
 ---
 

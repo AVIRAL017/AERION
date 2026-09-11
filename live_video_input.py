@@ -5,13 +5,14 @@ import time
 
 class LiveVideoInput:
     """
+    [OFFLINE DEVELOPER SIMULATION ONLY]
     Threaded video input with a bounded latest-frame buffer.
 
-    Works with:
-    - RTSP streams
-    - Local video files used as live-stream simulations
+    Used solely for local developer benchmarking and pipeline verification.
+    Not used in AERION v1 cloud production runtime (which operates
+    asynchronously on uploaded video files).
 
-    The capture thread continuously reads frames.
+    The capture thread reads frames from an offline file.
     If inference is slower than capture, old frames are replaced
     by the newest frame instead of building an unlimited queue.
     """

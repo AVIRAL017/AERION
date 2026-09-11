@@ -63,6 +63,7 @@ The cloud benchmark was executed on the live staging virtual machine in `indiaso
 
 ### 4.2 Throughput & Latency Findings: Asynchronous Processing Mandate
 - **Video Inference Rate**: Achieving **1.20 processing FPS** on 2 vCPUs definitively confirms that AERION must **never** advertise real-time video surveillance capabilities.
+- **Intentional Exclusion of Live-Stream Detection**: Live and real-time video streaming inference is intentionally excluded from AERION v1. The system operates strictly as an asynchronous, bounded video-file analysis and evidence pipeline.
 - **Asynchronous Architecture Validation**: The HTTP 202 `Accepted` submission pattern paired with job lifecycle polling (`/jobs/{id}`) is architecturally vital. Staging requests never timeout at the reverse proxy layer (Nginx `proxy_read_timeout 300s`) because processing is deferred to background asyncio tasks.
 
 ---

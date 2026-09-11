@@ -61,26 +61,34 @@ class InternationalBoundaryService:
     Manages authoritative international boundary spatial operations and lifecycle status.
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: Optional[AsyncSession] = None):
+        self._external_session = session
         self.session = session
+
+    async def _get_session(self) -> AsyncSession:
+        if self.session is not None:
+            return self.session
+        from app.db.session import AsyncSessionLocal
+        return await AsyncSessionLocal()
 
     async def get_border_contract_status(self) -> BorderContractStatus:
         """
         Queries PostGIS for registered authoritative international boundary datasets.
         Strict rule: Presence of ADM0/ADM1/ADM2 does NOT satisfy this contract.
         """
+        session = await self._get_session()
         # 1. Check if an authoritative international boundary record exists in international_boundaries
         stmt_count = select(func.count(DBInternationalBoundary.id)).where(
             DBInternationalBoundary.boundary_type == "INTERNATIONAL_OPERATIONAL"
         )
-        res_count = await self.session.execute(stmt_count)
+        res_count = await session.execute(stmt_count)
         boundary_count = res_count.scalar() or 0
 
         # 2. Check dataset provenance registry
         stmt_dataset = select(GeospatialDataset).where(
             GeospatialDataset.dataset_id.in_(SOI_BORDER_DATASET_IDS)
         )
-        res_dataset = await self.session.execute(stmt_dataset)
+        res_dataset = await session.execute(stmt_dataset)
         dataset_rec = res_dataset.scalar_one_or_none()
 
         if boundary_count > 0 and dataset_rec:
@@ -177,7 +185,8 @@ class InternationalBoundaryService:
             LIMIT 1;
         """)
 
-        res = await self.session.execute(sql, {"lat": latitude, "lon": longitude})
+        session = await self._get_session()
+        res = await session.execute(sql, {"lat": latitude, "lon": longitude})
         row = res.fetchone()
 
         if not row:

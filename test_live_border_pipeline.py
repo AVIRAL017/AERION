@@ -22,7 +22,7 @@ ZONE_POLYGON = [
 def main():
 
     print("=" * 70)
-    print("REAL-TIME SIMULATION: VIDEO + BORDER PIPELINE")
+    print("OFFLINE BENCHMARK SIMULATION: VIDEO + BORDER PIPELINE")
     print("=" * 70)
 
     video = LiveVideoInput(
@@ -159,7 +159,7 @@ def main():
 
     print()
     print("=" * 70)
-    print("REAL-TIME SIMULATION COMPLETE")
+    print("OFFLINE BENCHMARK SIMULATION COMPLETE")
     print("=" * 70)
 
     print(f"Source FPS:             {source_fps:.2f}")

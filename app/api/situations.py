@@ -361,7 +361,7 @@ async def get_situation_report(
         raw_report = await intel_service.build_border_report(
             situation_id=situation_id,
             session_id=session_id,
-            temporal_mode=TemporalMode.LIVE_STREAM,
+            temporal_mode=TemporalMode.RECORDED_FOOTAGE,
             tactical_overview={"threat_level": "LOW", "sectors_monitored_count": 1},
             detections_summary={"total_detections_count": 0, "by_class": {}},
             crossing_indicators=[],
@@ -453,7 +453,7 @@ async def create_situation(
             project_id=uuid.UUID(project_id_str),
             session_id=uuid.UUID(session_id_str),
             mode=mode,
-            temporal_mode=req.get("temporal_mode", "LIVE_STREAM"),
+            temporal_mode=req.get("temporal_mode", "RECORDED_FOOTAGE"),
             is_active=True,
             overall_threat_level="LOW",
             overall_score=0.0,

@@ -1312,7 +1312,18 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
         # Stage 4: ENRICHING (Geospatial & Boundary Verification)
         await mgr.update_progress(job_id, stage=JobStatus.ENRICHING.value, progress_percent=65, status=JobStatus.ENRICHING)
         boundary_svc = InternationalBoundaryService()
-        border_contract = await boundary_svc.get_border_operational_contract()
+        try:
+            border_contract = await boundary_svc.get_border_contract_status()
+        except Exception as b_err:
+            logger.warning(f"Border contract check failed for job {job_id}: {b_err}")
+            from app.schemas.geospatial import BorderContractStatus, BorderAcquisitionStatus
+            border_contract = BorderContractStatus(
+                operational_border_available=False,
+                acquisition_status=BorderAcquisitionStatus.NOT_ACQUIRED,
+                authoritative_source_name="Survey of India (SOI)",
+                status_message=f"Border contract check degraded: {b_err}",
+            )
+            limitations.append("Authoritative border verification database query degraded.")
 
         has_coords = req.latitude is not None and req.longitude is not None
         border_proximity_info = None

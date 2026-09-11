@@ -354,7 +354,7 @@ export const BorderPage: React.FC = () => {
                       {/* Real Detections List */}
                       <div className="flex-1 overflow-y-auto">
                         <span className="text-[11px] font-mono text-muted uppercase block mb-2">
-                          VERIFIED DETECTIONS STREAM
+                          VERIFIED DETECTIONS LIST
                         </span>
                         {activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 ? (
                           <div className="space-y-1.5">
@@ -394,7 +394,7 @@ export const BorderPage: React.FC = () => {
                     className="absolute top-3 right-3 px-2 py-1 rounded bg-panel/90 border border-white/[0.1] text-[10px] font-mono text-muted hover:text-paper z-30 flex items-center gap-1"
                   >
                     <span className="material-symbols-outlined text-[13px]">refresh</span>
-                    <span>RESET TO LIVE</span>
+                    <span>CLEAR INGESTED RESULT</span>
                   </button>
                 </div>
               </div>
@@ -403,8 +403,8 @@ export const BorderPage: React.FC = () => {
                 {/* Visual Canvas with detected targets */}
                 <div className="relative border border-white/[0.08] rounded-lg bg-panel/30 w-full h-full overflow-hidden flex items-center justify-center">
                   <div className="absolute top-4 left-4 font-mono text-[11px] text-muted flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-accent animate-ping"></span>
-                    <span>ACTIVE TRACKING STREAM</span>
+                    <span className="w-2 h-2 rounded-full bg-accent"></span>
+                    <span>SECTOR BASELINE OVERVIEW</span>
                   </div>
 
                   {situation.detections.map((target) => (
@@ -442,7 +442,7 @@ export const BorderPage: React.FC = () => {
                   NO VERIFIED DETECTIONS
                 </h3>
                 <p className="text-[11px] text-faint mt-1">
-                  Active video/satellite stream is clear or awaiting sensor frame ingest.
+                  Sector is clear or awaiting asset ingest for asynchronous analysis.
                 </p>
                 <button
                   onClick={() => { setUploadMode('drone_image'); setIsUploadOpen(true); }}
