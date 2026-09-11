@@ -32,11 +32,18 @@ class UserLoginRequest(BaseModel):
     password: str
 
 
+class GoogleLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id_token: str = Field(min_length=10, description="Google OAuth 2.0 cryptographically signed ID token")
+
+
 class UserResponse(BaseModel):
     id: str
     organization_id: str
     email: str
     role: str
+    auth_provider: str = "local"
+    display_name: Optional[str] = None
     is_active: bool
     created_at: datetime
 

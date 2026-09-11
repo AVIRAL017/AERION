@@ -53,8 +53,12 @@ class AERIONSettings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, description="Access token expiration lifetime in minutes")
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, description="Refresh token expiration lifetime in days")
     ALLOWED_ORIGINS: Union[List[str], str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+        default=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"],
         description="Allowed CORS origins (list of strings or comma-separated string)",
+    )
+    GOOGLE_CLIENT_ID: Optional[str] = Field(
+        default="491914857043-sqs1p7ntalt2irvr4vju0nav3ol4hnqd.apps.googleusercontent.com",
+        description="Google OAuth 2.0 Web Client ID for Google Sign-In verification",
     )
     REQUEST_ID_HEADER: str = Field(default="X-Request-ID", description="Header used for correlation tracking")
     MAX_REQUEST_ID_LENGTH: int = Field(default=64, description="Maximum permitted length for incoming request IDs")

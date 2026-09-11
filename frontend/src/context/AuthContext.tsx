@@ -7,6 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (payload: LoginPayload) => Promise<boolean>;
+  loginWithGoogle: (idToken: string) => Promise<boolean>;
   register: (payload: RegisterPayload) => Promise<boolean>;
   logout: () => void;
   error: string | null;
@@ -69,6 +70,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithGoogle = async (idToken: string): Promise<boolean> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await authApi.googleLogin(idToken);
+      if (res.success && res.data) {
+        localStorage.setItem('aerion_access_token', res.data.access_token);
+        if ((res.data as any).user) {
+          setUser((res.data as any).user);
+        } else {
+          const meRes = await authApi.getMe();
+          if (meRes.success && meRes.data) {
+            setUser(meRes.data);
+          }
+        }
+        setIsLoading(false);
+        return true;
+      } else {
+        setError(res.error || 'Google authentication failed');
+        setIsLoading(false);
+        return false;
+      }
+    } catch (err: any) {
+      setError(err.message || 'Google authentication failed');
+      setIsLoading(false);
+      return false;
+    }
+  };
+
   const register = async (payload: RegisterPayload): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
@@ -99,6 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    authApi.logout().catch(() => {});
     localStorage.removeItem('aerion_access_token');
     setUser(null);
   };
@@ -110,6 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!user,
         isLoading,
         login,
+        loginWithGoogle,
         register,
         logout,
         error,

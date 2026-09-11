@@ -8,9 +8,12 @@ export interface APIEnvelope<T> {
 export interface User {
   id: string;
   email: string;
-  full_name: string;
+  full_name?: string;
+  display_name?: string;
+  auth_provider?: string;
   role: 'admin' | 'analyst' | 'operator' | 'viewer';
-  tier: 'free' | 'pro' | 'enterprise';
+  tier?: 'free' | 'pro' | 'enterprise';
+  is_active?: boolean;
   created_at: string;
 }
 

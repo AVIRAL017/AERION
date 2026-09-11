@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.db.models import User
 from app.db.session import get_async_session
 from app.schemas.auth import (
+    GoogleLoginRequest,
     TokenResponse,
     UserLoginRequest,
     UserRegisterRequest,
@@ -70,6 +71,45 @@ async def login(
     return ResponseEnvelope(success=True, data=token_resp, meta=meta)
 
 
+@router.post(
+    "/google",
+    response_model=ResponseEnvelope[TokenResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Authenticate via Google OAuth ID Token and issue JWT access token",
+)
+async def google_login(
+    req: GoogleLoginRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[TokenResponse]:
+    settings = get_settings()
+    token_resp = await AuthService.login_with_google(session, req.id_token)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=token_resp, meta=meta)
+
+
+@router.post(
+    "/logout",
+    response_model=ResponseEnvelope[dict],
+    status_code=status.HTTP_200_OK,
+    summary="Invalidate client session / record session termination",
+)
+async def logout(
+    request: Request,
+) -> ResponseEnvelope[dict]:
+    settings = get_settings()
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data={"message": "Logged out successfully."}, meta=meta)
+
+
 @router.get(
     "/me",
     response_model=ResponseEnvelope[UserResponse],
@@ -86,6 +126,8 @@ async def get_me(
         organization_id=str(current_user.organization_id),
         email=current_user.email,
         role=current_user.role,
+        auth_provider=current_user.auth_provider,
+        display_name=current_user.display_name,
         is_active=current_user.is_active,
         created_at=current_user.created_at,
     )
@@ -95,3 +137,4 @@ async def get_me(
         version=settings.API_VERSION,
     )
     return ResponseEnvelope(success=True, data=user_resp, meta=meta)
+

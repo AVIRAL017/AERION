@@ -35,6 +35,16 @@ export const authApi = {
   getMe: async (): Promise<APIEnvelope<User>> => {
     return apiClient.get<User>('/auth/me');
   },
+
+  googleLogin: async (idToken: string): Promise<APIEnvelope<TokenResponse>> => {
+    return apiClient.post<TokenResponse>('/auth/google', {
+      id_token: idToken,
+    });
+  },
+
+  logout: async (): Promise<APIEnvelope<{ message: string }>> => {
+    return apiClient.post<{ message: string }>('/auth/logout', {});
+  },
 };
 
 export const situationsApi = {

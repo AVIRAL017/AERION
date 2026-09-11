@@ -1,13 +1,78 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+
+// Default Google OAuth Client ID matching AERION Google Cloud project configuration
+const GOOGLE_CLIENT_ID =
+  (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
+  '491914857043-sqs1p7ntalt2irvr4vju0nav3ol4hnqd.apps.googleusercontent.com';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: any) => void;
+          renderButton: (parent: HTMLElement, options: any) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login, error } = useAuth();
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const { login, loginWithGoogle, error } = useAuth();
   const navigate = useNavigate();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Initialize Google Identity Services button
+    const initGsi = () => {
+      if (window.google?.accounts?.id && googleBtnRef.current) {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: async (response: { credential?: string }) => {
+            if (response.credential) {
+              setGoogleLoading(true);
+              const ok = await loginWithGoogle(response.credential);
+              setGoogleLoading(false);
+              if (ok) {
+                navigate('/border');
+              }
+            }
+          },
+          auto_select: false,
+        });
+
+        window.google.accounts.id.renderButton(googleBtnRef.current, {
+          type: 'standard',
+          theme: 'filled_black',
+          size: 'large',
+          text: 'signin_with',
+          shape: 'rectangular',
+          logo_alignment: 'left',
+          width: googleBtnRef.current.clientWidth || 380,
+        });
+      }
+    };
+
+    if (window.google?.accounts?.id) {
+      initGsi();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id) {
+          clearInterval(interval);
+          initGsi();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [loginWithGoogle, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +106,35 @@ export const LoginPage: React.FC = () => {
           </div>
         )}
 
+        {/* 1. Google Single Sign-On */}
+        <div className="mb-5 space-y-2">
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-muted mb-1.5">
+            Single Sign-On (Google Workspace)
+          </label>
+          <div
+            ref={googleBtnRef}
+            className="w-full min-h-[44px] flex items-center justify-center rounded overflow-hidden border border-white/[0.08] bg-[#131314]"
+          >
+            {googleLoading && (
+              <div className="flex items-center gap-2 text-xs font-mono text-muted py-2">
+                <span className="animate-spin material-symbols-outlined text-[16px]">progress_activity</span>
+                Verifying Google Credentials...
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="relative my-6 flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-white/[0.08]"></div>
+          </div>
+          <span className="relative bg-panel px-3 text-[10px] font-mono text-muted uppercase tracking-widest">
+            OR OPERATOR PASSCODE
+          </span>
+        </div>
+
+        {/* 2. Standard Passcode Login Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-[11px] font-mono uppercase tracking-wider text-muted mb-1.5">
@@ -72,7 +166,7 @@ export const LoginPage: React.FC = () => {
 
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || googleLoading}
             className="w-full h-10 mt-2 bg-accent/10 hover:bg-accent/20 border border-accent/30 hover:border-accent text-accent font-medium rounded transition-all text-xs font-mono tracking-wider uppercase flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isSubmitting ? (
@@ -93,3 +187,4 @@ export const LoginPage: React.FC = () => {
     </div>
   );
 };
+

@@ -116,14 +116,14 @@ export const Header: React.FC = () => {
           {user ? (
             <div className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-full bg-elevated border border-white/[0.08] flex items-center justify-center text-[11px] font-mono text-accent">
-                {user.email.substring(0, 2).toUpperCase()}
+                {(user.display_name || user.email).substring(0, 2).toUpperCase()}
               </div>
               <div className="flex flex-col text-left">
                 <span className="text-[12px] text-paper leading-snug font-medium">
-                  {user.email.split('@')[0]}
+                  {user.display_name || user.email.split('@')[0]}
                 </span>
-                <span className="text-[10px] text-muted leading-none font-mono uppercase">
-                  {user.role}
+                <span className="text-[10px] text-muted leading-none font-mono uppercase flex items-center gap-1">
+                  {user.role} {user.auth_provider === 'google' && <span className="text-[9px] text-accent font-sans">• GOOGLE</span>}
                 </span>
               </div>
               <button
