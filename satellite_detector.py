@@ -35,7 +35,9 @@ from ultralytics import YOLO
 # FROZEN MODEL
 # ================================================================
 
-MODEL_PATH = Path(
+_BASE_DIR = Path(__file__).resolve().parent
+_LOCAL_SAT_MODEL = _BASE_DIR / "runs" / "obb" / "train-6" / "weights" / "best.pt"
+MODEL_PATH = _LOCAL_SAT_MODEL if _LOCAL_SAT_MODEL.exists() else Path(
     r"D:\mp-1\runs\obb\train-6\weights\best.pt"
 )
 

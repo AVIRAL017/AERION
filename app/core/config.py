@@ -13,7 +13,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-EnvironmentMode = Literal["development", "test", "production"]
+EnvironmentMode = Literal["development", "staging", "test", "production"]
 
 
 class AERIONSettings(BaseSettings):
@@ -109,10 +109,12 @@ class AERIONSettings(BaseSettings):
     INFERENCE_TIMEOUT_SECONDS: float = Field(default=60.0, description="GPU mutex lock acquisition timeout in seconds")
 
     # ------------------------------------------------------------
-    # STORAGE PLACEHOLDERS (Phase 3E Infrastructure)
+    # STORAGE SETTINGS (Local & Azure Blob)
     # ------------------------------------------------------------
-    STORAGE_BACKEND: str = Field(default="local", description="Active storage driver (local, s3, minio)")
+    STORAGE_BACKEND: str = Field(default="local", description="Active storage driver (local, azure, s3, minio)")
     STORAGE_LOCAL_ROOT: str = Field(default="storage", description="Root path for local filesystem storage")
+    AZURE_STORAGE_CONNECTION_STRING: Optional[SecretStr] = Field(default=None, description="Azure Blob Storage connection string")
+    AZURE_STORAGE_CONTAINER_NAME: str = Field(default="aerion-evidence", description="Azure Blob Storage container name for evidence")
     S3_ENDPOINT_URL: Optional[str] = Field(default=None, description="Optional custom S3/MinIO endpoint URL")
     S3_BUCKET_NAME: Optional[str] = Field(default=None, description="S3 storage bucket name")
     S3_REGION: str = Field(default="us-east-1", description="AWS S3 region")

@@ -36,12 +36,17 @@ from ultralytics import YOLO
 # FROZEN MODEL PATHS
 # ================================================================
 
+_BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATHS = {
-    "visdrone_only": Path(
-        r"D:\mp-1\runs\detect\visdrone_8s_1280_30ep\weights\best.pt"
+    "visdrone_only": (
+        _BASE_DIR / "runs" / "detect" / "visdrone_8s_1280_30ep" / "weights" / "best.pt"
+        if (_BASE_DIR / "runs" / "detect" / "visdrone_8s_1280_30ep" / "weights" / "best.pt").exists()
+        else Path(r"D:\mp-1\runs\detect\visdrone_8s_1280_30ep\weights\best.pt")
     ),
-    "unified": Path(
-        r"D:\mp-1\runs\detect\unified_drone_20ep\weights\best.pt"
+    "unified": (
+        _BASE_DIR / "runs" / "detect" / "unified_drone_20ep" / "weights" / "best.pt"
+        if (_BASE_DIR / "runs" / "detect" / "unified_drone_20ep" / "weights" / "best.pt").exists()
+        else Path(r"D:\mp-1\runs\detect\unified_drone_20ep\weights\best.pt")
     ),
 }
 

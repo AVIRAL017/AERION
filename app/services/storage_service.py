@@ -1,11 +1,12 @@
 """
-AERION — Local Artifact Storage Service (Roadmap Step 14)
-Provides deterministic, secure local storage for uploaded evidence assets:
-- Validates mime types and file sizes
+AERION — Storage Service (Roadmap Step 14 & Step 31)
+Provides deterministic, secure storage for uploaded and generated evidence assets:
+- Supports both local filesystem storage and Azure Blob Storage
+- Validates file sizes and MIME types
 - Generates safe unique storage keys (never trusts client filenames)
 - Prevents path traversal vulnerabilities
 - Computes cryptographic SHA-256 digests for evidence provenance
-- Persists Asset records to database
+- Retains identical return contract: (storage_key, sha256_hex, file_size_bytes)
 """
 
 from __future__ import annotations
@@ -17,26 +18,38 @@ import shutil
 import uuid
 from pathlib import Path
 from typing import Optional, Tuple, Union
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.errors import ValidationError
-from app.db.models import Asset as DBAsset
 
 logger = logging.getLogger("aerion.storage")
 
 
 class LocalArtifactStorage:
     """
-    Manages controlled local storage of uploaded analysis evidence files.
+    Manages controlled storage of evidence files with optional Azure Blob Storage synchronization.
+    Preserves existing interface and guarantees zero data loss.
     """
+
+    MAX_ASSET_BYTES = 500 * 1024 * 1024  # 500 MB hard ceiling
 
     def __init__(self, root_dir: Optional[Union[str, Path]] = None):
         settings = get_settings()
         self.root_dir = Path(root_dir or settings.STORAGE_LOCAL_ROOT).resolve()
         self.root_dir.mkdir(parents=True, exist_ok=True)
+        self.storage_backend = settings.STORAGE_BACKEND.lower()
+        self._blob_service_client = None
+        self._container_name = settings.AZURE_STORAGE_CONTAINER_NAME
 
-    MAX_ASSET_BYTES = 500 * 1024 * 1024  # 500 MB hard ceiling
+        if self.storage_backend == "azure" and settings.AZURE_STORAGE_CONNECTION_STRING:
+            try:
+                from azure.storage.blob import BlobServiceClient
+                self._blob_service_client = BlobServiceClient.from_connection_string(
+                    settings.AZURE_STORAGE_CONNECTION_STRING.get_secret_value()
+                )
+                logger.info(f"Initialized Azure Blob Storage client for container '{self._container_name}'")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Azure Blob Storage client ({e}); falling back to local filesystem storage.")
 
     def store_file(
         self,
@@ -47,8 +60,7 @@ class LocalArtifactStorage:
         max_bytes: Optional[int] = None,
     ) -> Tuple[str, str, int]:
         """
-        Safely copies an asset to the permanent storage directory.
-        Enforces maximum file size limit, sanitized directory creation, and path containment.
+        Safely copies an asset to storage (local and Azure Blob if configured).
         Returns:
             (storage_key, sha256_hex, file_size_bytes)
         """
@@ -92,8 +104,20 @@ class LocalArtifactStorage:
             )
 
         shutil.copy2(src, dest_file)
-
-        # Storage key is relative to root
         storage_key = f"{project_id}/{clean_asset_type}/{safe_asset_id}{file_ext}"
+
+        # If Azure Blob Storage is active, upload blob asynchronously or synchronously
+        if self._blob_service_client is not None:
+            try:
+                blob_client = self._blob_service_client.get_blob_client(
+                    container=self._container_name,
+                    blob=storage_key
+                )
+                with open(dest_file, "rb") as data:
+                    blob_client.upload_blob(data, overwrite=True)
+                logger.info(f"Synchronized asset {storage_key} to Azure Blob Storage ({file_size} bytes)")
+            except Exception as e:
+                logger.warning(f"Azure Blob upload failed for {storage_key} ({e}); local copy retained at {dest_file}")
+
         logger.info(f"Stored asset {storage_key} ({file_size} bytes, sha256={sha256_hex[:8]}...)")
         return storage_key, sha256_hex, file_size

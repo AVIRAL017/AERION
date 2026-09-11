@@ -11,9 +11,8 @@ from train_damage_detection_v2 import DamageDetectionModel
 # CONFIG
 # ============================================================
 
-MODEL_PATH = Path(
-    r"D:\mp-1\change_detection_runs_v2\best_model.pth"
-)
+_LOCAL_DAMAGE_MODEL = Path(__file__).resolve().parent / "change_detection_runs_v2" / "best_model.pth"
+MODEL_PATH = _LOCAL_DAMAGE_MODEL if _LOCAL_DAMAGE_MODEL.exists() else Path(r"D:\mp-1\change_detection_runs_v2\best_model.pth")
 
 THRESHOLD = 0.50
 
