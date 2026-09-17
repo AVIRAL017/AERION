@@ -25,6 +25,8 @@ from app.schemas.auth import (
 )
 from app.schemas.common import MetaBlock, ResponseEnvelope, utc_now_iso
 from app.services.auth_service import AuthService
+from app.services.email_service import email_service
+import asyncio
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -67,6 +69,17 @@ async def login(
 ) -> ResponseEnvelope[TokenResponse]:
     settings = get_settings()
     token_resp = await AuthService.login_user(session, req)
+    
+    # Asynchronous non-blocking login notification email (BUG D)
+    client_ip = request.client.host if request.client else None
+    asyncio.create_task(
+        email_service.send_login_notification(
+            recipient_email=req.username,
+            auth_method="Password",
+            client_ip=client_ip,
+        )
+    )
+
     meta = MetaBlock(
         timestamp=utc_now_iso(),
         request_id=_extract_request_id(request),
@@ -156,6 +169,18 @@ async def google_login(
 ) -> ResponseEnvelope[TokenResponse]:
     settings = get_settings()
     token_resp = await AuthService.login_with_google(session, req.id_token)
+    
+    # Asynchronous non-blocking login notification email (BUG D)
+    client_ip = request.client.host if request.client else None
+    user_email = token_resp.user.email if token_resp.user else "Unknown"
+    asyncio.create_task(
+        email_service.send_login_notification(
+            recipient_email=user_email,
+            auth_method="Google",
+            client_ip=client_ip,
+        )
+    )
+
     meta = MetaBlock(
         timestamp=utc_now_iso(),
         request_id=_extract_request_id(request),

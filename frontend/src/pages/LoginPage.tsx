@@ -29,6 +29,7 @@ export const LoginPage: React.FC = () => {
   const [orgName, setOrgName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleConfigError, setGoogleConfigError] = useState<string | null>(null);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
 
   // Forgot password modal state
@@ -47,31 +48,42 @@ export const LoginPage: React.FC = () => {
   useEffect(() => {
     // Initialize Google Identity Services button
     const initGsi = () => {
-      if (window.google?.accounts?.id && googleBtnRef.current) {
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: async (response: { credential?: string }) => {
-            if (response.credential) {
-              setGoogleLoading(true);
-              const ok = await loginWithGoogle(response.credential);
-              setGoogleLoading(false);
-              if (ok) {
-                navigate('/border');
+      try {
+        if (window.google?.accounts?.id && googleBtnRef.current) {
+          window.google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: async (response: { credential?: string }) => {
+              if (response.credential) {
+                setGoogleLoading(true);
+                setGoogleConfigError(null);
+                const ok = await loginWithGoogle(response.credential);
+                setGoogleLoading(false);
+                if (ok) {
+                  navigate('/border');
+                }
               }
-            }
-          },
-          auto_select: false,
-        });
+            },
+            auto_select: false,
+            error_callback: (err: any) => {
+              const msg = err?.type === 'origin_mismatch' || err?.message?.includes('origin_mismatch')
+                ? `GOOGLE SIGN-IN UNAVAILABLE: Application origin (${window.location.origin}) is not registered in Google Cloud Console.`
+                : 'GOOGLE SIGN-IN UNAVAILABLE: OAuth provider configuration mismatch.';
+              setGoogleConfigError(msg);
+            },
+          });
 
-        window.google.accounts.id.renderButton(googleBtnRef.current, {
-          type: 'standard',
-          theme: 'filled_black',
-          size: 'large',
-          text: 'signin_with',
-          shape: 'rectangular',
-          logo_alignment: 'left',
-          width: googleBtnRef.current.clientWidth || 380,
-        });
+          window.google.accounts.id.renderButton(googleBtnRef.current, {
+            type: 'standard',
+            theme: 'filled_black',
+            size: 'large',
+            text: 'signin_with',
+            shape: 'rectangular',
+            logo_alignment: 'left',
+            width: googleBtnRef.current.clientWidth || 380,
+          });
+        }
+      } catch (err: any) {
+        setGoogleConfigError('GOOGLE SIGN-IN UNAVAILABLE: Google Identity Services could not initialize for this origin.');
       }
     };
 
@@ -226,6 +238,17 @@ export const LoginPage: React.FC = () => {
                 </div>
               )}
             </div>
+            {googleConfigError && (
+              <div className="p-2.5 bg-status-warning/10 border border-status-warning/30 rounded text-[11px] font-mono text-status-warning space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <span className="material-symbols-outlined text-[14px]">warning</span>
+                  <span>{googleConfigError}</span>
+                </div>
+                <p className="text-[10px] text-faint leading-tight">
+                  Add <code className="bg-graphite px-1 rounded text-paper">{window.location.origin}</code> under Authorized JavaScript Origins in Google Cloud Console OAuth 2.0 Client credentials.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

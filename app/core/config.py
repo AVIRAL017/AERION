@@ -135,6 +135,17 @@ class AERIONSettings(BaseSettings):
     WEATHER_API_KEY: Optional[SecretStr] = Field(default=None, description="Weather provider API key if required")
 
     # ------------------------------------------------------------
+    # NOTIFICATION EMAIL SETTINGS (BUG D)
+    # ------------------------------------------------------------
+    EMAIL_PROVIDER: str = Field(default="console", description="Email notification provider: console or smtp")
+    SMTP_HOST: Optional[str] = Field(default=None, description="SMTP server host")
+    SMTP_PORT: int = Field(default=587, description="SMTP server port")
+    SMTP_USER: Optional[str] = Field(default=None, description="SMTP server username")
+    SMTP_PASSWORD: Optional[SecretStr] = Field(default=None, description="SMTP server password")
+    SMTP_FROM: str = Field(default="no-reply@aerion.internal", description="From address for notification emails")
+    SMTP_USE_TLS: bool = Field(default=True, description="Enable TLS for SMTP delivery")
+
+    # ------------------------------------------------------------
     # SUBSCRIPTION PLACEHOLDERS (Phase 3H)
     # ------------------------------------------------------------
     PLAN_FREE_NAME: str = Field(default="FREE", description="Free tier plan name")

@@ -137,12 +137,24 @@ class VideoAnnotationService:
         if is_zero_detection:
             self._render_zero_detection_watermark(canvas, w, h, frame_idx, font_scale, font_thickness)
         else:
+            # Abbreviation mapping for compact high-density presentation
+            abbrev_map = {
+                "small_vehicle": "CAR",
+                "large_vehicle": "TRUCK",
+                "light_vehicle": "CAR",
+                "heavy_vehicle": "TRUCK",
+                "pedestrian": "PED",
+                "person": "PED",
+                "bicycle": "BIKE",
+                "motorcycle": "MOTO",
+            }
             for det in detections:
                 color = CLASS_PALETTE_BGR.get(det.class_name.lower(), DEFAULT_BOX_COLOR)
                 
-                # Format truthful label: CLASS CONF ID:<track_id>
-                track_tag = f" ID:{det.track_id}" if det.track_id is not None else ""
-                label_text = f"{det.class_name.upper()} {det.confidence:.2f}{track_tag}"
+                # Compact presentation: ABBREV • CONF • TID
+                short_class = abbrev_map.get(det.class_name.lower(), det.class_name.upper())
+                track_tag = f" • T{det.track_id}" if det.track_id is not None else ""
+                label_text = f"{short_class} • {det.confidence:.2f}{track_tag}"
 
                 if det.bbox:
                     self._render_bbox(

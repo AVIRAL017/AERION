@@ -267,10 +267,20 @@ export const BorderPage: React.FC = () => {
                             alt="Analyzed Aerial Ingest"
                             className="max-w-full max-h-[78vh] object-contain select-none pointer-events-none"
                           />
-                          <div className="absolute top-2 left-2 z-10">
+                          <div className="absolute top-2 left-2 z-10 flex items-center gap-2">
                             <span className="px-2 py-0.5 rounded bg-graphite/90 border border-white/[0.15] text-[9px] font-mono text-muted">
                               RAW SOURCE INGEST
                             </span>
+                            {analyzedImageUrl && (
+                              <a
+                                href={analyzedImageUrl}
+                                download={`AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_original.jpg`}
+                                className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[9px] font-mono flex items-center gap-1 shadow transition-all"
+                              >
+                                <span className="material-symbols-outlined text-[11px]">download</span>
+                                <span>DOWNLOAD ORIGINAL IMAGE</span>
+                              </a>
+                            )}
                           </div>
                         </>
                       )}
@@ -418,22 +428,34 @@ export const BorderPage: React.FC = () => {
                               <span>TRACKS: {activeAnalysisResult.annotated_video_artifact.unique_tracks_count}</span>
                               <span>SHA: {activeAnalysisResult.annotated_video_artifact.sha256.substring(0, 10)}...</span>
                             </div>
-                            <button
-                              onClick={async () => {
-                                const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
-                                const dlUrl = artKey ? `/api/v1/evidence/${encodeURIComponent(artKey)}` : (analyzedVideoUrl || '');
-                                const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
-                                try {
-                                  await downloadAuthenticatedArtifact(dlUrl, filename);
-                                } catch (e: any) {
-                                  alert(e.message || 'Download failed');
-                                }
-                              }}
-                              className="px-2 py-0.5 rounded bg-accent text-graphite hover:bg-accent/90 text-[9px] font-mono font-bold flex items-center gap-1 shadow transition-all cursor-pointer"
-                            >
-                              <span className="material-symbols-outlined text-[12px]">download</span>
-                              <span>DOWNLOAD ANNOTATED VIDEO</span>
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={async () => {
+                                  const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
+                                  const dlUrl = artKey ? `/api/v1/evidence/${encodeURIComponent(artKey)}` : (analyzedVideoUrl || '');
+                                  const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
+                                  try {
+                                    await downloadAuthenticatedArtifact(dlUrl, filename);
+                                  } catch (e: any) {
+                                    alert(e.message || 'Download failed');
+                                  }
+                                }}
+                                className="px-2 py-0.5 rounded bg-accent text-graphite hover:bg-accent/90 text-[9px] font-mono font-bold flex items-center gap-1 shadow transition-all cursor-pointer"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">download</span>
+                                <span>DOWNLOAD ANNOTATED VIDEO</span>
+                              </button>
+                              {analyzedVideoUrl && (
+                                <a
+                                  href={analyzedVideoUrl}
+                                  download={`AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_original.mp4`}
+                                  className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[9px] font-mono flex items-center gap-1 shadow transition-all cursor-pointer"
+                                >
+                                  <span className="material-symbols-outlined text-[12px]">download</span>
+                                  <span>DOWNLOAD ORIGINAL VIDEO</span>
+                                </a>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>

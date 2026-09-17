@@ -113,6 +113,17 @@ export const geospatialApi = {
   },
 };
 
+export const sheltersApi = {
+  list: async (params?: { latitude?: number; longitude?: number; radius_km?: number }): Promise<any> => {
+    const query = new URLSearchParams();
+    if (params?.latitude !== undefined) query.append('latitude', params.latitude.toString());
+    if (params?.longitude !== undefined) query.append('longitude', params.longitude.toString());
+    if (params?.radius_km !== undefined) query.append('radius_km', params.radius_km.toString());
+    const qs = query.toString();
+    return apiClient.get(`/shelters${qs ? `?${qs}` : ''}`);
+  },
+};
+
 export const usageApi = {
   getSummary: async (): Promise<APIEnvelope<UsageSummary>> => {
     return apiClient.get<UsageSummary>('/usage/summary');

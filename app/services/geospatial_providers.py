@@ -203,7 +203,7 @@ class OpenRouteServiceProvider(RoutingProvider):
 
     _DEFAULT = object()
 
-    def __init__(self, api_key: Any = _DEFAULT, base_url: str = "https://api.openrouteservice.org"):
+    def __init__(self, api_key: Any = _DEFAULT, base_url: str = "https://api.heigit.org"):
         if api_key is self._DEFAULT:
             self.api_key = (
                 get_settings().OPENROUTESERVICE_API_KEY.get_secret_value()

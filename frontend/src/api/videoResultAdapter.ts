@@ -76,7 +76,7 @@ export function normalizeVideoAnalysisResponse(
       }))
     : [];
 
-  const analysisId = report.report_id || report.session_id || rawResponse.job_id || fallbackAnalysisId;
+  const analysisId = rawResponse.persistence?.analysis_id || rawResponse.analysis_id || rawResponse.job_id || report.report_id || report.session_id || fallbackAnalysisId;
 
   // Scene summary from report detections_summary if available
   const detSummary = report.detections_summary || {};

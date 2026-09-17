@@ -48,7 +48,7 @@ class ExternalRoutingService:
 
     def __init__(
         self,
-        ors_base_url: str = "https://api.openrouteservice.org",
+        ors_base_url: str = "https://api.heigit.org",
         mapbox_base_url: str = "https://api.mapbox.com/directions/v5",
         timeout_seconds: float = 12.0,
     ):

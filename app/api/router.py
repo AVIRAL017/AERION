@@ -16,6 +16,7 @@ from app.api.geospatial import router as geospatial_router
 from app.api.external import router as external_router
 from app.api.evidence import router as evidence_router
 from app.api.boundaries import router as boundaries_router
+from app.api.shelters import router as shelters_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -29,3 +30,4 @@ api_router.include_router(geospatial_router)
 api_router.include_router(external_router)
 api_router.include_router(evidence_router)
 api_router.include_router(boundaries_router)
+api_router.include_router(shelters_router)

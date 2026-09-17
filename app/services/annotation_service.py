@@ -165,10 +165,22 @@ class AnnotationService:
             # Render honest, restrained zero-detection banner in bottom-left
             self._render_zero_detection_banner(canvas, w, h, font_scale, font_thickness)
         else:
+            # Abbreviation mapping for compact high-density presentation
+            abbrev_map = {
+                "small_vehicle": "CAR",
+                "large_vehicle": "TRUCK",
+                "light_vehicle": "CAR",
+                "heavy_vehicle": "TRUCK",
+                "pedestrian": "PED",
+                "person": "PED",
+                "bicycle": "BIKE",
+                "motorcycle": "MOTO",
+            }
             # Render each verified detection
             for det in detections:
                 color = CLASS_PALETTE_BGR.get(det.class_name.lower(), DEFAULT_BOX_COLOR)
-                label_text = f"{det.class_name.upper()} {det.confidence:.2f}"
+                short_class = abbrev_map.get(det.class_name.lower(), det.class_name.upper())
+                label_text = f"{short_class} • {det.confidence:.2f}"
 
                 if det.obb_points and len(det.obb_points) == 4:
                     # Satellite / OBB 4-corner polygon rendering

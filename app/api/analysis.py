@@ -509,6 +509,10 @@ async def analyze_border_video(
                 org_id_str=payload.get("org"),
             )
             report_data["persistence"] = persist_info
+            if persist_info.get("analysis_id"):
+                report_data["analysis_id"] = persist_info.get("analysis_id")
+            if persist_info.get("job_id"):
+                report_data["job_id"] = persist_info.get("job_id")
 
         meta = MetaBlock(
             timestamp=utc_now_iso(),

@@ -17,6 +17,13 @@ export const ImagePage: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  // BUG E & G: Presentation Controls
+  const [densityMode, setDensityMode] = useState<'normal' | 'dense'>('normal');
+  const [showBoxes, setShowBoxes] = useState<boolean>(true);
+  const [showLabels, setShowLabels] = useState<boolean>(true);
+  const [zoomScale, setZoomScale] = useState<number>(1.0);
+  const [selectedDet, setSelectedDet] = useState<any | null>(null);
+
   // Restore analysis if analysis_id query parameter is present
   useEffect(() => {
     const analysisIdParam = searchParams.get('analysis_id');
@@ -139,28 +146,96 @@ export const ImagePage: React.FC = () => {
             </div>
 
             {activeResult && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                {/* Density Mode Switcher */}
+                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                  <button
+                    onClick={() => setDensityMode('normal')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                      densityMode === 'normal' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                    }`}
+                    title="Normal presentation: bounding boxes with labels"
+                  >
+                    NORMAL
+                  </button>
+                  <button
+                    onClick={() => setDensityMode('dense')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                      densityMode === 'dense' ? 'bg-status-warning text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                    }`}
+                    title="Dense scene mode: clean boxes to avoid overlapping clutter"
+                  >
+                    DENSE
+                  </button>
+                </div>
+
+                {/* Layer Toggles */}
+                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                  <button
+                    onClick={() => setShowBoxes(!showBoxes)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
+                      showBoxes ? 'text-accent font-bold' : 'text-faint'
+                    }`}
+                  >
+                    BOXES: {showBoxes ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => setShowLabels(!showLabels)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
+                      showLabels ? 'text-accent font-bold' : 'text-faint'
+                    }`}
+                  >
+                    LABELS: {showLabels ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+
+                {/* Zoom Controls */}
+                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                  <button
+                    onClick={() => setZoomScale((z) => Math.max(0.5, z - 0.25))}
+                    className="px-1.5 py-0.5 text-[11px] font-mono text-muted hover:text-paper cursor-pointer"
+                    title="Zoom Out"
+                  >
+                    -
+                  </button>
+                  <span className="px-1 text-[9px] font-mono text-muted">{Math.round(zoomScale * 100)}%</span>
+                  <button
+                    onClick={() => setZoomScale((z) => Math.min(3.0, z + 0.25))}
+                    className="px-1.5 py-0.5 text-[11px] font-mono text-muted hover:text-paper cursor-pointer"
+                    title="Zoom In"
+                  >
+                    +
+                  </button>
+                  <button
+                    onClick={() => setZoomScale(1.0)}
+                    className="px-1 text-[9px] font-mono text-accent hover:underline cursor-pointer"
+                    title="Reset Zoom"
+                  >
+                    RESET
+                  </button>
+                </div>
+
                 {/* View Mode Switcher */}
                 <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
                   <button
                     onClick={() => setViewMode('annotated')}
-                    className={`px-2.5 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
                       viewMode === 'annotated'
                         ? 'bg-accent text-graphite font-bold shadow'
                         : 'text-muted hover:text-paper'
                     }`}
                   >
-                    ANNOTATED IMAGE
+                    ANNOTATED
                   </button>
                   <button
                     onClick={() => setViewMode('raw')}
-                    className={`px-2.5 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
                       viewMode === 'raw'
                         ? 'bg-accent text-graphite font-bold shadow'
                         : 'text-muted hover:text-paper'
                     }`}
                   >
-                    RAW IMAGE
+                    RAW
                   </button>
                 </div>
 
@@ -168,11 +243,22 @@ export const ImagePage: React.FC = () => {
                   <button
                     onClick={handleDownloadAnnotated}
                     disabled={isDownloading}
-                    className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                    className="px-2 py-0.5 rounded bg-accent text-graphite hover:bg-accent/90 text-[10px] font-mono font-bold flex items-center gap-1 shadow transition-all cursor-pointer disabled:opacity-50"
                   >
-                    <span className="material-symbols-outlined text-[13px]">download</span>
+                    <span className="material-symbols-outlined text-[12px]">download</span>
                     <span>{isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD ANNOTATED'}</span>
                   </button>
+                )}
+
+                {rawImageUrl && (
+                  <a
+                    href={rawImageUrl}
+                    download={`AERION_ORIGINAL_${activeResult.analysis_id.substring(0, 8)}.jpg`}
+                    className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[12px]">download</span>
+                    <span>DOWNLOAD ORIGINAL</span>
+                  </a>
                 )}
               </div>
             )}
@@ -187,19 +273,72 @@ export const ImagePage: React.FC = () => {
               </div>
             ) : activeResult ? (
               <div className="relative max-w-full max-h-full flex items-center justify-center border border-white/[0.08] rounded shadow-2xl overflow-hidden bg-black">
-                {viewMode === 'annotated' && activeResult.annotated_image_base64 ? (
-                  <img
-                    src={`data:image/jpeg;base64,${activeResult.annotated_image_base64}`}
-                    alt="Authoritative Annotated Perception"
-                    className="max-w-full max-h-[75vh] object-contain select-none"
-                  />
-                ) : (
-                  <img
-                    src={rawImageUrl || (activeResult.annotated_image_base64 ? `data:image/jpeg;base64,${activeResult.annotated_image_base64}` : '')}
-                    alt="Raw Aerial Ingest"
-                    className="max-w-full max-h-[75vh] object-contain select-none"
-                  />
-                )}
+                <div
+                  className="transition-transform duration-150 ease-out flex items-center justify-center max-w-full max-h-full"
+                  style={{ transform: `scale(${zoomScale})` }}
+                >
+                  {viewMode === 'annotated' && activeResult.annotated_image_base64 && densityMode === 'normal' ? (
+                    <img
+                      src={`data:image/jpeg;base64,${activeResult.annotated_image_base64}`}
+                      alt="Authoritative Annotated Perception"
+                      className="max-w-full max-h-[75vh] object-contain select-none"
+                    />
+                  ) : (
+                    <div className="relative max-w-full max-h-full flex items-center justify-center">
+                      <img
+                        src={rawImageUrl || (activeResult.annotated_image_base64 ? `data:image/jpeg;base64,${activeResult.annotated_image_base64}` : '')}
+                        alt="Aerial Ingest"
+                        className="max-w-full max-h-[75vh] object-contain select-none"
+                      />
+                      {/* Density Mode / Toggleable SVG Overlay Layer */}
+                      {showBoxes && activeResult.image_width && activeResult.image_height && (
+                        <svg
+                          className="absolute inset-0 w-full h-full pointer-events-auto"
+                          viewBox={`0 0 ${activeResult.image_width} ${activeResult.image_height}`}
+                          preserveAspectRatio="xMidYMid meet"
+                        >
+                          {detections.map((det: any, idx: number) => {
+                            if (!det.bbox) return null;
+                            const bx = det.bbox.x1;
+                            const by = det.bbox.y1;
+                            const bw = det.bbox.x2 - det.bbox.x1;
+                            const bh = det.bbox.y2 - det.bbox.y1;
+                            const isSelected = selectedDet === det;
+                            return (
+                              <g
+                                key={`det-${idx}`}
+                                onClick={() => setSelectedDet(det)}
+                                className="cursor-pointer"
+                              >
+                                <rect
+                                  x={bx}
+                                  y={by}
+                                  width={bw}
+                                  height={bh}
+                                  fill={isSelected ? 'rgba(56, 213, 245, 0.25)' : 'none'}
+                                  stroke="#38D5F5"
+                                  strokeWidth={Math.max(1.5, (activeResult.image_width || 1000) / 600)}
+                                />
+                                {showLabels && densityMode === 'normal' && (
+                                  <text
+                                    x={bx + 3}
+                                    y={Math.max(12, by - 3)}
+                                    fill="#38D5F5"
+                                    fontSize={Math.max(10, (activeResult.image_width || 1000) / 90)}
+                                    fontFamily="monospace"
+                                    fontWeight="bold"
+                                  >
+                                    {det.class_name.toUpperCase()} {Math.round(det.confidence * 100)}%
+                                  </text>
+                                )}
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 {/* Overlays / Labels */}
                 <div className="absolute top-2 left-2 flex items-center gap-1.5 pointer-events-none">

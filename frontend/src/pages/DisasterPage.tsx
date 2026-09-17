@@ -23,7 +23,7 @@ export const DisasterPage: React.FC = () => {
   const [customPreUrl, setCustomPreUrl] = useState<string | null>(null);
   const [customPostUrl, setCustomPostUrl] = useState<string | null>(null);
   const [showDamageOverlay, setShowDamageOverlay] = useState<boolean>(true);
-  const [displayMode, setDisplayMode] = useState<'split' | 'pre' | 'post' | 'damage'>('split');
+  const [displayMode, setDisplayMode] = useState<'split' | 'side-by-side' | 'pre' | 'post' | 'damage'>('split');
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [shelters, setShelters] = useState<ShelterData[]>([]);
@@ -233,6 +233,14 @@ export const DisasterPage: React.FC = () => {
                   SPLIT SLIDER
                 </button>
                 <button
+                  onClick={() => setDisplayMode('side-by-side')}
+                  className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
+                    displayMode === 'side-by-side' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                  }`}
+                >
+                  SIDE-BY-SIDE
+                </button>
+                <button
                   onClick={() => setDisplayMode('pre')}
                   className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
                     displayMode === 'pre' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
@@ -261,7 +269,7 @@ export const DisasterPage: React.FC = () => {
               </div>
             )}
 
-            {activeAnalysisResult?.damage_mask_base64 && displayMode === 'split' && (
+            {activeAnalysisResult?.damage_mask_base64 && (displayMode === 'split' || displayMode === 'side-by-side' || displayMode === 'post') && (
               <button
                 onClick={() => setShowDamageOverlay(!showDamageOverlay)}
                 className={`px-2.5 py-1 rounded border text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
@@ -304,11 +312,20 @@ export const DisasterPage: React.FC = () => {
               )}
 
               {displayMode === 'post' && (
-                <img
-                  src={postImgUrl}
-                  alt="Post-Disaster Observation"
-                  className="w-full h-full object-cover"
-                />
+                <div className="relative w-full h-full">
+                  <img
+                    src={postImgUrl}
+                    alt="Post-Disaster Observation"
+                    className="w-full h-full object-cover"
+                  />
+                  {showDamageOverlay && activeAnalysisResult?.damage_mask_base64 && (
+                    <img
+                      src={`data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`}
+                      alt="Translucent Damage Overlay"
+                      className="absolute inset-0 w-full h-full object-cover mix-blend-screen opacity-75 pointer-events-none"
+                    />
+                  )}
+                </div>
               )}
 
               {displayMode === 'damage' && activeAnalysisResult?.damage_mask_base64 && (
@@ -319,16 +336,57 @@ export const DisasterPage: React.FC = () => {
                 />
               )}
 
+              {displayMode === 'side-by-side' && (
+                <div className="w-full h-full grid grid-cols-2 gap-2 p-2">
+                  {/* Left: Pre-Disaster */}
+                  <div className="relative w-full h-full border border-white/[0.08] rounded overflow-hidden flex flex-col">
+                    <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-graphite/80 border border-white/[0.1] text-[9px] font-mono text-muted">
+                      PRE-DISASTER (T0)
+                    </div>
+                    <img
+                      src={preImgUrl}
+                      alt="Pre-Disaster Baseline"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  {/* Right: Post-Disaster with optional overlay */}
+                  <div className="relative w-full h-full border border-white/[0.08] rounded overflow-hidden flex flex-col">
+                    <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-graphite/80 border border-white/[0.1] text-[9px] font-mono text-accent">
+                      POST-DISASTER (T1) {showDamageOverlay && activeAnalysisResult?.damage_mask_base64 ? '+ OVERLAY' : ''}
+                    </div>
+                    <img
+                      src={postImgUrl}
+                      alt="Post-Disaster Observation"
+                      className="w-full h-full object-cover"
+                    />
+                    {showDamageOverlay && activeAnalysisResult?.damage_mask_base64 && (
+                      <img
+                        src={`data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`}
+                        alt="Translucent Damage Overlay"
+                        className="absolute inset-0 w-full h-full object-cover mix-blend-screen opacity-75 pointer-events-none"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+
               {displayMode === 'split' && (
                 <>
                   {/* Post-Disaster Layer (Underneath / Right side) */}
-                  <img
-                    src={showDamageOverlay && activeAnalysisResult?.damage_mask_base64
-                      ? `data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`
-                      : postImgUrl}
-                    alt="Post-Disaster Observation"
-                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                  />
+                  <div className="absolute inset-0 w-full h-full">
+                    <img
+                      src={postImgUrl}
+                      alt="Post-Disaster Observation"
+                      className="w-full h-full object-cover pointer-events-none"
+                    />
+                    {showDamageOverlay && activeAnalysisResult?.damage_mask_base64 && (
+                      <img
+                        src={`data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`}
+                        alt="Translucent Damage Overlay"
+                        className="absolute inset-0 w-full h-full object-cover mix-blend-screen opacity-75 pointer-events-none"
+                      />
+                    )}
+                  </div>
 
                   {/* Pre-Disaster Layer (Clipped curtain / Left side) */}
                   <div
@@ -411,6 +469,26 @@ export const DisasterPage: React.FC = () => {
                 <span>{isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD DAMAGE MASK'}</span>
               </button>
             )}
+            {postImgUrl && (
+              <a
+                href={postImgUrl}
+                download={`AERION_${activeAnalysisResult?.analysis_id?.substring(0, 8) || 'disaster'}_post_original.jpg`}
+                className="px-2 py-1 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] font-mono flex items-center gap-1 shadow transition-all cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[12px]">download</span>
+                <span>DOWNLOAD POST IMAGE</span>
+              </a>
+            )}
+            {preImgUrl && (
+              <a
+                href={preImgUrl}
+                download={`AERION_${activeAnalysisResult?.analysis_id?.substring(0, 8) || 'disaster'}_pre_original.jpg`}
+                className="px-2 py-1 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] font-mono flex items-center gap-1 shadow transition-all cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[12px]">download</span>
+                <span>DOWNLOAD PRE IMAGE</span>
+              </a>
+            )}
           </div>
         </div>
       </section>
@@ -475,24 +553,27 @@ export const DisasterPage: React.FC = () => {
           {activeAnalysisResult?.damage_analysis ? (
             <div className="space-y-2 text-xs font-mono">
               <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
-                <span className="text-faint">DAMAGED PIXELS:</span>
+                <span className="text-faint" title="Damaged pixels identified by Siamese model at threshold 0.50">DAMAGED PIXELS:</span>
                 <span className="text-paper">{activeAnalysisResult.damage_analysis.damage_pixels.toLocaleString()}</span>
               </div>
               <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
-                <span className="text-faint">TOTAL PIXELS:</span>
+                <span className="text-faint" title="Total processed pixel area (e.g. 512x512 = 262,144)">TOTAL PIXELS:</span>
                 <span className="text-paper">{activeAnalysisResult.damage_analysis.total_pixels.toLocaleString()}</span>
               </div>
               <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
-                <span className="text-faint">MEAN PROBABILITY:</span>
+                <span className="text-faint" title="Scene-wide mean sigmoid activation across all 262,144 pixels">SCENE-WIDE MEAN PROB:</span>
                 <span className="text-accent">
                   {(activeAnalysisResult.damage_analysis.probability_mean * 100).toFixed(1)}%
                 </span>
               </div>
               <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
-                <span className="text-faint">DAMAGE RATIO:</span>
+                <span className="text-faint" title="Damaged pixels / Total pixels (733 / 262,144 = 0.0028)">DAMAGE RATIO:</span>
                 <span className="text-paper">
                   {activeAnalysisResult.damage_analysis.damage_ratio.toFixed(4)}
                 </span>
+              </div>
+              <div className="p-2 bg-panel/60 rounded border border-white/[0.04] text-[10px] text-faint leading-tight">
+                * Note: Mean probability is computed across the entire image area. The damage ratio (0.0028 ~ 0.3%) represents thresholded pixels where probability &gt; 0.50.
               </div>
             </div>
           ) : damage && (
@@ -502,10 +583,13 @@ export const DisasterPage: React.FC = () => {
                 <span className="text-paper">{damage.damaged_pixels.toLocaleString()}</span>
               </div>
               <div className="flex justify-between p-2 bg-graphite/40 rounded border border-white/[0.04]">
-                <span className="text-faint">MEAN PROBABILITY:</span>
+                <span className="text-faint">SCENE-WIDE MEAN PROB:</span>
                 <span className="text-accent">
                   {(damage.mean_damage_probability * 100).toFixed(1)}%
                 </span>
+              </div>
+              <div className="p-2 bg-panel/60 rounded border border-white/[0.04] text-[10px] text-faint leading-tight">
+                * Note: Mean probability is computed across the entire image area.
               </div>
             </div>
           )}
