@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, API_BASE } from './client';
 import {
   APIEnvelope,
   User,
@@ -99,7 +99,7 @@ export const situationsApi = {
     if (loc?.location_precision) params.append('location_precision', loc.location_precision);
     if (loc?.location_method) params.append('location_method', loc.location_method);
     if (loc?.label) params.append('label', loc.label);
-    return `/api/v1/situations/${id}/report/download?${params.toString()}`;
+    return `${API_BASE}/situations/${id}/report/download?${params.toString()}`;
   },
 };
 

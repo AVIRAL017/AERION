@@ -6,6 +6,7 @@ import { UploadModal } from '../components/UploadModal';
 import { OperatorLocationModal } from '../components/OperatorLocationModal';
 import { AnalysisHistoryModal } from '../components/AnalysisHistoryModal';
 import { downloadAuthenticatedArtifact } from '../utils/download';
+import { API_BASE } from '../api/client';
 
 export const DisasterPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -454,7 +455,7 @@ export const DisasterPage: React.FC = () => {
                   setIsDownloading(true);
                   try {
                     await downloadAuthenticatedArtifact(
-                      `/api/v1/evidence/${artKey}`,
+                      `${API_BASE}/evidence/${artKey}`,
                       `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_damage_mask.jpg`
                     );
                   } catch (e: any) {

@@ -1,6 +1,7 @@
 import { APIEnvelope } from '../types';
 
-const API_BASE = '/api/v1';
+export const API_BASE =
+  (import.meta as any).env?.VITE_API_BASE_URL || '/api/v1';
 
 // Shared singleton refresh promise to prevent duplicate concurrent refresh executions
 let isRefreshingPromise: Promise<string | null> | null = null;

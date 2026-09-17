@@ -4,6 +4,8 @@
  * without triggering HTTP 401s from raw unauthenticated <a> tags.
  */
 
+import { API_BASE } from '../api/client';
+
 export async function downloadAuthenticatedArtifact(
   url: string,
   filename: string
@@ -70,7 +72,7 @@ export async function downloadAuthenticatedReport(
     if (locationContext.geofence_status) params.set('geofence_status', locationContext.geofence_status);
   }
 
-  const url = `/api/v1/situations/${situationId}/report/download?${params.toString()}`;
+  const url = `${API_BASE}/situations/${situationId}/report/download?${params.toString()}`;
   const ident = analysisId ? analysisId.substring(0, 8) : situationId.substring(0, 8);
   const filename = `AERION_SITREP_${ident}.${format}`;
   await downloadAuthenticatedArtifact(url, filename);

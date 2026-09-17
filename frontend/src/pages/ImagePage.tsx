@@ -5,6 +5,7 @@ import { AERIONAnalysisResultData } from '../types';
 import { UploadModal } from '../components/UploadModal';
 import { AnalysisHistoryModal } from '../components/AnalysisHistoryModal';
 import { downloadAuthenticatedArtifact } from '../utils/download';
+import { API_BASE } from '../api/client';
 
 export const ImagePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -62,7 +63,7 @@ export const ImagePage: React.FC = () => {
     setIsDownloading(true);
     try {
       await downloadAuthenticatedArtifact(
-        `/api/v1/evidence/${encodeURIComponent(artKey)}`,
+        `${API_BASE}/evidence/${encodeURIComponent(artKey)}`,
         `AERION_PERCEPTION_${activeResult.analysis_id.substring(0, 8)}_annotated.jpg`
       );
     } catch (e: any) {

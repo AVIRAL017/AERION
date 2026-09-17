@@ -6,6 +6,7 @@ import { UploadModal, UploadMode } from '../components/UploadModal';
 import { OperatorLocationModal } from '../components/OperatorLocationModal';
 import { AnalysisHistoryModal } from '../components/AnalysisHistoryModal';
 import { downloadAuthenticatedArtifact } from '../utils/download';
+import { API_BASE } from '../api/client';
 
 export const BorderPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -383,7 +384,7 @@ export const BorderPage: React.FC = () => {
                         {(viewMode === 'annotated' && activeAnalysisResult.annotated_video_artifact?.artifact_key) ? (
                           <video
                             key={`annotated-${activeAnalysisResult.annotated_video_artifact.artifact_key}`}
-                            src={`/api/v1/evidence/${encodeURIComponent(activeAnalysisResult.annotated_video_artifact.artifact_key)}${localStorage.getItem('aerion_access_token') ? `?token=${encodeURIComponent(localStorage.getItem('aerion_access_token') || '')}` : ''}`}
+                            src={`${API_BASE}/evidence/${encodeURIComponent(activeAnalysisResult.annotated_video_artifact.artifact_key)}${localStorage.getItem('aerion_access_token') ? `?token=${encodeURIComponent(localStorage.getItem('aerion_access_token') || '')}` : ''}`}
                             controls
                             autoPlay
                             loop
@@ -432,7 +433,7 @@ export const BorderPage: React.FC = () => {
                               <button
                                 onClick={async () => {
                                   const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
-                                  const dlUrl = artKey ? `/api/v1/evidence/${encodeURIComponent(artKey)}` : (analyzedVideoUrl || '');
+                                  const dlUrl = artKey ? `${API_BASE}/evidence/${encodeURIComponent(artKey)}` : (analyzedVideoUrl || '');
                                   const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
                                   try {
                                     await downloadAuthenticatedArtifact(dlUrl, filename);
