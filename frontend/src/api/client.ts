@@ -2,21 +2,28 @@ import { APIEnvelope } from '../types';
 
 const API_BASE = '/api/v1';
 
+// Shared singleton refresh promise to prevent duplicate concurrent refresh executions
+let isRefreshingPromise: Promise<string | null> | null = null;
+
+interface ExtendedRequestInit extends RequestInit {
+  _retry?: boolean;
+}
+
 class APIClient {
   private getAuthHeader(): Record<string, string> {
-    const token = localStorage.getItem('aerion_access_token');
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('aerion_access_token') : null;
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
   async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: ExtendedRequestInit = {}
   ): Promise<APIEnvelope<T>> {
     const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...this.getAuthHeader(),
-      ...(options.headers as Record<string, string> || {}),
+      ...((options.headers as Record<string, string>) || {}),
     };
 
     try {
@@ -25,12 +32,77 @@ class APIClient {
         headers,
       });
 
+      // BUG-031: 401 Authentication & Session Refresh Interceptor
       if (response.status === 401) {
-        // Only invalidate the session if the request actually sent an Authorization header
-        // and failed with 401, or if it was an explicit profile verification endpoint (/auth/me).
-        const hasAuthHeader = Boolean(headers['Authorization']);
-        const isAuthMe = endpoint.includes('/auth/me');
-        if (hasAuthHeader || isAuthMe) {
+        const isAuthEndpoint =
+          endpoint.includes('/auth/login') ||
+          endpoint.includes('/auth/refresh') ||
+          endpoint.includes('/auth/register') ||
+          endpoint.includes('/auth/reset-password');
+        const isRetry = Boolean(options._retry);
+        const hasToken = typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('aerion_access_token'));
+
+        // If not already retrying, not an auth endpoint, and a token exists, attempt refresh
+        if (!isRetry && !isAuthEndpoint && hasToken) {
+          if (!isRefreshingPromise) {
+            isRefreshingPromise = (async () => {
+              try {
+                const currentToken = localStorage.getItem('aerion_access_token');
+                const refHeaders: Record<string, string> = {
+                  'Content-Type': 'application/json',
+                };
+                if (currentToken) {
+                  refHeaders['Authorization'] = `Bearer ${currentToken}`;
+                }
+
+                const refResponse = await fetch(`${API_BASE}/auth/refresh`, {
+                  method: 'POST',
+                  headers: refHeaders,
+                  body: JSON.stringify({}),
+                });
+
+                if (!refResponse.ok) {
+                  return null;
+                }
+
+                const refData = await refResponse.json();
+                const newToken = refData?.data?.access_token || refData?.access_token;
+                if (typeof newToken === 'string' && newToken.length > 0) {
+                  localStorage.setItem('aerion_access_token', newToken);
+                  return newToken;
+                }
+                return null;
+              } catch {
+                return null;
+              } finally {
+                isRefreshingPromise = null;
+              }
+            })();
+          }
+
+          const freshToken = await isRefreshingPromise;
+
+          if (freshToken) {
+            // Token successfully renewed; retry original request once with new token
+            const retryHeaders = {
+              ...headers,
+              Authorization: `Bearer ${freshToken}`,
+            };
+            return this.request<T>(endpoint, {
+              ...options,
+              headers: retryHeaders,
+              _retry: true,
+            });
+          } else {
+            // Refresh failed: clear credentials, terminate session, trigger login redirection
+            localStorage.removeItem('aerion_access_token');
+            localStorage.removeItem('aerion_user');
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('aerion:unauthorized'));
+            }
+          }
+        } else if (hasToken || endpoint.includes('/auth/me')) {
+          // Token expired or invalid and cannot be refreshed; clear session
           localStorage.removeItem('aerion_access_token');
           localStorage.removeItem('aerion_user');
           if (typeof window !== 'undefined') {

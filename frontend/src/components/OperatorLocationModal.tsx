@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import L from 'leaflet';
 import { LocationProvenance } from '../types';
 import { externalApi } from '../api';
 
@@ -11,6 +12,19 @@ interface OperatorLocationModalProps {
 
 type TabMode = 'MANUAL' | 'SEARCH' | 'MAP';
 
+// Custom AERION tactical pin icon using Leaflet divIcon to ensure no asset bundling issues
+const createAerionPinIcon = () => {
+  return L.divIcon({
+    className: 'aerion-leaflet-pin',
+    html: `<div style="display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-100%);">
+      <div style="background:#EF4444;width:14px;height:14px;border-radius:50%;border:2px solid #FFFFFF;box-shadow:0 0 10px rgba(239,68,68,0.8);"></div>
+      <div style="width:2px;height:10px;background:#EF4444;"></div>
+    </div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+  });
+};
+
 export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
   isOpen,
   onClose,
@@ -18,32 +32,33 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
   existingLocation,
 }) => {
   const [activeTab, setActiveTab] = useState<TabMode>('MANUAL');
-  
+
   // Coordinates & Label
   const [latStr, setLatStr] = useState<string>(existingLocation?.latitude ? String(existingLocation.latitude) : '');
   const [lonStr, setLonStr] = useState<string>(existingLocation?.longitude ? String(existingLocation.longitude) : '');
   const [label, setLabel] = useState<string>(existingLocation?.label || '');
   const [locationMethod, setLocationMethod] = useState<'MANUAL_COORDINATES' | 'PLACE_SEARCH' | 'MAP_SELECTION'>('MANUAL_COORDINATES');
-  
+
   // Place Search State
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Map Selection State (Interactive pin placement with Pan & Zoom)
-  const [selectedMapPin, setSelectedMapPin] = useState<{ x: number; y: number; lat: number; lon: number; name: string } | null>(null);
-  const [zoomLevel, setZoomLevel] = useState<number>(1.0);
-  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [hasMovedDuringDrag, setHasMovedDuringDrag] = useState<boolean>(false);
+  // Real Geographic Map Selection State (BUG-010 Remediation)
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const [selectedMapCoords, setSelectedMapCoords] = useState<{ lat: number; lon: number } | null>(
+    existingLocation?.latitude && existingLocation?.longitude
+      ? { lat: existingLocation.latitude, lon: existingLocation.longitude }
+      : null
+  );
+  const [mapError, setMapError] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
-  // Preset operational reference sectors
+  // Preset operational reference sectors (manual fallback coordinates)
   const presets = [
     { label: 'Western Desert Sector (Rajasthan)', lat: 26.9124, lon: 70.9022 },
     { label: 'Northern Perimeter (Jammu)', lat: 32.7266, lon: 74.8570 },
@@ -51,20 +66,105 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
     { label: 'Disaster Zone (Chamoli / Joshimath)', lat: 30.5574, lon: 79.5670 },
   ];
 
-  // Map reference sectors with normalized canvas coordinates
-  const mapSectors = [
-    { name: 'Northern Perimeter (Jammu)', lat: 32.7266, lon: 74.8570, x: 28, y: 18 },
-    { name: 'Western Desert (Rajasthan)', lat: 26.9124, lon: 70.9022, x: 20, y: 40 },
-    { name: 'Central Sector (Delhi NCR)', lat: 28.6139, lon: 77.2090, x: 38, y: 35 },
-    { name: 'Eastern Riverine (Assam/Dhubri)', lat: 26.0207, lon: 89.9744, x: 82, y: 38 },
-    { name: 'Himalayan Ridge (Chamoli)', lat: 30.5574, lon: 79.5670, x: 44, y: 26 },
-  ];
+  // Initialize and tear down real Leaflet map when MAP tab is active
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'MAP') {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markerRef.current = null;
+      }
+      return;
+    }
+
+    // Delay slightly to ensure container is fully rendered in DOM
+    const timer = setTimeout(() => {
+      if (!mapContainerRef.current) return;
+
+      try {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
+        }
+
+        const initialLat = selectedMapCoords?.lat || (latStr ? parseFloat(latStr) : 28.6139);
+        const initialLon = selectedMapCoords?.lon || (lonStr ? parseFloat(lonStr) : 77.2090);
+        const centerLat = isNaN(initialLat) ? 28.6139 : initialLat;
+        const centerLon = isNaN(initialLon) ? 77.2090 : initialLon;
+
+        const map = L.map(mapContainerRef.current, {
+          center: [centerLat, centerLon],
+          zoom: selectedMapCoords ? 8 : 4,
+          minZoom: 2,
+          maxZoom: 18,
+          attributionControl: true,
+        });
+
+        // Genuine geographic tile layer using OpenStreetMap
+        const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+        });
+
+        tileLayer.on('tileerror', () => {
+          setMapError('Map tile service degraded or offline. Geographic coordinate calculation remains operational.');
+        });
+
+        tileLayer.addTo(map);
+
+        // If existing coordinates exist, place the initial pin
+        if (selectedMapCoords && !isNaN(selectedMapCoords.lat) && !isNaN(selectedMapCoords.lon)) {
+          markerRef.current = L.marker([selectedMapCoords.lat, selectedMapCoords.lon], {
+            icon: createAerionPinIcon(),
+          }).addTo(map);
+        }
+
+        // Genuine map click handler: coordinates derived strictly from real geographic projection
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          const lat = Number(e.latlng.lat.toFixed(4));
+          const lon = Number(e.latlng.lng.toFixed(4));
+
+          setSelectedMapCoords({ lat, lon });
+          setLatStr(String(lat));
+          setLonStr(String(lon));
+          setLabel(`Operator Map Selection [${lat}°N, ${lon}°E]`);
+          setLocationMethod('MAP_SELECTION');
+          setError(null);
+          setMapError(null);
+
+          // Update or place marker on the real geographic coordinate
+          if (markerRef.current) {
+            markerRef.current.setLatLng([lat, lon]);
+          } else {
+            markerRef.current = L.marker([lat, lon], {
+              icon: createAerionPinIcon(),
+            }).addTo(map);
+          }
+        });
+
+        mapInstanceRef.current = map;
+        map.invalidateSize();
+      } catch (err: any) {
+        setMapError('LOCATION SELECTION UNAVAILABLE: Failed to initialize map engine.');
+      }
+    }, 50);
+
+    return () => {
+      clearTimeout(timer);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markerRef.current = null;
+      }
+    };
+  }, [isOpen, activeTab]);
 
   const handleApplyPreset = (p: typeof presets[0]) => {
     setLatStr(String(p.lat));
     setLonStr(String(p.lon));
     setLabel(p.label);
     setLocationMethod('MANUAL_COORDINATES');
+    setSelectedMapCoords({ lat: p.lat, lon: p.lon });
     setError(null);
   };
 
@@ -74,10 +174,9 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
     setSearchError(null);
     try {
       const res = await externalApi.forwardGeocode(searchQuery.trim(), 5);
-      // Backend returns ResponseEnvelope[List[NormalizedGeocodeResult]], so res.data is directly the array
       const resultsArray = Array.isArray(res.data)
         ? res.data
-        : (res.data && Array.isArray(res.data.results) ? res.data.results : []);
+        : (res.data && Array.isArray((res.data as any).results) ? (res.data as any).results : []);
 
       if (res.success && resultsArray.length > 0) {
         setSearchResults(resultsArray);
@@ -97,78 +196,19 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
     setLonStr(String(result.longitude));
     setLabel(result.display_name || result.name || searchQuery);
     setLocationMethod('PLACE_SEARCH');
+    setSelectedMapCoords({ lat: result.latitude, lon: result.longitude });
     setError(null);
-  };
-
-  const handleZoomIn = () => setZoomLevel((z) => Math.min(3.0, Number((z + 0.25).toFixed(2))));
-  const handleZoomOut = () => setZoomLevel((z) => Math.max(1.0, Number((z - 0.25).toFixed(2))));
-  const handleResetZoom = () => {
-    setZoomLevel(1.0);
-    setPanOffset({ x: 0, y: 0 });
   };
 
   const handleClearMapPin = () => {
-    setSelectedMapPin(null);
+    setSelectedMapCoords(null);
+    if (markerRef.current && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(markerRef.current);
+      markerRef.current = null;
+    }
     setLatStr('');
     setLonStr('');
     setLabel('');
-    setError(null);
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    setIsPanning(true);
-    setHasMovedDuringDrag(false);
-    setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isPanning) return;
-    setHasMovedDuringDrag(true);
-    setPanOffset({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsPanning(false);
-  };
-
-  const handleMapCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // If user dragged more than a click threshold, ignore click
-    if (hasMovedDuringDrag) {
-      setHasMovedDuringDrag(false);
-      return;
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left - panOffset.x;
-    const clickY = e.clientY - rect.top - panOffset.y;
-    
-    // Scale normalized by zoom
-    const effectiveWidth = rect.width * zoomLevel;
-    const effectiveHeight = rect.height * zoomLevel;
-
-    const percentX = Math.max(0, Math.min(100, (clickX / effectiveWidth) * 100));
-    const percentY = Math.max(0, Math.min(100, (clickY / effectiveHeight) * 100));
-
-    // Approximate linear interpolation across Northern/Western India bounding box:
-    // Lon range: approx 68°E (left) to 92°E (right)
-    // Lat range: approx 36°N (top) to 20°N (bottom)
-    const interpLon = Number((68.0 + (percentX / 100) * (92.0 - 68.0)).toFixed(4));
-    const interpLat = Number((36.0 - (percentY / 100) * (36.0 - 20.0)).toFixed(4));
-
-    setSelectedMapPin({
-      x: percentX,
-      y: percentY,
-      lat: interpLat,
-      lon: interpLon,
-      name: `Map Pin [${interpLat.toFixed(2)}°N, ${interpLon.toFixed(2)}°E]`,
-    });
-    setLatStr(String(interpLat));
-    setLonStr(String(interpLon));
-    setLabel(`Selected Map Point [${interpLat}, ${interpLon}]`);
-    setLocationMethod('MAP_SELECTION');
     setError(null);
   };
 
@@ -206,94 +246,101 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
     onClose();
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 font-mono">
-      <div className="w-full max-w-xl bg-panel border border-white/[0.12] rounded-lg shadow-2xl overflow-hidden flex flex-col text-xs">
+      <div className="w-full max-w-xl bg-panel border border-white/[0.12] rounded-xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="h-12 px-5 flex items-center justify-between border-b border-white/[0.08] bg-[#0B0F14]">
-          <div className="flex items-center gap-2.5">
+        <div className="h-12 px-6 flex items-center justify-between border-b border-white/[0.08] bg-elevated/40">
+          <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-accent text-[20px]">pin_drop</span>
-            <span className="text-paper font-medium tracking-wider uppercase text-sm">
-              OPERATOR APPROXIMATE LOCATION
-            </span>
+            <h2 className="text-sm font-semibold text-paper tracking-wider uppercase">
+              OPERATOR GEOGRAPHIC CONTEXT
+            </h2>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-paper transition-colors">
-            <span className="material-symbols-outlined text-[18px]">close</span>
+          <button
+            onClick={onClose}
+            className="text-muted hover:text-paper text-sm p-1 transition-colors"
+          >
+            ✕
           </button>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-b border-white/[0.08] bg-[#0E131A] px-4 pt-2 gap-2">
+        {/* Warning Banner */}
+        <div className="px-6 py-2.5 bg-status-warning/10 border-b border-status-warning/20 flex items-start gap-2.5">
+          <span className="material-symbols-outlined text-status-warning text-[18px] shrink-0 mt-0.5">
+            warning
+          </span>
+          <p className="text-[11px] text-paper/90 leading-tight">
+            <strong>OPERATOR SENSITIVITY NOTICE:</strong> Approximate geographic context enriches weather, routing, and seismic awareness. All AI object perception (YOLO/Siamese) runs strictly standalone without location dependencies.
+          </p>
+        </div>
+
+        {/* Modal Tabs */}
+        <div className="flex border-b border-white/[0.08] bg-[#070A0E] text-xs">
           <button
+            type="button"
             onClick={() => setActiveTab('MANUAL')}
-            className={`pb-2 px-3 text-[11px] font-mono uppercase tracking-wider transition-all flex items-center gap-1.5 border-b-2 ${
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'MANUAL'
-                ? 'border-accent text-accent font-bold'
-                : 'border-transparent text-muted hover:text-paper'
+                ? 'border-accent text-accent bg-accent/5'
+                : 'border-transparent text-muted hover:text-paper hover:bg-white/[0.02]'
             }`}
           >
-            <span className="material-symbols-outlined text-[14px]">edit</span>
+            <span className="material-symbols-outlined text-[16px]">edit_location</span>
             <span>MANUAL COORDINATES</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('SEARCH')}
-            className={`pb-2 px-3 text-[11px] font-mono uppercase tracking-wider transition-all flex items-center gap-1.5 border-b-2 ${
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'SEARCH'
-                ? 'border-accent text-accent font-bold'
-                : 'border-transparent text-muted hover:text-paper'
+                ? 'border-accent text-accent bg-accent/5'
+                : 'border-transparent text-muted hover:text-paper hover:bg-white/[0.02]'
             }`}
           >
-            <span className="material-symbols-outlined text-[14px]">search</span>
+            <span className="material-symbols-outlined text-[16px]">search</span>
             <span>PLACE SEARCH</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('MAP')}
-            className={`pb-2 px-3 text-[11px] font-mono uppercase tracking-wider transition-all flex items-center gap-1.5 border-b-2 ${
+            className={`flex-1 py-3 px-4 text-center font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'MAP'
-                ? 'border-accent text-accent font-bold'
-                : 'border-transparent text-muted hover:text-paper'
+                ? 'border-accent text-accent bg-accent/5'
+                : 'border-transparent text-muted hover:text-paper hover:bg-white/[0.02]'
             }`}
           >
-            <span className="material-symbols-outlined text-[14px]">map</span>
+            <span className="material-symbols-outlined text-[16px]">map</span>
             <span>SELECT ON MAP</span>
           </button>
         </div>
 
-        {/* Body */}
+        {/* Body Content */}
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
-          <div className="p-3 bg-accent/5 border border-accent/20 rounded text-paper text-[11px] leading-relaxed">
-            <div className="flex items-center gap-1.5 text-accent font-bold mb-1 uppercase tracking-wide">
-              <span className="material-symbols-outlined text-[15px]">info</span>
-              <span>EVIDENCE PROVENANCE GUARANTEE</span>
-            </div>
-            This asset lacks embedded GPS. You may supply approximate coordinates to unlock real meteorological observations and geospatial boundary resolution.
-            <strong className="block text-accent mt-1">
-              PROVENANCE IS STRICTLY RECORDED AS &quot;OPERATOR_PROVIDED (APPROXIMATE)&quot; VIA {locationMethod}. NEVER FALSELY CLAIMED AS ASSET SENSOR GPS.
-            </strong>
-          </div>
-
           {/* TAB 1: MANUAL COORDINATES */}
           {activeTab === 'MANUAL' && (
             <div className="space-y-4">
               <div>
                 <span className="text-[10px] text-muted uppercase tracking-wider block mb-2">
-                  OPERATIONAL REFERENCE PRESETS
+                  OPERATIONAL REFERENCE PRESETS (CLICK TO LOAD)
                 </span>
                 <div className="grid grid-cols-2 gap-2">
-                  {presets.map((p, idx) => (
+                  {presets.map((p, i) => (
                     <button
-                      key={idx}
+                      key={i}
                       type="button"
                       onClick={() => handleApplyPreset(p)}
-                      className="p-2 text-left bg-elevated/40 hover:bg-accent/15 border border-white/[0.06] hover:border-accent/40 rounded transition-all group"
+                      className="p-2.5 rounded bg-elevated/40 border border-white/[0.06] hover:border-accent/40 hover:bg-accent/5 text-left transition-all group"
                     >
-                      <span className="text-paper group-hover:text-accent font-medium block truncate text-[11px]">
+                      <span className="text-paper text-[11px] font-medium block truncate group-hover:text-accent">
                         {p.label}
                       </span>
-                      <span className="text-faint text-[9px] block">
-                        {p.lat.toFixed(4)}, {p.lon.toFixed(4)}
+                      <span className="text-faint text-[9px] font-mono block mt-0.5">
+                        {p.lat.toFixed(4)}°N, {p.lon.toFixed(4)}°E
                       </span>
                     </button>
                   ))}
@@ -307,25 +354,25 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
             <div className="space-y-3">
               <div>
                 <label className="block text-[10px] text-muted uppercase tracking-wider mb-1">
-                  SEARCH PLACE, CITY, DISTRICT OR SECTOR
+                  SEARCH GEOGRAPHIC PLACE OR SECTOR
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSearchPlaces(); }}
-                    placeholder="e.g. Firozpur, Punjab or Joshimath"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchPlaces()}
+                    placeholder="e.g. Jaisalmer, Barmer, Dhubri, Joshimath"
                     className="flex-1 h-9 px-3 bg-graphite border border-white/[0.08] rounded text-paper text-xs focus:outline-none focus:border-accent/50"
                   />
                   <button
                     type="button"
                     onClick={handleSearchPlaces}
-                    disabled={isSearching}
-                    className="px-4 h-9 bg-elevated hover:bg-accent/20 border border-white/[0.1] text-accent text-xs rounded transition-all flex items-center gap-1"
+                    disabled={isSearching || !searchQuery.trim()}
+                    className="px-4 h-9 rounded bg-accent/20 border border-accent/40 text-accent text-xs font-semibold hover:bg-accent/30 transition-all disabled:opacity-50 flex items-center gap-1.5"
                   >
                     {isSearching ? (
-                      <span className="material-symbols-outlined text-[15px] animate-spin">progress_activity</span>
+                      <span className="animate-spin material-symbols-outlined text-[15px]">progress_activity</span>
                     ) : (
                       <span className="material-symbols-outlined text-[15px]">search</span>
                     )}
@@ -369,45 +416,18 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: SELECT ON MAP */}
+          {/* TAB 3: SELECT ON MAP (BUG-010 Real Geographic Map Interaction) */}
           {activeTab === 'MAP' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-muted uppercase tracking-wider block">
-                    PAN & ZOOM MAP SELECTION
-                  </span>
-                  <span className="px-1.5 py-0.2 rounded bg-elevated border border-white/[0.08] text-[9px] text-accent">
-                    ZOOM: {zoomLevel.toFixed(2)}x
+                    GENUINE GEOGRAPHIC MAP (WGS-84 PROJECTION)
                   </span>
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleZoomIn}
-                    className="w-6 h-6 rounded bg-elevated hover:bg-accent/20 border border-white/[0.1] text-paper flex items-center justify-center text-xs font-bold"
-                    title="Zoom In"
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleZoomOut}
-                    className="w-6 h-6 rounded bg-elevated hover:bg-accent/20 border border-white/[0.1] text-paper flex items-center justify-center text-xs font-bold"
-                    title="Zoom Out"
-                  >
-                    -
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResetZoom}
-                    className="px-2 h-6 rounded bg-elevated hover:bg-accent/20 border border-white/[0.1] text-muted hover:text-paper text-[9px]"
-                    title="Reset Zoom & Pan"
-                  >
-                    RESET
-                  </button>
-                  {selectedMapPin && (
+                  {selectedMapCoords && (
                     <button
                       type="button"
                       onClick={handleClearMapPin}
@@ -420,69 +440,32 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
                 </div>
               </div>
 
+              {mapError && (
+                <div className="p-2 bg-status-warning/15 border border-status-warning/30 rounded text-status-warning text-[10px] flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[14px]">warning</span>
+                  <span>{mapError}</span>
+                </div>
+              )}
+
+              {/* Real Leaflet Map Container */}
               <div
-                onClick={handleMapCanvasClick}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                className="relative w-full h-56 bg-[#070A0E] border border-white/[0.12] rounded-lg overflow-hidden cursor-crosshair select-none telemetry-grid"
-              >
-                {/* Pan/Zoom Content Layer */}
-                <div
-                  className="w-full h-full relative transition-transform duration-75 origin-top-left"
-                  style={{
-                    transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomLevel})`,
-                  }}
-                >
-                  {/* Sector reference anchors */}
-                  {mapSectors.map((s, i) => (
-                    <div
-                      key={i}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setLatStr(String(s.lat));
-                        setLonStr(String(s.lon));
-                        setLabel(s.name);
-                        setSelectedMapPin({ x: s.x, y: s.y, lat: s.lat, lon: s.lon, name: s.name });
-                        setLocationMethod('MAP_SELECTION');
-                        setError(null);
-                      }}
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 p-1 group z-10 cursor-pointer"
-                      style={{ left: `${s.x}%`, top: `${s.y}%` }}
-                      title={s.name}
-                    >
-                      <span className="w-2.5 h-2.5 rounded-full bg-accent/70 border border-white block group-hover:scale-125 transition-transform animate-pulse"></span>
-                      <span className="absolute left-3 top-0 text-[8px] font-mono text-muted group-hover:text-accent whitespace-nowrap bg-black/80 px-1 rounded pointer-events-none">
-                        {s.name}
-                      </span>
-                    </div>
-                  ))}
+                ref={mapContainerRef}
+                className="relative w-full h-64 bg-[#070A0E] border border-white/[0.12] rounded-lg overflow-hidden cursor-crosshair select-none z-10"
+                style={{ minHeight: '256px' }}
+              />
 
-                  {/* Operator active pin */}
-                  {selectedMapPin && (
-                    <div
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none z-20"
-                      style={{ left: `${selectedMapPin.x}%`, top: `${selectedMapPin.y}%` }}
-                    >
-                      <span className="material-symbols-outlined text-status-critical text-[24px] -mt-3 -ml-0.5 animate-bounce drop-shadow-md">
-                        location_on
-                      </span>
-                    </div>
-                  )}
-                </div>
+              <div className="flex items-center justify-between text-[9px] text-faint px-1">
+                <span>CLICK MAP TO PLACE TACTICAL PIN • SCROLL / DRAG TO PAN & ZOOM</span>
+                <span className="text-muted">
+                  {selectedMapCoords
+                    ? `SELECTED: ${selectedMapCoords.lat.toFixed(4)}°N, ${selectedMapCoords.lon.toFixed(4)}°E`
+                    : 'NO POINT SELECTED'}
+                </span>
+              </div>
 
-                {/* Bottom Overlay Info */}
-                <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
-                  <div className="bg-graphite/90 border border-white/[0.08] px-2 py-0.5 rounded text-[9px] text-faint">
-                    DRAG TO PAN • CLICK TO PIN • SCROLL / +/- TO ZOOM
-                  </div>
-                  {selectedMapPin && (
-                    <div className="bg-status-critical/15 border border-status-critical/30 px-2 py-0.5 rounded text-[9px] text-status-critical font-mono font-bold">
-                      PIN: {selectedMapPin.lat.toFixed(4)}°N, {selectedMapPin.lon.toFixed(4)}°E
-                    </div>
-                  )}
-                </div>
+              {/* Explicit Disclaimer: Not an Authoritative Border (Requirement D) */}
+              <div className="p-2 bg-black/40 border border-white/[0.06] rounded text-[9px] text-muted/80 leading-normal">
+                <strong>DISCLAIMER:</strong> Operator map clicks generate contextual geographic reference points for weather/routing enrichment only. Selected points do not represent authoritative international border demarcations, Survey of India perimeters, or certified boundary intelligence.
               </div>
             </div>
           )}
