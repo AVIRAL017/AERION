@@ -74,7 +74,7 @@ async def login(
     client_ip = request.client.host if request.client else None
     asyncio.create_task(
         email_service.send_login_notification(
-            recipient_email=req.username,
+            recipient_email=req.email,
             auth_method="Password",
             client_ip=client_ip,
         )
