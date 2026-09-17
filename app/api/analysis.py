@@ -32,7 +32,14 @@ from app.schemas.common import MetaBlock, ResponseEnvelope, utc_now_iso
 from app.schemas.evidence import GeoPoint
 from app.schemas.external import AdvisoryPriority, ProviderStatus
 from app.db.session import get_async_session
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.repositories import (
+    AnalysisJobRepository,
+    AnalysisResultRepository,
+    ProjectRepository,
+)
+from app.db.models import AnalysisJob as DBAnalysisJob, AnalysisResult as DBAnalysisResult, Project as DBProject
 from app.services.annotation_service import AnnotationService
 from app.services.application_services import (
     BorderVideoJobService,
@@ -40,6 +47,7 @@ from app.services.application_services import (
     ImageProcessingService,
     SatelliteAnalysisService,
 )
+from app.services.damage_validator import DamagePairValidator
 from app.services.building_service import BuildingService
 from app.services.external_geocoding_service import ExternalGeocodingService
 from app.services.external_routing_service import ExternalRoutingService
@@ -68,6 +76,8 @@ async def _safely_persist_result(
     source_asset_key: Optional[str] = None,
     annotated_artifact_key: Optional[str] = None,
     existing_job_id_str: Optional[str] = None,
+    user_id_str: Optional[str] = None,
+    org_id_str: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Attempts to persist analysis result to PostgreSQL/PostGIS.
@@ -79,6 +89,8 @@ async def _safely_persist_result(
         proj_uuid = uuid.UUID(project_id_str) if project_id_str and len(project_id_str) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
         sit_uuid = uuid.UUID(situation_id_str) if situation_id_str and len(situation_id_str) == 36 else None
         job_uuid = uuid.UUID(existing_job_id_str) if existing_job_id_str and len(existing_job_id_str) == 36 else None
+        user_uuid = uuid.UUID(user_id_str) if user_id_str and len(user_id_str) == 36 else None
+        org_uuid = uuid.UUID(org_id_str) if org_id_str and len(org_id_str) == 36 else None
 
         persister = AnalysisPersistenceService()
         persist_info = await persister.persist_analysis(
@@ -88,6 +100,8 @@ async def _safely_persist_result(
             source_asset_key=source_asset_key,
             annotated_artifact_key=annotated_artifact_key,
             existing_job_id=job_uuid,
+            user_id=user_uuid,
+            organization_id=org_uuid,
         )
         persist_info["database_available"] = True
         return persist_info
@@ -97,9 +111,59 @@ async def _safely_persist_result(
             "persisted": False,
             "database_available": False,
             "reason": str(exc),
-            "analysis_id": str(result.analysis_id),
-            "situation_linked": False,
         }
+
+
+async def _check_quota_before_inference(org_id_str: Optional[str], dimension: str = "drone_image") -> None:
+    """
+    Checks if the organization has exceeded their monthly quota for the specified dimension.
+    Raises QuotaExceededError if exhausted.
+    """
+    if not org_id_str:
+        return
+    try:
+        import uuid
+        from app.db.session import AsyncSessionLocal
+        from app.db.repositories import UsageEventRepository, SubscriptionRepository
+        from app.services.subscription_service import EntitlementService, PlanTier, UsageDimension
+        from app.core.errors import QuotaExceededError
+
+        org_uuid = uuid.UUID(org_id_str)
+        async with AsyncSessionLocal() as session:
+            sub_repo = SubscriptionRepository(session)
+            sub = await sub_repo.get_by_organization(org_uuid)
+            tier_str = (sub.plan if sub else "FREE").upper()
+            tier = PlanTier.PRO if tier_str == "PRO" else PlanTier.FREE
+
+            dim_enum = UsageDimension.DRONE_IMAGE
+            if dimension == "satellite_tile":
+                dim_enum = UsageDimension.SATELLITE_TILE
+            elif dimension == "damage_pair":
+                dim_enum = UsageDimension.DAMAGE_PAIR
+            elif dimension == "video_minute":
+                dim_enum = UsageDimension.VIDEO_MINUTE
+
+            usage_repo = UsageEventRepository(session)
+            used = await usage_repo.get_monthly_count(org_uuid, dimension=dimension)
+
+            ent_svc = EntitlementService()
+            eval_res = ent_svc.evaluate_quota(tier=tier, dimension=dim_enum, current_used=used, requested_quantity=1)
+            if eval_res["is_exhausted"]:
+                raise QuotaExceededError(
+                    message=f"Monthly quota limit of {eval_res['limit']} for {dimension} reached under {tier.value} plan. Please upgrade to PRO to proceed.",
+                    details=[{
+                        "field": "quota",
+                        "dimension": dimension,
+                        "used": eval_res["used"],
+                        "limit": eval_res["limit"],
+                        "plan": tier.value,
+                    }]
+                )
+    except QuotaExceededError:
+        raise
+    except Exception as exc:
+        logger.debug(f"Quota pre-check skipped or unconfigured ({exc})")
+
 
 
 
@@ -191,6 +255,11 @@ async def analyze_image(
             details=[{"field": "image_path", "issue": "missing_image_source", "provided": None}],
         )
 
+    # Enforce quota check
+    req_dim = "satellite_tile" if req.source_type.lower() == "satellite" else "drone_image"
+    await _check_quota_before_inference(payload.get("org"), dimension=req_dim)
+
+
     try:
         if req.source_type.lower() == "satellite":
             sat_service = SatelliteAnalysisService()
@@ -198,6 +267,8 @@ async def analyze_image(
                 image_path=str(target_path),
                 terrain_context=req.terrain_context,
                 run_intelligence=req.run_intelligence,
+                confidence_threshold=req.confidence_threshold,
+                iou_threshold=req.iou_threshold,
             )
         else:
             img_service = ImageProcessingService()
@@ -207,6 +278,8 @@ async def analyze_image(
                 drone_model=req.drone_model,
                 terrain_context=req.terrain_context,
                 run_intelligence=req.run_intelligence,
+                confidence_threshold=req.confidence_threshold,
+                iou_threshold=req.iou_threshold,
             )
 
         result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
@@ -246,6 +319,8 @@ async def analyze_image(
             project_id_str=req.project_id,
             situation_id_str=req.situation_id,
             annotated_artifact_key=annotated_key,
+            user_id_str=payload.get("sub"),
+            org_id_str=payload.get("org"),
         )
         result_dict["persistence"] = persist_info
 
@@ -301,7 +376,14 @@ async def analyze_damage(
             details=[{"field": "before_image_path", "issue": "missing_damage_pair", "provided": None}],
         )
 
+    # Enforce quota check
+    await _check_quota_before_inference(payload.get("org"), dimension="damage_pair")
+
+
     try:
+        # Validate structural & geospatial compatibility of before/after pair (BUG-006)
+        validation_res = DamagePairValidator.validate_pair(str(before_path), str(after_path))
+
         damage_service = DamageAnalysisService()
         result: AERIONAnalysisResult = await damage_service.analyze_damage_pair(
             before_path=str(before_path),
@@ -310,10 +392,40 @@ async def analyze_damage(
             run_intelligence=req.run_intelligence,
         )
         result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
+        result_dict["pair_validation"] = validation_res.to_dict()
+
+        # Generate and store visual damage mask overlay artifact (BUG-021)
+        annotated_key: Optional[str] = None
+        try:
+            proj_uuid = uuid.UUID(req.project_id) if req.project_id and len(req.project_id) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
+            annotator = AnnotationService()
+            annot_res = annotator.render_damage_overlay_and_store(
+                after_image_path=after_path,
+                before_image_path=before_path,
+                damage_analysis=result.damage_analysis,
+                project_id=proj_uuid,
+            )
+            annotated_key = annot_res.artifact_key
+            result_dict["damage_mask_base64"] = annot_res.annotated_base64
+            result_dict["damage_artifact"] = {
+                "artifact_key": annot_res.artifact_key,
+                "mime_type": annot_res.mime_type,
+                "sha256": annot_res.sha256,
+                "size_bytes": annot_res.file_size_bytes,
+                "image_width": annot_res.image_width,
+                "image_height": annot_res.image_height,
+                "is_zero_damage": annot_res.is_zero_detection,
+            }
+        except Exception as annot_exc:
+            logger.warning(f"Damage overlay artifact generation failed: {annot_exc}")
+
         persist_info = await _safely_persist_result(
             result=result,
             project_id_str=req.project_id,
             situation_id_str=req.situation_id,
+            annotated_artifact_key=annotated_key,
+            user_id_str=payload.get("sub"),
+            org_id_str=payload.get("org"),
         )
         result_dict["persistence"] = persist_info
 
@@ -368,6 +480,10 @@ async def analyze_border_video(
             details=[{"field": "video_path", "issue": "missing_video_source", "provided": None}],
         )
 
+    # Enforce quota check
+    await _check_quota_before_inference(payload.get("org"), dimension="video_minute")
+
+
     try:
         video_service = BorderVideoJobService()
         report_data = await video_service.process_video_file(
@@ -389,6 +505,8 @@ async def analyze_border_video(
                 project_id_str=req.project_id,
                 situation_id_str=req.situation_id,
                 annotated_artifact_key=annotated_key,
+                user_id_str=payload.get("sub"),
+                org_id_str=payload.get("org"),
             )
             report_data["persistence"] = persist_info
 
@@ -485,6 +603,9 @@ async def analyze_disaster_e2e(
         )
 
     try:
+        # Validate structural & geospatial compatibility of before/after pair (BUG-006)
+        validation_res = DamagePairValidator.validate_pair(str(before_path), str(after_path))
+
         # 1. Run frozen damage detection model
         damage_service = DamageAnalysisService()
         try:
@@ -502,6 +623,33 @@ async def analyze_disaster_e2e(
                 )
             raise
         result_dict = runtime_result.to_dict() if hasattr(runtime_result, "to_dict") else dict(runtime_result)
+
+        # Generate and store visual damage mask overlay artifact (BUG-021)
+        annotated_damage_key: Optional[str] = None
+        damage_artifact_info: Optional[Dict[str, Any]] = None
+        damage_mask_b64: Optional[str] = None
+        try:
+            proj_uuid = uuid.UUID(req.project_id) if req.project_id and len(req.project_id) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
+            annotator = AnnotationService()
+            annot_res = annotator.render_damage_overlay_and_store(
+                after_image_path=after_path,
+                before_image_path=before_path,
+                damage_analysis=runtime_result.damage_analysis,
+                project_id=proj_uuid,
+            )
+            annotated_damage_key = annot_res.artifact_key
+            damage_mask_b64 = annot_res.annotated_base64
+            damage_artifact_info = {
+                "artifact_key": annot_res.artifact_key,
+                "mime_type": annot_res.mime_type,
+                "sha256": annot_res.sha256,
+                "size_bytes": annot_res.file_size_bytes,
+                "image_width": annot_res.image_width,
+                "image_height": annot_res.image_height,
+                "is_zero_damage": annot_res.is_zero_detection,
+            }
+        except Exception as annot_exc:
+            logger.warning(f"Damage overlay artifact generation failed in E2E: {annot_exc}")
 
         # 2. Extract damage metrics safely
         damage_analysis = runtime_result.damage_analysis
@@ -541,7 +689,7 @@ async def analyze_disaster_e2e(
                     hazard_type="EARTHQUAKE",
                     limit=20,
                 )
-                if haz_res.available and haz_res.records:
+                if haz_res and getattr(haz_res, "records", None):
                     seismic_events = [r.model_dump() for r in haz_res.records]
             except Exception as geo_err:
                 logger.warning(f"Geospatial hazard query degraded ({geo_err})")
@@ -691,12 +839,18 @@ async def analyze_disaster_e2e(
             result=runtime_result,
             project_id_str=req.project_id,
             situation_id_str=req.situation_id,
+            annotated_artifact_key=annotated_damage_key,
+            user_id_str=payload.get("sub"),
+            org_id_str=payload.get("org"),
         )
 
         e2e_response = {
             "analysis_id": str(runtime_result.analysis_id),
             "mode": "DISASTER_RESPONSE",
             "georeferencing_status": georeferencing_status,
+            "pair_validation": validation_res.to_dict(),
+            "damage_mask_base64": damage_mask_b64,
+            "damage_artifact": damage_artifact_info,
             "damage_analysis": {
                 "damage_pixels": damage_pixels,
                 "damage_ratio": damage_ratio,
@@ -822,12 +976,12 @@ async def analyze_border_e2e(
                 run_intelligence=req.run_intelligence,
             )
             total_detections_count = len(last_result.detections)
-            # Check for high-confidence border sector crossings
-            for d in last_result.detections:
+            for idx, d in enumerate(last_result.detections):
                 if d.class_name in ("person", "light_vehicle", "truck", "motorbike") and d.confidence >= 0.50:
+                    det_id = str(d.track_id) if d.track_id is not None else f"det-{idx + 1}"
                     filtered_crossing_indicators.append({
                         "event_type": "POTENTIAL_UNAUTHORIZED_CROSSING_INDICATOR",
-                        "detection_id": str(d.detection_id),
+                        "detection_id": det_id,
                         "class_name": d.class_name,
                         "confidence": d.confidence,
                         "terminology": "Potential Unauthorized Crossing Indicator (never uncorroborated infiltration)",
@@ -930,6 +1084,8 @@ async def analyze_border_e2e(
                 project_id_str=req.project_id,
                 situation_id_str=req.situation_id,
                 annotated_artifact_key=annotated_key,
+                user_id_str=payload.get("sub"),
+                org_id_str=payload.get("org"),
             )
 
         e2e_response = {
@@ -1008,7 +1164,7 @@ class CreateBorderJobRequest(BaseModel):
     idempotency_key: Optional[str] = Field(default=None, description="Client-provided key to guarantee idempotent submission")
 
 
-async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest, user_id: Optional[str]) -> Dict[str, Any]:
+async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest, user_id: Optional[str], org_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Executes the 9-stage disaster analysis lifecycle:
     SUBMITTED -> VALIDATING -> QUEUED -> PROCESSING -> ENRICHING -> GENERATING_ADVISORY -> GENERATING_ARTIFACTS -> PERSISTING -> COMPLETED
@@ -1040,6 +1196,9 @@ async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest,
             temp_dirs.extend([before_path.parent, after_path.parent])
         else:
             raise ValidationError("Both before and after image sources are required for disaster job.")
+
+        # Validate pair structural compatibility (BUG-006)
+        validation_res = DamagePairValidator.validate_pair(str(before_path), str(after_path))
 
         # Stage 2: QUEUED
         await mgr.update_progress(job_id, stage=JobStatus.QUEUED.value, progress_percent=20, status=JobStatus.QUEUED)
@@ -1164,7 +1323,31 @@ async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest,
 
         # Stage 6: GENERATING_ARTIFACTS
         await mgr.update_progress(job_id, stage=JobStatus.GENERATING_ARTIFACTS.value, progress_percent=85, status=JobStatus.GENERATING_ARTIFACTS)
-        # Damage pair artifact placeholder (if needed)
+        annotated_damage_key: Optional[str] = None
+        damage_artifact_info: Optional[Dict[str, Any]] = None
+        damage_mask_b64: Optional[str] = None
+        try:
+            proj_uuid = uuid.UUID(req.project_id) if req.project_id and len(req.project_id) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
+            annotator = AnnotationService()
+            annot_res = annotator.render_damage_overlay_and_store(
+                after_image_path=after_path,
+                before_image_path=before_path,
+                damage_analysis=runtime_result.damage_analysis,
+                project_id=proj_uuid,
+            )
+            annotated_damage_key = annot_res.artifact_key
+            damage_mask_b64 = annot_res.annotated_base64
+            damage_artifact_info = {
+                "artifact_key": annot_res.artifact_key,
+                "mime_type": annot_res.mime_type,
+                "sha256": annot_res.sha256,
+                "size_bytes": annot_res.file_size_bytes,
+                "image_width": annot_res.image_width,
+                "image_height": annot_res.image_height,
+                "is_zero_damage": annot_res.is_zero_detection,
+            }
+        except Exception as annot_exc:
+            logger.warning(f"Damage overlay artifact generation failed in disaster job: {annot_exc}")
 
         # Stage 7: PERSISTING
         await mgr.update_progress(job_id, stage=JobStatus.PERSISTING.value, progress_percent=92, status=JobStatus.PERSISTING)
@@ -1172,7 +1355,10 @@ async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest,
             result=runtime_result,
             project_id_str=req.project_id,
             situation_id_str=req.situation_id,
+            annotated_artifact_key=annotated_damage_key,
             existing_job_id_str=job_id,
+            user_id_str=user_id,
+            org_id_str=org_id,
         )
 
         final_status = JobStatus.COMPLETED_WITH_LIMITATIONS if limitations else JobStatus.COMPLETED
@@ -1195,6 +1381,9 @@ async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest,
                 "damage_percentage": damage_percentage,
                 "threshold_applied": req.threshold,
             },
+            "pair_validation": validation_res.to_dict(),
+            "damage_mask_base64": damage_mask_b64,
+            "damage_artifact": damage_artifact_info,
             "geospatial_context": {
                 "administrative": administrative_context,
                 "seismic_events": seismic_events,
@@ -1218,7 +1407,7 @@ async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest,
                 logger.warning(f"Error cleaning up temp dir {tdir}: {exc}")
 
 
-async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, user_id: Optional[str]) -> Dict[str, Any]:
+async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, user_id: Optional[str], org_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Executes the 9-stage border analysis lifecycle:
     SUBMITTED -> VALIDATING -> QUEUED -> PROCESSING -> ENRICHING -> GENERATING_ADVISORY -> GENERATING_ARTIFACTS -> PERSISTING -> COMPLETED
@@ -1281,15 +1470,19 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                 terrain_context=req.terrain_context,
                 generate_annotated_video=req.generate_annotated_video,
             )
-            annotated_video_res = report_data.get("annotated_video")
+            annotated_video_res = report_data.get("annotated_video_artifact") or report_data.get("annotated_video")
             if annotated_video_res:
-                annotated_artifact_info = {
-                    "artifact_key": getattr(annotated_video_res, "artifact_key", None),
-                    "sha256": getattr(annotated_video_res, "sha256", None),
-                    "file_size_bytes": getattr(annotated_video_res, "file_size_bytes", 0),
-                    "mime_type": "video/mp4",
-                }
-                annotated_key = getattr(annotated_video_res, "artifact_key", None)
+                if isinstance(annotated_video_res, dict):
+                    annotated_artifact_info = annotated_video_res
+                    annotated_key = annotated_video_res.get("artifact_key")
+                else:
+                    annotated_artifact_info = {
+                        "artifact_key": getattr(annotated_video_res, "artifact_key", None),
+                        "sha256": getattr(annotated_video_res, "sha256", None),
+                        "file_size_bytes": getattr(annotated_video_res, "file_size_bytes", 0),
+                        "mime_type": "video/mp4",
+                    }
+                    annotated_key = getattr(annotated_video_res, "artifact_key", None)
             total_detections_count = report_data.get("total_detections_count", 0)
             crossing_indicators = report_data.get("potential_unauthorized_crossing_indicators", [])
             last_result = report_data.get("last_analysis_result")
@@ -1396,6 +1589,8 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                 situation_id_str=req.situation_id,
                 annotated_artifact_key=annotated_key,
                 existing_job_id_str=job_id,
+                user_id_str=user_id,
+                org_id_str=org_id,
             )
 
         final_status = JobStatus.COMPLETED_WITH_LIMITATIONS if limitations else JobStatus.COMPLETED
@@ -1408,7 +1603,7 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
             limitations=limitations,
         )
 
-        return {
+        res_dict: Dict[str, Any] = {
             "job_id": job_id,
             "analysis_id": analysis_id,
             "mode": "BORDER_SECURITY",
@@ -1423,10 +1618,21 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
             "border_proximity": border_proximity_info,
             "external_context": {"weather": weather_info},
             "annotated_artifact": annotated_artifact_info,
+            "annotated_video_artifact": annotated_artifact_info if is_video else None,
             "advisory": advisory.model_dump(),
             "persistence": persist_info,
             "limitations": advisory.limitations + limitations,
         }
+
+        if is_video and 'report_data' in locals():
+            res_dict["processed_frames"] = report_data.get("processed_frames")
+            res_dict["total_video_frames"] = report_data.get("total_video_frames")
+            res_dict["all_detections"] = report_data.get("all_detections", [])
+            res_dict["tracks"] = report_data.get("tracks", [])
+            res_dict["unique_tracks_count"] = report_data.get("unique_tracks_count", 0)
+            res_dict["report"] = report_data.get("report")
+
+        return res_dict
 
     finally:
         for tdir in temp_dirs:
@@ -1451,8 +1657,10 @@ async def submit_disaster_job(
     settings = get_settings()
     user_id = payload.get("sub")
 
+    org_id = payload.get("org")
+
     async def job_runner(jid: str):
-        return await _run_disaster_job_pipeline(jid, req, user_id)
+        return await _run_disaster_job_pipeline(jid, req, user_id, org_id)
 
     record = await default_job_manager.submit_job(
         task_name="disaster_analysis_pipeline",
@@ -1492,8 +1700,10 @@ async def submit_border_job(
     settings = get_settings()
     user_id = payload.get("sub")
 
+    org_id = payload.get("org")
+
     async def job_runner(jid: str):
-        return await _run_border_job_pipeline(jid, req, user_id)
+        return await _run_border_job_pipeline(jid, req, user_id, org_id)
 
     record = await default_job_manager.submit_job(
         task_name="border_analysis_pipeline",
@@ -1623,6 +1833,215 @@ async def list_jobs_endpoint(
         data=[r.to_dict() for r in records],
         meta=meta,
     )
+
+
+@router.get(
+    "/history",
+    response_model=ResponseEnvelope[List[Dict[str, Any]]],
+    status_code=status.HTTP_200_OK,
+    summary="List persisted analyses and background jobs for the authenticated organization",
+)
+async def list_analysis_history(
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    mode: Optional[str] = None,
+    status: Optional[str] = None,
+    payload: dict = Depends(get_current_user_payload),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[List[Dict[str, Any]]]:
+    """
+    Returns user-scoped and tenant-isolated analysis history from the database.
+    Falls back cleanly to JobManager records if database is unreachable.
+    Guarantees tenant isolation: User A cannot see User B's analyses from a different organization.
+    """
+    settings = get_settings()
+    org_id_str = payload.get("org")
+    user_id_str = payload.get("sub")
+    effective_org_id = uuid.UUID(org_id_str) if org_id_str and len(org_id_str) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+    history_items: List[Dict[str, Any]] = []
+
+    try:
+        job_repo = AnalysisJobRepository(session)
+        db_jobs = await job_repo.list_by_organization(
+            organization_id=effective_org_id,
+            limit=min(max(1, limit), 100),
+            offset=max(0, offset),
+            mode=mode,
+            status=status,
+        )
+
+        for job in db_jobs:
+            # Check for linked analysis result
+            stmt = select(DBAnalysisResult).where(DBAnalysisResult.job_id == job.id)
+            res = await session.execute(stmt)
+            ar = res.scalar_one_or_none()
+
+            raw_payload = ar.raw_payload if ar and isinstance(ar.raw_payload, dict) else {}
+            summary = {
+                "critical": ar.summary_critical if ar else 0,
+                "high": ar.summary_high if ar else 0,
+                "medium": ar.summary_medium if ar else 0,
+                "low": ar.summary_low if ar else 0,
+            }
+
+            analysis_id_str = str(ar.analysis_id) if ar else None
+
+            # Check for damage metrics in raw_payload
+            damage_summary = None
+            if raw_payload.get("damage_analysis"):
+                dmg = raw_payload["damage_analysis"]
+                damage_summary = {
+                    "damage_percentage": dmg.get("damage_percentage", 0.0),
+                    "damage_pixels": dmg.get("damage_pixels", 0),
+                    "total_pixels": dmg.get("total_pixels", 0),
+                    "mean_damage_probability": dmg.get("probability_mean", 0.0),
+                    "classification": dmg.get("classification", "NO_DAMAGE"),
+                }
+
+            history_items.append({
+                "job_id": str(job.id),
+                "analysis_id": analysis_id_str,
+                "mode": job.mode,
+                "status": job.status,
+                "current_stage": job.current_stage or job.status,
+                "progress_percent": job.progress_percent,
+                "input_asset_reference": job.input_asset_reference,
+                "limitations": job.limitations or [],
+                "error_message": job.error_message,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "created_at": job.created_at.isoformat() if job.created_at else None,
+                "summary": summary,
+                "detections_count": len(raw_payload.get("detections", [])) if "detections" in raw_payload else None,
+                "damage_summary": damage_summary,
+                "has_result": ar is not None,
+            })
+
+    except Exception as db_exc:
+        logger.warning(f"Could not retrieve analysis history from DB ({db_exc}); falling back to JobManager memory.")
+        # Fallback to JobManager
+        records = await default_job_manager.list_jobs(
+            limit=min(max(1, limit), 100),
+            status=JobStatus(status) if status else None,
+            user_id=user_id_str,
+        )
+        for r in records:
+            if mode and r.mode != mode:
+                continue
+            history_items.append({
+                "job_id": r.job_id,
+                "analysis_id": r.analysis_id,
+                "mode": r.mode or "border",
+                "status": r.status.value,
+                "current_stage": r.current_stage,
+                "progress_percent": r.progress_percent,
+                "input_asset_reference": r.input_asset_reference,
+                "limitations": r.limitations,
+                "error_message": r.error,
+                "started_at": r.started_at,
+                "completed_at": r.completed_at,
+                "created_at": r.created_at,
+                "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+                "detections_count": None,
+                "damage_summary": None,
+                "has_result": r.result is not None,
+            })
+
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=history_items, meta=meta)
+
+
+@router.get(
+    "/{analysis_id}",
+    response_model=ResponseEnvelope[Dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+    summary="Retrieve canonical persisted analysis result by stable ID with tenant authorization",
+)
+async def get_analysis_by_id(
+    analysis_id: str,
+    request: Request,
+    payload: dict = Depends(get_current_user_payload),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[Dict[str, Any]]:
+    """
+    Retrieves the canonical analysis result and metadata by either analysis_id (UUID) or job_id (UUID/string).
+    Enforces tenant authorization: verifies that the analysis belongs to the user's organization.
+    """
+    settings = get_settings()
+    org_id_str = payload.get("org")
+    effective_org_id = uuid.UUID(org_id_str) if org_id_str and len(org_id_str) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+    # Try parsing as UUID
+    parsed_uuid: Optional[uuid.UUID] = None
+    try:
+        parsed_uuid = uuid.UUID(analysis_id)
+    except ValueError:
+        pass
+
+    db_result: Optional[DBAnalysisResult] = None
+    db_job: Optional[DBAnalysisJob] = None
+
+    if parsed_uuid:
+        try:
+            # First attempt: lookup by analysis_id with tenant scoping
+            result_repo = AnalysisResultRepository(session)
+            db_result = await result_repo.get_by_analysis_id_scoped(parsed_uuid, effective_org_id)
+
+            if not db_result:
+                # Second attempt: check if parsed_uuid matches a job_id for this tenant
+                job_repo = AnalysisJobRepository(session)
+                db_job = await job_repo.get_by_id_scoped(parsed_uuid, effective_org_id)
+                if db_job:
+                    stmt = select(DBAnalysisResult).where(DBAnalysisResult.job_id == db_job.id)
+                    res = await session.execute(stmt)
+                    db_result = res.scalar_one_or_none()
+        except Exception:
+            db_result = None
+
+    if db_result is not None:
+        payload_data = dict(db_result.raw_payload) if isinstance(db_result.raw_payload, dict) else {}
+        # Ensure analysis_id and job_id are populated
+        payload_data["analysis_id"] = str(db_result.analysis_id)
+        payload_data["job_id"] = str(db_result.job_id)
+        payload_data["overall_status"] = db_result.overall_status
+
+        meta = MetaBlock(
+            timestamp=utc_now_iso(),
+            request_id=_extract_request_id(request),
+            version=settings.API_VERSION,
+        )
+        return ResponseEnvelope(success=True, data=payload_data, meta=meta)
+
+    # Fallback to in-memory JobManager (for active or transient session jobs)
+    record = await default_job_manager.get_job_by_id_or_analysis_id(analysis_id)
+    if record and record.result:
+        # Verify user ownership if user_id was tracked
+        sub_id = payload.get("sub")
+        if record.user_id and sub_id and record.user_id != sub_id:
+            raise ResourceNotFoundError(f"Analysis {analysis_id} not found.")
+
+        result_obj = record.result
+        if isinstance(result_obj, dict):
+            res_data = dict(result_obj)
+        elif hasattr(result_obj, "to_dict"):
+            res_data = result_obj.to_dict()
+        else:
+            res_data = {"result": str(result_obj)}
+
+        meta = MetaBlock(
+            timestamp=utc_now_iso(),
+            request_id=_extract_request_id(request),
+            version=settings.API_VERSION,
+        )
+        return ResponseEnvelope(success=True, data=res_data, meta=meta)
+
+    raise ResourceNotFoundError(f"Analysis result not found or access denied: {analysis_id}")
 
 
 

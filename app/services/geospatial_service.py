@@ -219,6 +219,7 @@ class GeospatialService:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         hazard_type: str = "HISTORICAL_FLOOD",
+        limit: int = 100,
     ) -> HistoricalHazardQueryResponse:
         """
         Queries historical hazard features within radius_km using PostGIS ST_DWithin on geography.
@@ -231,6 +232,7 @@ class GeospatialService:
             "lon": longitude,
             "lat": latitude,
             "radius_meters": radius_meters,
+            "limit": int(limit),
         }
 
         if hazard_type:
@@ -247,7 +249,7 @@ class GeospatialService:
             FROM historical_hazard_records h
             WHERE {where_sql}
             ORDER BY h.event_date_start DESC NULLS LAST
-            LIMIT 100;
+            LIMIT :limit;
         """)
 
         res = await self.session.execute(sql, params)

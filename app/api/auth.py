@@ -13,7 +13,11 @@ from app.core.config import get_settings
 from app.db.models import User
 from app.db.session import get_async_session
 from app.schemas.auth import (
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
     GoogleLoginRequest,
+    RefreshTokenRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserLoginRequest,
     UserRegisterRequest,
@@ -69,6 +73,74 @@ async def login(
         version=settings.API_VERSION,
     )
     return ResponseEnvelope(success=True, data=token_resp, meta=meta)
+
+
+@router.post(
+    "/refresh",
+    response_model=ResponseEnvelope[TokenResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Renew active JWT access token without requiring re-authentication",
+)
+async def refresh_token(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[TokenResponse]:
+    settings = get_settings()
+    token_resp = await AuthService.refresh_user_token(session, str(current_user.id))
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=token_resp, meta=meta)
+
+
+@router.post(
+    "/forgot-password",
+    response_model=ResponseEnvelope[ForgotPasswordResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Request a password reset link or token for local account",
+)
+async def forgot_password(
+    req: ForgotPasswordRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[ForgotPasswordResponse]:
+    settings = get_settings()
+    res = await AuthService.initiate_password_reset(session, req.email)
+    data = ForgotPasswordResponse(
+        message=res["message"],
+        delivery_status=res["delivery_status"],
+        reset_token=res.get("reset_token"),
+    )
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=data, meta=meta)
+
+
+@router.post(
+    "/reset-password",
+    response_model=ResponseEnvelope[dict],
+    status_code=status.HTTP_200_OK,
+    summary="Complete password reset using cryptographic single-use token",
+)
+async def reset_password(
+    req: ResetPasswordRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[dict]:
+    settings = get_settings()
+    res = await AuthService.complete_password_reset(session, req.token, req.new_password)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=res, meta=meta)
 
 
 @router.post(
@@ -137,4 +209,5 @@ async def get_me(
         version=settings.API_VERSION,
     )
     return ResponseEnvelope(success=True, data=user_resp, meta=meta)
+
 

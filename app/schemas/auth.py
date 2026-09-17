@@ -23,6 +23,7 @@ class UserRegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255, pattern=r"^[\w\.-]+@[\w\.-]+\.\w+$", description="Valid email address")
     password: str = Field(min_length=8, description="Minimum 8 characters")
     organization_name: str = Field(min_length=2, max_length=100)
+    display_name: Optional[str] = Field(default=None, max_length=100)
     role: UserRole = Field(default=UserRole.OPERATOR)
 
 
@@ -53,3 +54,28 @@ class TokenResponse(BaseModel):
     token_type: str = "Bearer"
     expires_in_seconds: int
     user: UserResponse
+
+
+class RefreshTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Optional explicitly provided token; if not provided, uses the active Authorization header
+    token: Optional[str] = None
+
+
+class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=255, description="Registered user email address")
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+    delivery_status: str
+    # Honest development token: only provided for testing/local development without SMTP server
+    reset_token: Optional[str] = None
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=16, description="Cryptographic single-use reset token")
+    new_password: str = Field(min_length=8, description="Minimum 8 characters")
+

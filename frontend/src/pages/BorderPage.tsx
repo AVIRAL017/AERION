@@ -1,9 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Situation, SituationEvent, WeatherData, DetectionTarget, AERIONAnalysisResultData, RuntimeDetection } from '../types';
-import { situationsApi } from '../api';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Situation, SituationEvent, WeatherData, DetectionTarget, AERIONAnalysisResultData, RuntimeDetection, LocationProvenance } from '../types';
+import { situationsApi, geospatialApi, analysisApi, boundariesApi } from '../api';
 import { UploadModal, UploadMode } from '../components/UploadModal';
+import { OperatorLocationModal } from '../components/OperatorLocationModal';
+import { AnalysisHistoryModal } from '../components/AnalysisHistoryModal';
+import { downloadAuthenticatedArtifact } from '../utils/download';
 
 export const BorderPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [situation, setSituation] = useState<Situation | null>(null);
   const [events, setEvents] = useState<SituationEvent[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -14,11 +19,21 @@ export const BorderPage: React.FC = () => {
 
   // Analysis / Upload Modal State
   const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [uploadMode, setUploadMode] = useState<UploadMode>('drone_image');
   const [activeAnalysisResult, setActiveAnalysisResult] = useState<AERIONAnalysisResultData | null>(null);
   const [analyzedImageUrl, setAnalyzedImageUrl] = useState<string | null>(null);
   const [analyzedVideoUrl, setAnalyzedVideoUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'annotated' | 'raw'>('annotated');
+
+  // Operator-provided approximate location state
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState<boolean>(false);
+  const [operatorLocation, setOperatorLocation] = useState<LocationProvenance | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState<boolean>(false);
+
+  // Demo Vulnerability Boundary State
+  const [demoBoundaryResult, setDemoBoundaryResult] = useState<any | null>(null);
+  const [evaluatingBoundary, setEvaluatingBoundary] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchSituationData = async () => {
@@ -52,6 +67,33 @@ export const BorderPage: React.FC = () => {
     fetchSituationData();
   }, []);
 
+  // Restore analysis from URL search parameter (e.g. ?analysis_id=UUID)
+  useEffect(() => {
+    const analysisIdParam = searchParams.get('analysis_id');
+    if (!analysisIdParam) return;
+
+    const restoreAnalysis = async () => {
+      try {
+        const resp = await analysisApi.getById(analysisIdParam);
+        if (resp.success && resp.data) {
+          const data = resp.data;
+          setActiveAnalysisResult(data);
+          if (data.annotated_image_base64) {
+            setAnalyzedImageUrl(`data:image/jpeg;base64,${data.annotated_image_base64}`);
+            setViewMode('annotated');
+          }
+          if (data.location_context) {
+            setOperatorLocation(data.location_context);
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not restore analysis ${analysisIdParam}:`, err);
+      }
+    };
+
+    restoreAnalysis();
+  }, [searchParams]);
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-graphite font-mono text-xs text-muted">
@@ -83,19 +125,60 @@ export const BorderPage: React.FC = () => {
             <div className="flex items-center gap-3 font-mono text-[11px]">
               <span className="text-muted uppercase tracking-wider">SECTOR:</span>
               <span className="text-paper font-medium">
-                {activeAnalysisResult ? `INGESTED ASSET [${activeAnalysisResult.analysis_id.substring(0, 8)}]` : (situation?.location_name || 'SECTOR DELTA-9 (MONITORED)')}
+                {activeAnalysisResult ? `INGESTED ASSET [${activeAnalysisResult.analysis_id ? activeAnalysisResult.analysis_id.substring(0, 8) : 'ACTIVE'}]` : (situation?.location_name || 'SECTOR DELTA-9 (MONITORED)')}
               </span>
               <span className={`px-2 py-0.5 rounded text-[10px] ${
                 activeAnalysisResult
                   ? 'bg-accent/15 text-accent border border-accent/30'
                   : 'bg-status-ai/10 text-status-ai border border-status-ai/20'
               }`}>
-                {activeAnalysisResult ? `${activeAnalysisResult.source_type.toUpperCase()} VERIFIED` : 'RECORDED'}
+                {activeAnalysisResult ? `${(activeAnalysisResult.source_type || 'RECORDED_FOOTAGE').toUpperCase()} VERIFIED` : 'RECORDED'}
               </span>
+
+              {/* Location Provenance Badge */}
+              {operatorLocation ? (
+                <button
+                  onClick={() => setIsLocationModalOpen(true)}
+                  className="px-2 py-0.5 rounded bg-status-ai/15 border border-status-ai/30 text-status-ai text-[10px] flex items-center gap-1 hover:bg-status-ai/25 transition-all"
+                  title="Operator-provided approximate location active"
+                >
+                  <span className="material-symbols-outlined text-[12px]">location_on</span>
+                  <span>APPROX: {operatorLocation.latitude.toFixed(2)}, {operatorLocation.longitude.toFixed(2)}</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsLocationModalOpen(true)}
+                  className="px-2 py-0.5 rounded bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40 text-[10px] flex items-center gap-1 transition-all"
+                  title="Asset lacks embedded GPS. Provide approximate coordinates for geo-enrichment."
+                >
+                  <span className="material-symbols-outlined text-[12px]">add_location_alt</span>
+                  <span>APPROX LOCATION</span>
+                </button>
+              )}
+
+              {/* Operational Situation Report Navigation */}
+              <Link
+                to={`/situations/${situation?.id || '00000000-0000-0000-0000-000000000001'}/report${activeAnalysisResult?.analysis_id ? `?analysis_id=${activeAnalysisResult.analysis_id}` : ''}`}
+                className="px-2.5 py-1 rounded bg-status-ai/20 border border-status-ai/40 text-status-ai hover:bg-status-ai/30 transition-all flex items-center gap-1 text-[10px] font-mono font-semibold"
+                title="View Deterministic Situation Report & Mistral AI Advisory"
+              >
+                <span className="material-symbols-outlined text-[13px]">description</span>
+                <span>OPERATIONAL REPORT</span>
+              </Link>
+
+              {/* History Drawer Trigger */}
+              <button
+                onClick={() => setIsHistoryOpen(true)}
+                className="px-2.5 py-1 rounded bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40 text-[10px] font-mono flex items-center gap-1 transition-all"
+                title="View past analysis history and reopen analyses"
+              >
+                <span className="material-symbols-outlined text-[13px]">history</span>
+                <span>HISTORY</span>
+              </button>
 
               {/* Roadmap Step 15 & 16: Annotated Evidence vs Raw Toggle */}
               {activeAnalysisResult && (activeAnalysisResult.annotated_image_base64 || activeAnalysisResult.annotated_video_artifact) && (
-                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-2">
+                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-1">
                   <button
                     onClick={() => setViewMode('annotated')}
                     className={`px-2 py-0.5 rounded text-[10px] transition-all ${
@@ -120,28 +203,28 @@ export const BorderPage: React.FC = () => {
               )}
             </div>
 
-            <div className="flex items-center gap-3 font-mono text-[11px]">
+            <div className="flex items-center gap-2 font-mono text-[11px]">
               <button
                 onClick={() => { setUploadMode('drone_image'); setIsUploadOpen(true); }}
-                className="px-2.5 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1.5 text-[10px]"
+                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px]"
               >
-                <span className="material-symbols-outlined text-[14px]">flight</span>
+                <span className="material-symbols-outlined text-[13px]">flight</span>
                 <span>INGEST DRONE</span>
               </button>
 
               <button
                 onClick={() => { setUploadMode('satellite_image'); setIsUploadOpen(true); }}
-                className="px-2.5 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1.5 text-[10px]"
+                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px]"
               >
-                <span className="material-symbols-outlined text-[14px]">satellite_alt</span>
+                <span className="material-symbols-outlined text-[13px]">satellite_alt</span>
                 <span>INGEST SATELLITE</span>
               </button>
 
               <button
                 onClick={() => { setUploadMode('border_video'); setIsUploadOpen(true); }}
-                className="px-2.5 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1.5 text-[10px]"
+                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px]"
               >
-                <span className="material-symbols-outlined text-[14px]">videocam</span>
+                <span className="material-symbols-outlined text-[13px]">videocam</span>
                 <span>INGEST VIDEO</span>
               </button>
             </div>
@@ -163,10 +246,18 @@ export const BorderPage: React.FC = () => {
                             alt="Authoritative Annotated Visual Evidence"
                             className="max-w-full max-h-[78vh] object-contain select-none shadow-2xl"
                           />
-                          <div className="absolute top-2 left-2 z-10">
+                          <div className="absolute top-2 left-2 z-10 flex items-center gap-2">
                             <span className="px-2 py-0.5 rounded bg-graphite/90 border border-accent/40 text-[9px] font-mono text-accent">
                               BACKEND DERIVED ARTIFACT (SHA-256 VERIFIED)
                             </span>
+                            <a
+                              href={`data:image/jpeg;base64,${activeAnalysisResult.annotated_image_base64}`}
+                              download={`AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated_${Date.now()}.jpg`}
+                              className="px-2 py-0.5 rounded bg-accent text-graphite hover:bg-accent/90 text-[9px] font-mono font-bold flex items-center gap-1 shadow transition-all"
+                            >
+                              <span className="material-symbols-outlined text-[11px]">download</span>
+                              <span>DOWNLOAD ANNOTATED IMAGE</span>
+                            </a>
                           </div>
                         </div>
                       ) : (
@@ -279,8 +370,19 @@ export const BorderPage: React.FC = () => {
                     /* Video Evidence Container */
                     <div className="relative max-w-full max-h-full flex flex-col items-center justify-center p-2">
                       <div className="relative border border-white/[0.1] rounded overflow-hidden max-h-[72vh] flex items-center justify-center bg-black shadow-2xl">
-                        {analyzedVideoUrl ? (
+                        {(viewMode === 'annotated' && activeAnalysisResult.annotated_video_artifact?.artifact_key) ? (
                           <video
+                            key={`annotated-${activeAnalysisResult.annotated_video_artifact.artifact_key}`}
+                            src={`/api/v1/evidence/${encodeURIComponent(activeAnalysisResult.annotated_video_artifact.artifact_key)}${localStorage.getItem('aerion_access_token') ? `?token=${encodeURIComponent(localStorage.getItem('aerion_access_token') || '')}` : ''}`}
+                            controls
+                            autoPlay
+                            loop
+                            muted
+                            className="max-w-full max-h-[70vh] object-contain select-none"
+                          />
+                        ) : analyzedVideoUrl ? (
+                          <video
+                            key={`raw-${analyzedVideoUrl}`}
                             src={analyzedVideoUrl}
                             controls
                             autoPlay
@@ -299,7 +401,7 @@ export const BorderPage: React.FC = () => {
                         <div className="absolute top-2 left-2 z-10 flex flex-col gap-1">
                           {activeAnalysisResult.annotated_video_artifact && viewMode === 'annotated' ? (
                             <span className="px-2 py-0.5 rounded bg-graphite/90 border border-accent/40 text-[9px] font-mono text-accent">
-                              BACKEND DERIVED VIDEO EVIDENCE (SHA-256 VERIFIED)
+                              ANNOTATED TRACKING EVIDENCE (BOUNDING BOXES & IDS)
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded bg-graphite/90 border border-white/[0.15] text-[9px] font-mono text-muted">
@@ -309,14 +411,70 @@ export const BorderPage: React.FC = () => {
                         </div>
 
                         {activeAnalysisResult.annotated_video_artifact && (
-                          <div className="absolute bottom-2 left-2 z-10 bg-graphite/90 border border-white/[0.1] rounded px-2.5 py-1 text-[10px] font-mono text-muted flex items-center gap-3">
-                            <span>FPS: {activeAnalysisResult.annotated_video_artifact.fps}</span>
-                            <span>FRAMES: {activeAnalysisResult.annotated_video_artifact.frame_count}/{activeAnalysisResult.annotated_video_artifact.source_frame_count}</span>
-                            <span>TRACKS: {activeAnalysisResult.annotated_video_artifact.unique_tracks_count}</span>
-                            <span>SHA: {activeAnalysisResult.annotated_video_artifact.sha256.substring(0, 10)}...</span>
+                          <div className="absolute bottom-2 left-2 right-2 z-10 bg-graphite/90 border border-white/[0.1] rounded px-3 py-1.5 text-[10px] font-mono text-muted flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span>FPS: {activeAnalysisResult.annotated_video_artifact.fps}</span>
+                              <span>FRAMES: {activeAnalysisResult.annotated_video_artifact.frame_count}/{activeAnalysisResult.annotated_video_artifact.source_frame_count}</span>
+                              <span>TRACKS: {activeAnalysisResult.annotated_video_artifact.unique_tracks_count}</span>
+                              <span>SHA: {activeAnalysisResult.annotated_video_artifact.sha256.substring(0, 10)}...</span>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
+                                const dlUrl = artKey ? `/api/v1/evidence/${encodeURIComponent(artKey)}` : (analyzedVideoUrl || '');
+                                const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
+                                try {
+                                  await downloadAuthenticatedArtifact(dlUrl, filename);
+                                } catch (e: any) {
+                                  alert(e.message || 'Download failed');
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded bg-accent text-graphite hover:bg-accent/90 text-[9px] font-mono font-bold flex items-center gap-1 shadow transition-all cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[12px]">download</span>
+                              <span>DOWNLOAD ANNOTATED VIDEO</span>
+                            </button>
                           </div>
                         )}
                       </div>
+
+                      {/* Structured Video Detections & Tracks Summary Table */}
+                      {activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 && (
+                        <div className="w-full max-h-44 mt-2 overflow-y-auto custom-scrollbar bg-graphite/60 border border-white/[0.08] rounded p-2 text-xs font-mono">
+                          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/[0.06] text-[10px] text-muted">
+                            <span className="font-bold text-accent">RECORDED VIDEO STRUCTURED DETECTIONS ({activeAnalysisResult.detections.length})</span>
+                            <span>TRACKS: {activeAnalysisResult.tracks ? activeAnalysisResult.tracks.length : activeAnalysisResult.annotated_video_artifact?.unique_tracks_count || 0}</span>
+                          </div>
+                          <div className="grid grid-cols-5 gap-2 text-[9px] text-faint uppercase font-semibold pb-1 border-b border-white/[0.04]">
+                            <span>FRAME</span>
+                            <span>TRACK ID</span>
+                            <span>CLASS</span>
+                            <span>CONF</span>
+                            <span>BBOX [X1, Y1, X2, Y2]</span>
+                          </div>
+                          <div className="space-y-1 mt-1">
+                            {activeAnalysisResult.detections.slice(0, 50).map((d, idx) => (
+                              <div
+                                key={idx}
+                                onClick={() => setSelectedRuntimeDetection(d)}
+                                className={`grid grid-cols-5 gap-2 text-[10px] py-1 px-1.5 rounded cursor-pointer transition-all ${
+                                  selectedRuntimeDetection === d
+                                    ? 'bg-accent/20 border border-accent/40 text-accent'
+                                    : 'hover:bg-elevated/60 text-paper'
+                                }`}
+                              >
+                                <span>{d.frame_number !== null && d.frame_number !== undefined ? `#${d.frame_number}` : '--'}</span>
+                                <span className="font-bold text-status-ai">{d.track_id !== null && d.track_id !== undefined ? `ID:${d.track_id}` : '--'}</span>
+                                <span className="uppercase font-semibold">{d.class_name}</span>
+                                <span className="text-accent">{Math.round(d.confidence * 100)}%</span>
+                                <span className="text-faint truncate">
+                                  {d.bbox ? `[${Math.round(d.bbox.x1)}, ${Math.round(d.bbox.y1)}, ${Math.round(d.bbox.x2)}, ${Math.round(d.bbox.y2)}]` : '--'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     /* Structured Results without preview */
@@ -330,7 +488,16 @@ export const BorderPage: React.FC = () => {
                           ANALYSIS ID: {activeAnalysisResult.analysis_id}
                         </span>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 my-4">
+                      <div className={`grid ${activeAnalysisResult.processed_frames !== undefined ? 'grid-cols-4' : 'grid-cols-3'} gap-4 my-4`}>
+                        {activeAnalysisResult.processed_frames !== undefined && (
+                          <div className="p-3 rounded bg-elevated/40 border border-white/[0.06] text-center">
+                            <span className="text-[10px] text-muted block">PROCESSED FRAMES</span>
+                            <span className="text-2xl font-mono font-bold text-paper">
+                              {activeAnalysisResult.processed_frames}
+                              {activeAnalysisResult.total_video_frames ? ` / ${activeAnalysisResult.total_video_frames}` : ''}
+                            </span>
+                          </div>
+                        )}
                         <div className="p-3 rounded bg-elevated/40 border border-white/[0.06] text-center">
                           <span className="text-[10px] text-muted block">VERIFIED DETECTIONS</span>
                           <span className="text-2xl font-mono font-bold text-paper">
@@ -460,30 +627,246 @@ export const BorderPage: React.FC = () => {
         {/* RIGHT INTELLIGENCE PANEL                                    */}
         {/* ============================================================ */}
         <aside className="w-88 flex-shrink-0 bg-panel flex flex-col overflow-y-auto custom-scrollbar">
-          {/* Panel Header */}
+          {/* Dynamic Tactical Crossing Indicators */}
           <div className="p-4 border-b border-white/[0.06]">
             <h2 className="text-xs font-mono font-medium tracking-wider text-muted uppercase">
               TACTICAL INTELLIGENCE
             </h2>
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-paper">
-                POTENTIAL UNAUTHORIZED CROSSING INDICATOR
+            {(() => {
+              const indicators = activeAnalysisResult?.potential_unauthorized_crossing_indicators ||
+                activeAnalysisResult?.report?.crossing_indicators;
+
+              if (indicators && indicators.length > 0) {
+                return (
+                  <div className="mt-2 space-y-2">
+                    {indicators.map((ind: any, i: number) => {
+                      const isInternational = ind.geographic_reference_type === 'INTERNATIONAL_BORDER';
+                      const label = isInternational
+                        ? 'POTENTIAL INTERNATIONAL BORDER CROSSING'
+                        : (ind.crossing_type || ind.indicator_type || 'RESTRICTED GEOFENCE EVENT');
+                      return (
+                        <div key={i} className="p-2.5 rounded bg-status-critical/10 border border-status-critical/25">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-paper uppercase">
+                              {label}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-status-critical/20 text-status-critical font-bold">
+                              {ind.confidence ? `${Math.round(ind.confidence * 100)}%` : 'DETECTED'}
+                            </span>
+                          </div>
+                          {ind.description && (
+                            <p className="text-[10px] text-muted mt-1 leading-normal font-mono">
+                              {ind.description}
+                            </p>
+                          )}
+                          <div className="text-[9px] text-faint font-mono mt-1 flex items-center justify-between">
+                            <span>REF: {isInternational ? 'INTERNATIONAL BORDER' : 'OPERATIONAL GEOFENCE'}</span>
+                            {ind.coordinates && (
+                              <span>PIX: [{Array.isArray(ind.coordinates) ? ind.coordinates.join(', ') : ind.coordinates}]</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              if (activeAnalysisResult) {
+                return (
+                  <div className="mt-2 p-3 bg-graphite/60 border border-white/[0.04] rounded text-center">
+                    <span className="text-[11px] font-mono text-muted block">
+                      NO ACTIVE CROSSING INDICATORS
+                    </span>
+                    <span className="text-[9px] font-mono text-faint mt-0.5 block">
+                      Verified perimeter: Zero crossing cues detected
+                    </span>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="mt-2 p-3 bg-graphite/60 border border-white/[0.04] rounded text-center">
+                  <span className="text-[11px] font-mono text-faint block">
+                    CROSSING INDICATOR DATA UNAVAILABLE
+                  </span>
+                  <span className="text-[9px] font-mono text-faint mt-0.5 block">
+                    Awaiting asset ingest for tactical crossing analysis
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Dedicated Section 12 Geo Context UI */}
+          <div className="p-4 border-b border-white/[0.06] bg-[#0E131A]/60">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-mono text-muted uppercase tracking-wider block">
+                GEOREFERENCE & JURISDICTION
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-status-warning/10 text-status-warning border border-status-warning/20">
-                MONITORING
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
+                operatorLocation
+                  ? 'bg-status-ai/15 text-status-ai border border-status-ai/25'
+                  : 'bg-elevated text-faint border border-white/[0.06]'
+              }`}>
+                {operatorLocation ? operatorLocation.location_precision : 'UNAVAILABLE'}
               </span>
             </div>
-            <p className="text-[10px] text-faint mt-1">
-              Analytical indicator requiring human operator verification.
-            </p>
+
+            {operatorLocation ? (
+              <div className="space-y-2 text-xs font-mono">
+                <div className="p-2.5 bg-graphite/50 rounded border border-white/[0.04] space-y-1.5">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-faint">SOURCE:</span>
+                    <span className="text-paper">{operatorLocation.location_source}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-faint">METHOD:</span>
+                    <span className="text-accent">{operatorLocation.location_method || 'MANUAL_COORDINATES'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-faint">COORDINATES:</span>
+                    <span className="text-paper">{operatorLocation.latitude.toFixed(4)}, {operatorLocation.longitude.toFixed(4)}</span>
+                  </div>
+                  {operatorLocation.label && (
+                    <div className="text-[10px] text-muted truncate border-t border-white/[0.04] pt-1">
+                      LABEL: {operatorLocation.label}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div className="p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                    <span className="text-faint block text-[9px]">STATE / REGION</span>
+                    <span className="text-paper font-medium">{operatorLocation.state || 'Admin Area'}</span>
+                  </div>
+                  <div className="p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                    <span className="text-faint block text-[9px]">COUNTRY</span>
+                    <span className="text-paper font-medium">{operatorLocation.country || 'India'}</span>
+                  </div>
+                </div>
+
+                <div className="p-2 bg-graphite/40 rounded border border-white/[0.04] text-[10px]">
+                  <span className="text-faint block text-[9px]">INTERNATIONAL BORDER REFERENCE</span>
+                  <span className={operatorLocation.relevant_border === 'BORDER CONTEXT UNAVAILABLE' ? 'text-status-warning' : 'text-paper'}>
+                    {operatorLocation.relevant_border || 'BORDER CONTEXT UNAVAILABLE'}
+                  </span>
+                  <span className="text-[8px] text-faint block mt-0.5">
+                    Official Survey of India demarcation only
+                  </span>
+                </div>
+
+                <div className="p-2 bg-graphite/40 rounded border border-white/[0.04] text-[10px]">
+                  <span className="text-faint block text-[9px]">OPERATIONAL GEOFENCE</span>
+                  <span className="text-paper">
+                    {activeAnalysisResult?.potential_unauthorized_crossing_indicators?.length
+                      ? 'ACTIVE RESTRICTED-ZONE EVENT'
+                      : 'RESTRICTED CORRIDOR ACTIVE'}
+                  </span>
+                  <span className="text-[8px] text-muted/70 block mt-0.5">
+                    Tactical geofence != International border
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => setIsLocationModalOpen(true)}
+                  className="w-full mt-1 py-1 rounded bg-elevated/70 border border-white/[0.08] hover:border-accent/40 text-accent text-[10px] font-mono hover:bg-elevated transition-all flex items-center justify-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-[13px]">edit_location</span>
+                  <span>CHANGE LOCATION</span>
+                </button>
+              </div>
+            ) : (
+              <div className="p-3 bg-graphite/60 border border-white/[0.04] rounded text-center">
+                <span className="text-[11px] font-mono text-faint block">
+                  GEO-CONTEXT UNAVAILABLE
+                </span>
+                <span className="text-[9px] font-mono text-muted/60 mt-1 block">
+                  Asset lacks embedded GPS telemetry.
+                </span>
+                <button
+                  onClick={() => setIsLocationModalOpen(true)}
+                  className="mt-2 px-2.5 py-1 rounded bg-accent/15 border border-accent/40 text-accent text-[10px] font-mono hover:bg-accent/25 transition-all flex items-center justify-center gap-1 mx-auto"
+                >
+                  <span className="material-symbols-outlined text-[13px]">add_location_alt</span>
+                  <span>PROVIDE APPROXIMATE LOCATION</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Sector Vulnerability Index */}
           <div className="p-4 border-b border-white/[0.06]">
-            <span className="text-[11px] font-mono text-muted uppercase tracking-wider block mb-2">
-              SECTOR VULNERABILITY
-            </span>
-            {situation?.vulnerability_score !== undefined && situation.vulnerability_score !== null ? (
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-mono text-muted uppercase tracking-wider block">
+                SECTOR VULNERABILITY
+              </span>
+              <button
+                onClick={async () => {
+                  setEvaluatingBoundary(true);
+                  try {
+                    // Collect real evidence points if operator location or detections exist
+                    const points: any[] = [];
+                    if (operatorLocation) {
+                      points.push({
+                        latitude: operatorLocation.latitude,
+                        longitude: operatorLocation.longitude,
+                        point_id: 'OP_LOCATION',
+                      });
+                    }
+                    const res = await boundariesApi.evaluate('DEMO_VULNERABILITY_BOUNDARY', {
+                      evidence_points: points,
+                      sensor_coverage_ratio: 0.85,
+                      terrain_type: 'arid',
+                    });
+                    if (res.success && res.data) {
+                      setDemoBoundaryResult(res.data);
+                    }
+                  } catch (e: any) {
+                    console.warn('Boundary evaluation error:', e);
+                  } finally {
+                    setEvaluatingBoundary(false);
+                  }
+                }}
+                disabled={evaluatingBoundary}
+                className="px-1.5 py-0.5 rounded bg-accent/15 border border-accent/30 text-accent text-[9px] font-mono hover:bg-accent/25 transition-all flex items-center gap-1 disabled:opacity-50"
+                title="Evaluate spatial intersection against Demo Pentagon Boundary (Synthetic AOI)"
+              >
+                <span className="material-symbols-outlined text-[11px]">pentagon</span>
+                <span>{evaluatingBoundary ? 'EVALUATING...' : 'DEMO AOI (SYNTHETIC)'}</span>
+              </button>
+            </div>
+
+            {demoBoundaryResult ? (
+              <div className="space-y-2 font-mono">
+                <div className="p-2.5 bg-graphite/50 rounded border border-accent/20">
+                  <div className="flex items-center justify-between text-[10px] mb-1">
+                    <span className="text-paper font-semibold">{demoBoundaryResult.boundary_name}</span>
+                    <span className="text-[8px] px-1.5 py-0.2 rounded bg-elevated text-status-warning border border-status-warning/30 font-bold">
+                      SYNTHETIC DEMO AOI (NON-AUTHORITATIVE)
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between mb-1">
+                    <span className="text-xl font-mono font-bold text-accent">
+                      {demoBoundaryResult.vulnerability_score !== null && demoBoundaryResult.vulnerability_score !== undefined
+                        ? `${demoBoundaryResult.vulnerability_score.toFixed(1)} / 100`
+                        : 'INSUFFICIENT EVIDENCE'}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded ${
+                      demoBoundaryResult.vulnerability_status === 'COMPUTED'
+                        ? 'bg-status-warning/15 text-status-warning'
+                        : 'bg-elevated text-faint'
+                    }`}>
+                      {demoBoundaryResult.vulnerability_status}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-faint leading-tight space-y-0.5">
+                    <div>INTERSECTING EVIDENCE: {demoBoundaryResult.intersecting_evidence_count} / {demoBoundaryResult.total_evidence_evaluated}</div>
+                    <div className="text-status-warning text-[8px] font-semibold">{demoBoundaryResult.disclaimer}</div>
+                  </div>
+                </div>
+              </div>
+            ) : situation?.vulnerability_score !== undefined && situation.vulnerability_score !== null ? (
               <div>
                 <div className="flex items-baseline justify-between mb-1">
                   <span className="text-2xl font-mono font-bold text-accent">
@@ -509,29 +892,65 @@ export const BorderPage: React.FC = () => {
 
           {/* Meteorological Data */}
           <div className="p-4 border-b border-white/[0.06]">
-            <span className="text-[11px] font-mono text-muted uppercase tracking-wider block mb-2">
-              ENVIRONMENTAL CONDITIONS
-            </span>
-            {weather && weather.status === 'AVAILABLE' ? (
-              <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                <div className="p-2 bg-graphite/40 rounded border border-white/[0.04]">
-                  <span className="text-[10px] text-faint block">TEMPERATURE</span>
-                  <span className="text-paper font-medium">
-                    {weather.temperature_c !== undefined ? `${weather.temperature_c}°C` : 'N/A'}
-                  </span>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-mono text-muted uppercase tracking-wider block">
+                ENVIRONMENTAL CONDITIONS
+              </span>
+              {operatorLocation && (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-status-ai/15 text-status-ai border border-status-ai/25">
+                  OPERATOR-PROVIDED
+                </span>
+              )}
+            </div>
+
+            {weatherLoading ? (
+              <div className="p-3 bg-graphite/60 border border-white/[0.04] rounded text-center font-mono text-[10px] text-muted">
+                <span className="material-symbols-outlined text-xs animate-spin mr-1">progress_activity</span>
+                FETCHING OPEN-METEO WEATHER...
+              </div>
+            ) : weather && weather.status === 'AVAILABLE' ? (
+              <div>
+                <div className="grid grid-cols-2 gap-3 text-xs font-mono mb-2">
+                  <div className="p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                    <span className="text-[10px] text-faint block">TEMPERATURE</span>
+                    <span className="text-paper font-medium">
+                      {weather.temperature_c !== undefined ? `${weather.temperature_c}°C` : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="p-2 bg-graphite/40 rounded border border-white/[0.04]">
+                    <span className="text-[10px] text-faint block">WIND SPEED</span>
+                    <span className="text-paper font-medium">
+                      {weather.wind_speed_ms !== undefined ? `${weather.wind_speed_ms} m/s` : 'N/A'}
+                    </span>
+                  </div>
                 </div>
-                <div className="p-2 bg-graphite/40 rounded border border-white/[0.04]">
-                  <span className="text-[10px] text-faint block">WIND SPEED</span>
-                  <span className="text-paper font-medium">
-                    {weather.wind_speed_ms !== undefined ? `${weather.wind_speed_ms} m/s` : 'N/A'}
+                <div className="text-[9px] font-mono text-faint flex items-center justify-between px-1">
+                  <span>
+                    {operatorLocation ? `SOURCE: ${operatorLocation.location_source} (${operatorLocation.location_precision})` : 'SOURCE: ASSET METADATA'}
                   </span>
+                  {operatorLocation?.label && (
+                    <span className="truncate max-w-[120px]">{operatorLocation.label}</span>
+                  )}
                 </div>
               </div>
             ) : (
               <div className="p-3 bg-graphite/60 border border-white/[0.04] rounded text-center">
-                <span className="text-[11px] font-mono text-faint">
+                <span className="text-[11px] font-mono text-faint block">
                   WEATHER DATA UNAVAILABLE
                 </span>
+                <span className="text-[9px] font-mono text-muted/60 mt-1 block">
+                  {operatorLocation
+                    ? 'Failed to fetch weather from provider for supplied coordinates.'
+                    : 'No verified geographic coordinates available for this asset.'}
+                </span>
+                {!operatorLocation && (
+                  <button
+                    onClick={() => setIsLocationModalOpen(true)}
+                    className="mt-2 px-2 py-1 rounded bg-elevated border border-white/[0.08] text-accent text-[10px] font-mono hover:bg-elevated/80 transition-all"
+                  >
+                    PROVIDE APPROXIMATE LOCATION
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -571,6 +990,12 @@ export const BorderPage: React.FC = () => {
                     </span>
                   </div>
                 )}
+                <div className="pt-2 mt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                  <span className="text-faint">TARGET GEOLOCATION:</span>
+                  <span className="text-status-warning bg-status-warning/10 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                    UNAVAILABLE (Pixel Space)
+                  </span>
+                </div>
               </div>
             ) : selectedTarget ? (
               <div className="space-y-2 text-xs font-mono bg-graphite/40 p-3 rounded border border-white/[0.04]">
@@ -592,6 +1017,12 @@ export const BorderPage: React.FC = () => {
                     <span className="text-paper">{selectedTarget.velocity} m/s</span>
                   </div>
                 )}
+                <div className="pt-2 mt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                  <span className="text-faint">TARGET GEOLOCATION:</span>
+                  <span className="text-status-warning bg-status-warning/10 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                    UNAVAILABLE (Pixel Space)
+                  </span>
+                </div>
               </div>
             ) : (
               <div className="p-4 border border-dashed border-white/[0.06] rounded text-center">
@@ -661,6 +1092,76 @@ export const BorderPage: React.FC = () => {
           }
           if (res.detections && res.detections.length > 0) {
             setSelectedRuntimeDetection(res.detections[0]);
+          }
+          if (res.analysis_id) {
+            setSearchParams({ analysis_id: res.analysis_id });
+          }
+        }}
+      />
+
+      {/* Analysis History Modal */}
+      <AnalysisHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        currentMode="border"
+        onSelectAnalysis={async (item) => {
+          const targetId = item.analysis_id || item.job_id;
+          if (targetId) {
+            setSearchParams({ analysis_id: targetId });
+            try {
+              const resp = await analysisApi.getById(targetId);
+              if (resp.success && resp.data) {
+                setActiveAnalysisResult(resp.data);
+                if (resp.data.annotated_image_base64) {
+                  setAnalyzedImageUrl(`data:image/jpeg;base64,${resp.data.annotated_image_base64}`);
+                  setViewMode('annotated');
+                }
+              }
+            } catch (err) {
+              console.warn('Could not reopen analysis:', err);
+            }
+          }
+        }}
+      />
+
+      {/* Operator-Provided Approximate Location Modal */}
+      <OperatorLocationModal
+        isOpen={isLocationModalOpen}
+        onClose={() => setIsLocationModalOpen(false)}
+        existingLocation={operatorLocation}
+        onConfirmLocation={async (loc: LocationProvenance) => {
+          setOperatorLocation(loc);
+          // Resolve geospatial context (country, state, border reference) and weather in parallel
+          if (loc) {
+            setWeatherLoading(true);
+            try {
+              const [weatherRes, adminRes, borderRes] = await Promise.all([
+                situationsApi.getWeather(situation?.id || '00000000-0000-0000-0000-000000000001', loc.latitude, loc.longitude),
+                geospatialApi.resolveAdmin(loc.latitude, loc.longitude).catch(() => null),
+                geospatialApi.resolveBorder(loc.latitude, loc.longitude).catch(() => null),
+              ]);
+
+              if (weatherRes.success && weatherRes.data) {
+                setWeather(weatherRes.data);
+              }
+
+              // Update enriched location metadata with resolved administrative boundaries
+              const enriched: LocationProvenance = { ...loc };
+              if (adminRes && adminRes.success && adminRes.data) {
+                enriched.state = adminRes.data.state || undefined;
+                enriched.country = adminRes.data.country || 'India';
+              }
+              if (borderRes && borderRes.success && borderRes.data && borderRes.data.available) {
+                enriched.relevant_border = borderRes.data.nearest_boundary_name || 'India-Pakistan';
+              } else {
+                enriched.relevant_border = 'BORDER CONTEXT UNAVAILABLE';
+              }
+              setOperatorLocation(enriched);
+            } catch (err) {
+              console.error('Failed to resolve geospatial enrichment for operator coordinates:', err);
+            } finally {
+              setWeatherLoading(false);
+            }
           }
         }}
       />

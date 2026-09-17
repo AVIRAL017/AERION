@@ -6,9 +6,11 @@ import { LoginPage } from './pages/LoginPage';
 import { BorderPage } from './pages/BorderPage';
 import { DisasterPage } from './pages/DisasterPage';
 import { EvacuationPage } from './pages/EvacuationPage';
+import { ImagePage } from './pages/ImagePage';
 import { SituationReportPage } from './pages/SituationReportPage';
 import { UsagePage } from './pages/UsagePage';
 import { SystemStatusPage } from './pages/SystemStatusPage';
+import { AccountPage } from './pages/AccountPage';
 
 export const App: React.FC = () => {
   return (
@@ -20,6 +22,7 @@ export const App: React.FC = () => {
           {/* Core Authenticated App Layout */}
           <Route element={<AppLayout />}>
             <Route path="/" element={<Navigate to="/border" replace />} />
+            <Route path="/image" element={<ImagePage />} />
             <Route path="/border" element={<BorderPage />} />
             <Route path="/disaster" element={<DisasterPage />} />
             <Route path="/disaster/damage" element={<DisasterPage />} />
@@ -27,7 +30,9 @@ export const App: React.FC = () => {
             <Route path="/situations/:id/report" element={<SituationReportPage />} />
             <Route path="/usage" element={<UsagePage />} />
             <Route path="/status" element={<SystemStatusPage />} />
+            <Route path="/account" element={<AccountPage />} />
           </Route>
+
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/border" replace />} />

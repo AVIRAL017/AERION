@@ -31,9 +31,9 @@ class TestSubscriptionAndEntitlements(unittest.TestCase):
         self.assertEqual(pro_plan.price_inr, 9)
         self.assertEqual(pro_plan.currency, "INR")
 
-        # Invariant: Limits remain explicitly TBD (None) rather than fabricated numbers
-        self.assertIsNone(free_plan.usage_limits.get(UsageDimension.DRONE_IMAGE))
-        self.assertIsNone(pro_plan.usage_limits.get(UsageDimension.DRONE_IMAGE))
+        # Invariant: Limits are bounded per Phase F quota definitions
+        self.assertEqual(free_plan.usage_limits.get(UsageDimension.DRONE_IMAGE), 100)
+        self.assertEqual(pro_plan.usage_limits.get(UsageDimension.DRONE_IMAGE), 10000)
 
     def test_feature_entitlement_access(self):
         free_sub = SubscriptionState(organization_id=self.org_id, plan=PlanTier.FREE)

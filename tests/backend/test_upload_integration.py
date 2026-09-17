@@ -50,6 +50,16 @@ class TestStep13UploadToResultWorkflow(unittest.TestCase):
         self.assertEqual(res.status_code, 401)
         self.assertFalse(res.json()["success"])
 
+    def test_analysis_image_with_invalid_token_rejected(self):
+        invalid_headers = {"Authorization": "Bearer invalid_or_tampered_token_value"}
+        res = self.client.post(
+            "/api/v1/analysis/image",
+            json={"image_base64": self.valid_b64},
+            headers=invalid_headers,
+        )
+        self.assertEqual(res.status_code, 401)
+        self.assertFalse(res.json()["success"])
+
     def test_analysis_damage_requires_auth(self):
         res = self.client.post(
             "/api/v1/analysis/damage",

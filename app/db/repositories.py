@@ -108,6 +108,43 @@ class AnalysisJobRepository(BaseRepository):
             await self.session.flush()
         return job
 
+    async def list_by_organization(
+        self,
+        organization_id: uuid.UUID,
+        limit: int = 50,
+        offset: int = 0,
+        mode: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[AnalysisJob]:
+        stmt = (
+            select(AnalysisJob)
+            .join(Project, AnalysisJob.project_id == Project.id)
+            .where(Project.organization_id == organization_id)
+        )
+        if mode:
+            stmt = stmt.where(AnalysisJob.mode == mode)
+        if status:
+            stmt = stmt.where(AnalysisJob.status == status)
+        stmt = stmt.order_by(AnalysisJob.created_at.desc()).limit(limit).offset(offset)
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_by_id_scoped(
+        self,
+        job_id: uuid.UUID,
+        organization_id: uuid.UUID,
+    ) -> Optional[AnalysisJob]:
+        stmt = (
+            select(AnalysisJob)
+            .join(Project, AnalysisJob.project_id == Project.id)
+            .where(
+                AnalysisJob.id == job_id,
+                Project.organization_id == organization_id,
+            )
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
 
 class EvidenceRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
@@ -141,6 +178,23 @@ class AnalysisResultRepository(BaseRepository):
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
+    async def get_by_analysis_id_scoped(
+        self,
+        analysis_id: uuid.UUID,
+        organization_id: uuid.UUID,
+    ) -> Optional[AnalysisResult]:
+        stmt = (
+            select(AnalysisResult)
+            .join(AnalysisJob, AnalysisResult.job_id == AnalysisJob.id)
+            .join(Project, AnalysisJob.project_id == Project.id)
+            .where(
+                (AnalysisResult.analysis_id == analysis_id) | (AnalysisResult.job_id == analysis_id),
+                Project.organization_id == organization_id,
+            )
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
 
 class DetectionRepository(BaseRepository[Detection]):
     def __init__(self, session: AsyncSession):
@@ -170,3 +224,79 @@ class SituationEventRepository(BaseRepository):
         stmt = select(SituationEvent).where(SituationEvent.situation_id == situation_id).order_by(SituationEvent.sequence_number.asc())
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
+
+
+class UsageEventRepository(BaseRepository[UsageEvent]):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, UsageEvent)
+
+    async def record_event(
+        self,
+        organization_id: uuid.UUID,
+        dimension: str,
+        quantity: int = 1,
+        job_id: Optional[uuid.UUID] = None,
+    ) -> UsageEvent:
+        event = UsageEvent(
+            organization_id=organization_id,
+            dimension=dimension,
+            quantity=quantity,
+            job_id=job_id,
+        )
+        self.session.add(event)
+        await self.session.flush()
+        return event
+
+    async def get_monthly_count(
+        self,
+        organization_id: uuid.UUID,
+        dimension: Optional[str] = None,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+    ) -> int:
+        from datetime import datetime, timezone
+        from sqlalchemy import func
+        now = datetime.now(timezone.utc)
+        target_year = year or now.year
+        target_month = month or now.month
+        start_date = datetime(target_year, target_month, 1, tzinfo=timezone.utc)
+        if target_month == 12:
+            end_date = datetime(target_year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            end_date = datetime(target_year, target_month + 1, 1, tzinfo=timezone.utc)
+
+        stmt = select(func.coalesce(func.sum(UsageEvent.quantity), 0)).where(
+            UsageEvent.organization_id == organization_id,
+            UsageEvent.created_at >= start_date,
+            UsageEvent.created_at < end_date,
+        )
+        if dimension:
+            stmt = stmt.where(UsageEvent.dimension == dimension)
+        res = await self.session.execute(stmt)
+        return int(res.scalar_one() or 0)
+
+
+class AssetRepository(BaseRepository[Asset]):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, Asset)
+
+    async def get_total_storage_bytes(self, organization_id: uuid.UUID) -> int:
+        from sqlalchemy import func
+        stmt = (
+            select(func.coalesce(func.sum(Asset.file_size_bytes), 0))
+            .join(Project, Asset.project_id == Project.id)
+            .where(Project.organization_id == organization_id)
+        )
+        res = await self.session.execute(stmt)
+        return int(res.scalar_one() or 0)
+
+
+class SubscriptionRepository(BaseRepository[Subscription]):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, Subscription)
+
+    async def get_by_organization(self, organization_id: uuid.UUID) -> Optional[Subscription]:
+        stmt = select(Subscription).where(Subscription.organization_id == organization_id)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+

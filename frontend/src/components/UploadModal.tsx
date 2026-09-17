@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { analysisApi } from '../api';
+import { normalizeVideoAnalysisResponse } from '../api/videoResultAdapter';
 import { AERIONAnalysisResultData } from '../types';
 
 export type UploadMode = 'drone_image' | 'satellite_image' | 'damage_pair' | 'border_video';
@@ -38,6 +39,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   // Upload/Processing state
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [progressPercent, setProgressPercent] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -48,13 +50,19 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   if (!isOpen) return null;
 
   const MAX_IMAGE_SIZE_MB = 15;
-  const MAX_VIDEO_SIZE_MB = 100;
+  const MAX_VIDEO_SIZE_MB = 25;
 
   const validateFile = (file: File, isVideo: boolean = false): boolean => {
     setFileError(null);
-    const maxBytes = (isVideo ? MAX_VIDEO_SIZE_MB : MAX_IMAGE_SIZE_MB) * 1024 * 1024;
+    const maxLimitMb = isVideo ? MAX_VIDEO_SIZE_MB : MAX_IMAGE_SIZE_MB;
+    const maxBytes = maxLimitMb * 1024 * 1024;
     if (file.size > maxBytes) {
-      setFileError(`File size exceeds ${isVideo ? MAX_VIDEO_SIZE_MB : MAX_IMAGE_SIZE_MB}MB limit (${(file.size / (1024 * 1024)).toFixed(1)}MB).`);
+      const providedMb = (file.size / (1024 * 1024)).toFixed(1);
+      if (isVideo) {
+        setFileError(`File size exceeds 25MB limit (provided: ${providedMb}MB). Please provide a bounded clip.`);
+      } else {
+        setFileError(`File size exceeds ${maxLimitMb}MB limit (provided: ${providedMb}MB).`);
+      }
       return false;
     }
 
@@ -204,34 +212,90 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
       } else if (mode === 'border_video') {
         const videoB64 = await fileToBase64(selectedFile!);
-        setStatusMessage(`PROCESSING VIDEO FRAMES (STRIDE=${frameStride}, MAX=${maxFrames})...`);
-        const resp = await analysisApi.analyzeBorderVideo({
+        setStatusMessage(`SUBMITTING VIDEO ANALYSIS JOB (STRIDE=${frameStride}, MAX=${maxFrames})...`);
+        
+        // Submit asynchronous job with idempotency key
+        const idempotencyKey = `video_${Date.now()}_${selectedFile?.name || 'clip'}`;
+        const submitResp = await analysisApi.submitBorderJob({
           video_base64: videoB64,
           frame_stride: frameStride,
           max_frames: maxFrames,
+          generate_annotated_video: true,
+          idempotency_key: idempotencyKey,
         });
 
-        if (resp.success && resp.data) {
-          setStatusMessage('VIDEO ANALYSIS COMPLETE...');
-          const reportData = resp.data.report || resp.data;
-          // Attach video artifact metadata if present
-          if (resp.data.annotated_video_artifact) {
-            reportData.annotated_video_artifact = resp.data.annotated_video_artifact;
-          }
-          const rawVideoUrl = selectedFile ? URL.createObjectURL(selectedFile) : undefined;
-          onAnalysisSuccess(reportData, {
-            imageUrl: undefined,
-            videoUrl: rawVideoUrl,
+        if (!submitResp.success || !submitResp.data?.job_id) {
+          // If asynchronous job route fails, fallback to direct streaming video analysis
+          setStatusMessage('FALLBACK: EXECUTING DIRECT STREAMING INFERENCE...');
+          const directResp = await analysisApi.analyzeBorderVideo({
+            video_base64: videoB64,
+            frame_stride: frameStride,
+            max_frames: maxFrames,
           });
-          onClose();
-        } else {
-          throw new Error(typeof resp.error === 'string' ? resp.error : (resp.error as any)?.message || 'Video analysis failed.');
+          if (directResp.success && directResp.data) {
+            const normalized = normalizeVideoAnalysisResponse(directResp.data);
+            const rawVideoUrl = selectedFile ? URL.createObjectURL(selectedFile) : undefined;
+            onAnalysisSuccess(normalized, { imageUrl: undefined, videoUrl: rawVideoUrl });
+            onClose();
+            return;
+          } else {
+            throw new Error(typeof directResp.error === 'string' ? directResp.error : (directResp.error as any)?.message || 'Video analysis failed.');
+          }
+        }
+
+        const jobId = submitResp.data.job_id;
+        setStatusMessage(`JOB ${jobId.substring(0, 8)} SUBMITTED. QUEUED FOR PIPELINE EXECUTION...`);
+
+        // Poll job status until completion or failure
+        const maxPollAttempts = 120; // 120 * 1s = 2 minutes max
+        let attempts = 0;
+        let jobCompleted = false;
+
+        while (attempts < maxPollAttempts && !jobCompleted) {
+          await new Promise((res) => setTimeout(res, 1000));
+          attempts++;
+
+          try {
+            const statusResp = await analysisApi.getJobStatus(jobId);
+            if (statusResp.success && statusResp.data) {
+              const job = statusResp.data;
+              const stage = job.current_stage || job.status || 'PROCESSING';
+              const pct = typeof job.progress_percent === 'number' ? job.progress_percent : 0;
+              setProgressPercent(pct);
+              setStatusMessage(`[${pct}%] ${stage.toUpperCase()}...`);
+
+              if (job.status === 'COMPLETED' || job.status === 'COMPLETED_WITH_LIMITATIONS' || job.status === 'completed') {
+                jobCompleted = true;
+                const resultData = job.result || {};
+                const normalized = normalizeVideoAnalysisResponse(resultData, job.analysis_id || jobId);
+                const rawVideoUrl = selectedFile ? URL.createObjectURL(selectedFile) : undefined;
+                onAnalysisSuccess(normalized, {
+                  imageUrl: undefined,
+                  videoUrl: rawVideoUrl,
+                });
+                onClose();
+                return;
+              } else if (job.status === 'FAILED' || job.status === 'PROCESSING_FAILED' || job.status === 'CANCELLED' || job.status === 'failed') {
+                throw new Error(job.error || `Analysis job failed with status: ${job.status}`);
+              }
+            }
+          } catch (pollErr: any) {
+            if (pollErr.message && pollErr.message.includes('Analysis job failed')) {
+              throw pollErr;
+            }
+            // Transient network retry
+          }
+        }
+
+        if (!jobCompleted) {
+          throw new Error('Video analysis timed out waiting for pipeline completion. Job may still be running in background.');
         }
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Operation failed during backend execution.');
     } finally {
       setIsProcessing(false);
+      setProgressPercent(0);
     }
   };
 
@@ -411,7 +475,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     </span>
                     <span className="text-xs text-paper">CLICK TO CHOOSE FILE</span>
                     <span className="text-[10px] text-muted">
-                      {mode === 'border_video' ? 'MP4 / AVI (Max 100MB)' : 'JPG / PNG / TIFF (Max 15MB)'}
+                      {mode === 'border_video' ? 'MP4 / AVI (Max 25MB)' : 'JPG / PNG / TIFF (Max 15MB)'}
                     </span>
                   </div>
                 )}
@@ -502,9 +566,19 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           )}
 
           {isProcessing && (
-            <div className="p-3 rounded bg-status-ai/10 border border-status-ai/20 text-status-ai text-[11px] flex items-center gap-2 animate-pulse">
-              <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
-              <span>{statusMessage}</span>
+            <div className="p-3 rounded bg-status-ai/10 border border-status-ai/20 text-status-ai text-[11px] space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                <span className="font-semibold tracking-wide">{statusMessage}</span>
+              </div>
+              {progressPercent > 0 && (
+                <div className="w-full bg-graphite rounded-full h-1.5 overflow-hidden border border-white/[0.08]">
+                  <div
+                    className="bg-accent h-full transition-all duration-300 ease-out"
+                    style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>

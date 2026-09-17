@@ -29,6 +29,17 @@ async def get_current_user_payload(
     return decode_access_token(credentials.credentials)
 
 
+async def get_current_user_payload_optional_query(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+    token: Optional[str] = None,
+) -> dict:
+    """Validates Bearer token from header or optional query parameter."""
+    raw_token = credentials.credentials if (credentials and credentials.credentials) else token
+    if not raw_token:
+        raise AuthenticationError("Authentication required. Please provide a valid Bearer token or token query parameter.")
+    return decode_access_token(raw_token)
+
+
 async def get_current_user(
     payload: dict = Depends(get_current_user_payload),
     session: AsyncSession = Depends(get_async_session),

@@ -1,4 +1,4 @@
-﻿"""
+"""
 AERION — Security Utilities & Input Sanitization
 Provides shared, audited security primitives:
 - Base64 payload decoding with pre-allocation byte-size bounds

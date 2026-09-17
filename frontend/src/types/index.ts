@@ -126,16 +126,71 @@ export interface SituationReport {
   executive_summary: string;
   verified_facts: string[];
   derived_metrics: Record<string, any>;
+  analysis_id?: string | null;
+  job_id?: string | null;
+  project_id?: string | null;
+  mode?: string | null;
+  analysis_type?: string | null;
+  input_asset_reference?: string | null;
+  overall_status?: string | null;
+  limitations?: string[];
+  detection_summary?: {
+    total_detections: number;
+    status?: string;
+    message?: string;
+    by_class: Record<string, number>;
+    detections: Array<{
+      id: string;
+      class_name: string;
+      confidence: number;
+      bbox?: BoundingBox2D | null;
+      obb_points?: Point2DCoord[] | null;
+      track_id?: number | null;
+      frame_number?: number | null;
+      evidence_reference?: string;
+    }>;
+  } | null;
+  damage_summary?: {
+    damage_ratio: number;
+    damage_percentage: number;
+    damage_pixels: number;
+    total_pixels: number;
+    mean_probability?: number;
+    threshold?: number;
+    classification?: string;
+    mask_storage_key?: string | null;
+    status?: string;
+    message?: string;
+    pair_validation?: {
+      is_compatible: boolean;
+      status: string;
+      warnings: string[];
+      limitations: string[];
+    };
+  } | null;
+  artifacts?: Array<{
+    type: string;
+    artifact_key: string;
+    mime_type: string;
+    sha256: string;
+    size_bytes: number;
+  }>;
   ai_advisory?: {
     advisory_text: string;
     model: string;
     generated_at: string;
     disclaimer: string;
+    status?: string;
+    key_findings?: string[];
+    recommended_actions?: string[];
   };
   evidence_lineage?: {
     evidence_id: string;
     source: string;
     hash: string;
+    verification_state?: string;
+    confidence?: number;
+    timestamp?: string;
   }[];
 }
 
@@ -232,6 +287,50 @@ export interface AnnotatedVideoArtifact {
   total_detections_count: number;
 }
 
+export interface LocationProvenance {
+  latitude: number;
+  longitude: number;
+  location_source: 'ASSET_METADATA' | 'OPERATOR_PROVIDED' | 'UNAVAILABLE';
+  location_precision: 'VERIFIED' | 'APPROXIMATE' | 'UNAVAILABLE';
+  location_method?: 'ASSET_METADATA' | 'MAP_SELECTION' | 'PLACE_SEARCH' | 'MANUAL_COORDINATES';
+  label?: string;
+  state?: string;
+  country?: string;
+  relevant_border?: string;
+  sector?: string;
+  confirmed_at_utc?: string;
+}
+
+export interface TacticalCrossingIndicator {
+  event_type: string;
+  detection_id?: string;
+  track_id?: string;
+  class_name?: string;
+  confidence?: number;
+  threat_level?: string;
+  terminology?: string;
+  details?: Record<string, any>;
+}
+
+export interface AnalysisHistoryItem {
+  job_id: string;
+  analysis_id?: string | null;
+  mode: string;
+  status: string;
+  current_stage: string;
+  progress_percent: number;
+  input_asset_reference?: string | null;
+  limitations: string[];
+  error_message?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string | null;
+  summary: RuntimeSceneSummary;
+  detections_count?: number | null;
+  damage_summary?: DamageSummary | null;
+  has_result: boolean;
+}
+
 export interface AERIONAnalysisResultData {
   project: string;
   version: string;
@@ -250,8 +349,36 @@ export interface AERIONAnalysisResultData {
   overall_status: string;
   metadata: Record<string, any>;
   annotated_image_base64?: string | null;
+  annotated_artifact?: {
+    artifact_key: string;
+    mime_type?: string;
+    sha256?: string;
+    size_bytes?: number;
+  } | null;
   annotated_video_artifact?: AnnotatedVideoArtifact | null;
+  processed_frames?: number;
+  total_video_frames?: number;
+  potential_unauthorized_crossing_indicators?: TacticalCrossingIndicator[];
+  location_context?: LocationProvenance | null;
+  report?: any;
+  damage_mask_base64?: string | null;
+  damage_artifact?: {
+    artifact_key: string;
+    mime_type: string;
+    sha256: string;
+    size_bytes: number;
+    image_width: number;
+    image_height: number;
+    is_zero_damage?: boolean;
+  } | null;
+  pair_validation?: {
+    is_compatible: boolean;
+    status: string;
+    warnings: string[];
+    limitations: string[];
+  } | null;
 }
+
 
 export interface NormalizedExternalWeather {
   observation_id: string;

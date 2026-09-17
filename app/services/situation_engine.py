@@ -58,6 +58,8 @@ class VulnerabilityCalculator:
         sensor_coverage_ratio: Optional[float],
         terrain_type: Optional[str] = None,
         weather_degradation_factor: Optional[float] = None,
+        sector_type: str = "SENSOR_RELATIVE",
+        authoritative_border_available: bool = False,
     ) -> SectorVulnerabilitySummary:
         factors: Dict[str, Any] = {
             "active_indicators": {
@@ -83,6 +85,8 @@ class VulnerabilityCalculator:
             return SectorVulnerabilitySummary(
                 sector_id=sector_id,
                 sector_name=sector_name,
+                sector_type=sector_type,
+                authoritative_border_available=authoritative_border_available,
                 vulnerability_score=None,
                 vulnerability_status="INSUFFICIENT_EVIDENCE",
                 contributing_factors=factors,
@@ -116,6 +120,8 @@ class VulnerabilityCalculator:
         return SectorVulnerabilitySummary(
             sector_id=sector_id,
             sector_name=sector_name,
+            sector_type=sector_type,
+            authoritative_border_available=authoritative_border_available,
             vulnerability_score=vulnerability_score,
             vulnerability_status="CALCULATED",
             contributing_factors=factors,
@@ -138,6 +144,12 @@ class SituationEngine:
         mode: OperationMode,
         temporal_mode: TemporalMode = TemporalMode.STATIC_IMAGE,
         session_id: Optional[str] = None,
+        sector_id: Optional[str] = None,
+        sector_name: Optional[str] = None,
+        sector_type: str = "SENSOR_RELATIVE",
+        authoritative_border_available: bool = False,
+        sensor_coverage_ratio: Optional[float] = None,
+        terrain_type: Optional[str] = "arid",
     ):
         self.state = SituationState(
             project_id=project_id,
@@ -148,6 +160,12 @@ class SituationEngine:
         self.evidence_log: List[EvidenceRecord] = []
         self.events_log: List[SituationEvent] = []
         self._sequence_counter = 0
+        self._sector_id = sector_id or "OPERATIONAL-SECTOR-01"
+        self._sector_name = sector_name or "Operational Sensor Field (Internal)"
+        self._sector_type = sector_type
+        self._authoritative_border_available = authoritative_border_available
+        self._sensor_coverage_ratio = sensor_coverage_ratio
+        self._terrain_type = terrain_type
 
     def ingest_runtime_result(
         self,
@@ -207,11 +225,13 @@ class SituationEngine:
                         event_type=ev_type,
                         threat_level=threat,
                         evidence_ids=crossing_evidence_ids,
-                        description=f"Potential unauthorized crossing indicator: track inside or entering geofence zone.",
+                        description=f"Potential unauthorized crossing indicator: track inside or entering operational restricted geofence zone.",
                         payload={
                             "track_id": getattr(b, "track_id", None),
                             "zone_status": getattr(b, "zone_status", "UNKNOWN"),
                             "border_score": getattr(b, "border_activity_score", 0.0),
+                            "geographic_reference_type": "OPERATIONAL_GEOFENCE",
+                            "reference_description": "Restricted operational perimeter geofence (not international border)",
                         },
                     )
                     self.events_log.append(event)
@@ -248,13 +268,15 @@ class SituationEngine:
 
     def generate_border_report(self) -> BorderSituationReport:
         """Synthesizes an authoritative BorderSituationReport from collected evidence."""
-        # Calculate active sector vulnerability
+        # Calculate active sector vulnerability with explicit operational/sensor-relative provenance
         sector_summary = VulnerabilityCalculator.calculate_sector_vulnerability(
-            sector_id="SECTOR-ALPHA",
-            sector_name="Alpha Border Perimeter",
+            sector_id=self._sector_id,
+            sector_name=self._sector_name,
+            sector_type=self._sector_type,
+            authoritative_border_available=self._authoritative_border_available,
             active_indicators_count=self.state.active_event_count,
-            sensor_coverage_ratio=0.85,  # Operational sensor coverage
-            terrain_type="arid",
+            sensor_coverage_ratio=self._sensor_coverage_ratio,
+            terrain_type=self._terrain_type,
         )
         self.state.sectors = [sector_summary]
 

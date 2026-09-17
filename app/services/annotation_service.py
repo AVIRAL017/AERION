@@ -1,4 +1,4 @@
-﻿"""
+"""
 AERION — Annotated Visual Evidence Service (Roadmap Step 15)
 Renders deterministic, presentation-grade visual annotations onto aerial & satellite imagery:
 - Consumes real AERION runtime contracts (AERIONAnalysisResult, Detection, BoundingBox, Point2D)
@@ -295,3 +295,126 @@ class AnnotationService:
 
         # Text in cyan / accent
         cv2.putText(canvas, banner_text, (bx1 + pad, by2 - pad), cv2.FONT_HERSHEY_SIMPLEX, font_scale * 1.1, (56, 213, 245), font_thickness, cv2.LINE_AA)
+
+    def render_damage_overlay_and_store(
+        self,
+        after_image_path: Union[str, Path],
+        before_image_path: Union[str, Path],
+        damage_analysis: Any,
+        project_id: uuid.UUID,
+    ) -> AnnotationResult:
+        """
+        Renders an authoritative damage overlay highlighting verified building damage
+        onto the post-disaster image and persists it as an evidence artifact.
+        """
+        src_path = sanitize_local_path(str(after_image_path))
+        if not src_path.exists():
+            raise ValidationError(
+                message=f"Post-disaster image not found for damage annotation: {after_image_path}",
+                details=[{"field": "after_image_path", "issue": "file_not_found"}],
+            )
+
+        # Load image via cv2
+        img = cv2.imread(str(src_path), cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValidationError(
+                message="Post-disaster image could not be decoded for damage visualization.",
+                details=[{"field": "after_image_path", "issue": "invalid_image_data"}],
+            )
+
+        h, w = img.shape[:2]
+        canvas = img.copy()
+
+        # Re-run Siamese predict_damage to extract high-resolution probability and binary mask
+        from damage_inference import predict_damage
+        try:
+            _, _, prob_map, raw_mask = predict_damage(str(before_image_path), str(after_image_path))
+        except Exception as exc:
+            logger.warning(f"Failed to extract damage mask directly: {exc}")
+            prob_map = None
+            raw_mask = None
+
+        is_zero_damage = True
+        damage_percentage = 0.0
+
+        if raw_mask is not None and prob_map is not None:
+            damage_percentage = (float(raw_mask.sum()) / float(raw_mask.size)) * 100.0
+            is_zero_damage = bool(raw_mask.sum() == 0)
+
+            # Resize damage mask to original canvas dimensions
+            mask_resized = cv2.resize(raw_mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+            prob_resized = cv2.resize(prob_map.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
+
+            if not is_zero_damage:
+                # Create colored damage heatmap/highlight (bright crimson red BGR: 40, 40, 235)
+                overlay = canvas.copy()
+                damage_indices = mask_resized > 0
+                overlay[damage_indices] = [40, 40, 235]  # Crimson Red
+
+                # Alpha blend overlay over damaged regions
+                cv2.addWeighted(overlay, 0.55, canvas, 0.45, 0, canvas)
+
+                # Draw high-contrast contours around damaged zones
+                contours, _ = cv2.findContours(mask_resized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                scale = max(w, h)
+                contour_thickness = max(1, int(scale / 800))
+                cv2.drawContours(canvas, contours, -1, (0, 0, 255), contour_thickness, cv2.LINE_AA)
+
+        # Render presentation badge with damage percentage
+        scale = max(w, h)
+        font_scale = max(0.45, scale / 1500.0)
+        font_thickness = max(1, int(scale / 900))
+
+        if is_zero_damage:
+            badge_text = "AERION VERIFIED: NO STRUCTURAL DAMAGE DETECTED"
+            badge_color = (56, 213, 245)  # Cyan
+        else:
+            badge_text = f"AERION DAMAGE ASSESSMENT: {damage_percentage:.2f}% STRUCTURAL DAMAGE"
+            badge_color = (40, 40, 235)  # Crimson
+
+        (text_w, text_h), baseline = cv2.getTextSize(badge_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
+        pad = 12
+        bx1 = 16
+        by2 = h - 16
+        by1 = by2 - text_h - (pad * 2)
+        bx2 = bx1 + text_w + (pad * 2)
+
+        overlay = canvas.copy()
+        cv2.rectangle(overlay, (bx1, by1), (bx2, by2), (18, 22, 28), -1)
+        cv2.rectangle(overlay, (bx1, by1), (bx2, by2), badge_color, max(1, int(font_thickness / 2)))
+        cv2.addWeighted(overlay, 0.85, canvas, 0.15, 0, canvas)
+        cv2.putText(canvas, badge_text, (bx1 + pad, by2 - pad), cv2.FONT_HERSHEY_SIMPLEX, font_scale, badge_color, font_thickness, cv2.LINE_AA)
+
+        # Save annotated image and store in LocalArtifactStorage
+        temp_dir = Path(tempfile.mkdtemp(prefix="aerion_dmg_"))
+        temp_dest = temp_dir / f"{uuid.uuid4()}.jpg"
+        try:
+            cv2.imwrite(str(temp_dest), canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+
+            storage_key, sha256_hex, stored_bytes = self.storage.store_file(
+                source_path=temp_dest,
+                asset_type="damage_mask",
+                project_id=project_id,
+                suffix=".jpg",
+            )
+
+            _, encoded_buffer = cv2.imencode(".jpg", canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+            b64_str = base64.b64encode(encoded_buffer.tobytes()).decode("utf-8")
+
+            return AnnotationResult(
+                artifact_key=storage_key,
+                sha256=sha256_hex,
+                file_size_bytes=stored_bytes,
+                mime_type="image/jpeg",
+                image_width=w,
+                image_height=h,
+                detection_count=0 if is_zero_damage else int(mask_resized.sum() if 'mask_resized' in locals() else 1),
+                annotated_base64=b64_str,
+                is_zero_detection=is_zero_damage,
+            )
+        finally:
+            if temp_dest.exists():
+                temp_dest.unlink(missing_ok=True)
+            if temp_dir.exists():
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)

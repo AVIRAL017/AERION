@@ -9,6 +9,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  { to: '/image', icon: 'image_search', label: 'Image Perception' },
   { to: '/border', icon: 'radar', label: 'Border Surveillance' },
   { to: '/disaster', icon: 'layers', label: 'Damage Workspace' },
   { to: '/disaster/evacuation', icon: 'alt_route', label: 'Evacuation & Shelters' },

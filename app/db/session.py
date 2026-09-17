@@ -75,7 +75,7 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
-async def AsyncSessionLocal() -> AsyncSession:
+def AsyncSessionLocal() -> AsyncSession:
     """Create a new AsyncSession."""
     factory = get_session_factory()
     return factory()

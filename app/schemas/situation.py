@@ -161,6 +161,8 @@ class SectorVulnerabilitySummary(BaseModel):
     """
     sector_id: str
     sector_name: str
+    sector_type: str = Field(default="SENSOR_RELATIVE", description="'SENSOR_RELATIVE', 'OPERATIONAL_GEOFENCE', or 'AUTHORITATIVE_BORDER'")
+    authoritative_border_available: bool = Field(default=False, description="Whether authoritative international border geometry is active in local registry")
     vulnerability_score: Optional[float] = Field(default=None, ge=0.0, le=100.0, description="Null if required inputs are missing/unverified")
     vulnerability_status: str = Field(default="INSUFFICIENT_EVIDENCE", description="'CALCULATED', 'INSUFFICIENT_EVIDENCE', or 'UNAVAILABLE'")
     contributing_factors: Dict[str, Any] = Field(default_factory=dict, description="Factor breakdown: status and value")
@@ -291,3 +293,16 @@ class SituationReportResponse(BaseModel):
     derived_metrics: Dict[str, Any] = Field(default_factory=dict)
     ai_advisory: Optional[Dict[str, Any]] = None
     evidence_lineage: Optional[List[Dict[str, Any]]] = None
+    # Phase C Authoritative Analysis Backing
+    analysis_id: Optional[str] = None
+    job_id: Optional[str] = None
+    project_id: Optional[str] = None
+    mode: Optional[str] = None
+    analysis_type: Optional[str] = None
+    input_asset_reference: Optional[str] = None
+    overall_status: Optional[str] = None
+    limitations: List[str] = Field(default_factory=list)
+    detection_summary: Optional[Dict[str, Any]] = None
+    damage_summary: Optional[Dict[str, Any]] = None
+    artifacts: List[Dict[str, Any]] = Field(default_factory=list)
+

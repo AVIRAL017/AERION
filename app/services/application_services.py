@@ -42,6 +42,8 @@ class ImageProcessingService:
         drone_model: str = "visdrone_only",
         terrain_context: Optional[str] = "arid",
         run_intelligence: bool = True,
+        confidence_threshold: Optional[float] = None,
+        iou_threshold: Optional[float] = None,
     ) -> AERIONAnalysisResult:
         return await self.runtime_manager.run_image_inference(
             image_path_or_array=image_path,
@@ -50,6 +52,8 @@ class ImageProcessingService:
             drone_model=drone_model,
             terrain_context=terrain_context,
             run_intelligence=run_intelligence,
+            confidence=confidence_threshold,
+            iou=iou_threshold,
         )
 
 
@@ -64,6 +68,8 @@ class SatelliteAnalysisService:
         image_path: str,
         terrain_context: Optional[str] = "arid",
         run_intelligence: bool = True,
+        confidence_threshold: Optional[float] = None,
+        iou_threshold: Optional[float] = None,
     ) -> AERIONAnalysisResult:
         return await self.runtime_manager.run_image_inference(
             image_path_or_array=image_path,
@@ -72,6 +78,8 @@ class SatelliteAnalysisService:
             drone_model="visdrone_only",
             terrain_context=terrain_context,
             run_intelligence=run_intelligence,
+            confidence=confidence_threshold,
+            iou=iou_threshold,
         )
 
     async def analyze_satellite_tile(
@@ -79,11 +87,15 @@ class SatelliteAnalysisService:
         image_path: str,
         terrain_context: Optional[str] = "arid",
         run_intelligence: bool = True,
+        confidence_threshold: Optional[float] = None,
+        iou_threshold: Optional[float] = None,
     ) -> AERIONAnalysisResult:
         return await self.analyze_satellite_image(
             image_path=image_path,
             terrain_context=terrain_context,
             run_intelligence=run_intelligence,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
         )
 
 
@@ -154,6 +166,12 @@ class BorderVideoJobService:
             project_id=project_id,
             mode=OperationMode.BORDER_SECURITY,
             temporal_mode=TemporalMode.RECORDED_FOOTAGE,
+            sector_id="OPERATIONAL-SECTOR-01",
+            sector_name="Operational Sensor Field (Internal)",
+            sector_type="SENSOR_RELATIVE",
+            authoritative_border_available=False,
+            sensor_coverage_ratio=None,
+            terrain_type=terrain_context or "arid",
         )
 
         # Retrieve pipeline zone boundary if available
@@ -190,6 +208,8 @@ class BorderVideoJobService:
         frame_idx = 0
         unique_track_ids = set()
         total_detections = 0
+        all_detections: List[Dict[str, Any]] = []
+        all_tracks: List[Dict[str, Any]] = []
         last_runtime_result: Optional[AERIONAnalysisResult] = None
 
         try:
@@ -208,12 +228,20 @@ class BorderVideoJobService:
                     processed_count += 1
                     last_runtime_result = result
 
-                    # Collect metrics
-                    for d in result.detections:
+                    # Collect metrics and structured detection evidence
+                    for det_i, d in enumerate(result.detections):
                         total_detections += 1
+                        det_dict = d.to_dict()
+                        det_dict["frame_number"] = frame_idx
+                        det_id = getattr(d, "detection_id", f"{frame_idx}_{det_i}")
+                        det_dict["evidence_reference"] = f"FRAME_{frame_idx}_DET_{det_id}"
+                        all_detections.append(det_dict)
                         if d.track_id is not None:
                             unique_track_ids.add(d.track_id)
                     for t in (result.tracks or []):
+                        track_dict = t.to_dict()
+                        track_dict["frame_number"] = frame_idx
+                        all_tracks.append(track_dict)
                         if getattr(t, "track_id", None) is not None:
                             unique_track_ids.add(t.track_id)
 
@@ -282,4 +310,8 @@ class BorderVideoJobService:
             "report": report.model_dump(),
             "annotated_video_artifact": annotated_video_artifact,
             "last_analysis_result": last_runtime_result,
+            "all_detections": all_detections,
+            "tracks": all_tracks,
+            "unique_tracks_count": len(unique_track_ids),
+            "total_detections_count": total_detections,
         }

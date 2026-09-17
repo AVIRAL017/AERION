@@ -280,6 +280,16 @@ class JobManager:
         async with self._lock:
             return self._jobs.get(job_id)
 
+    async def get_job_by_id_or_analysis_id(self, identifier: str) -> Optional[JobRecord]:
+        """Retrieve job record by job_id or analysis_id."""
+        async with self._lock:
+            if identifier in self._jobs:
+                return self._jobs[identifier]
+            for rec in self._jobs.values():
+                if rec.analysis_id == identifier:
+                    return rec
+            return None
+
     async def cancel_job(self, job_id: str) -> bool:
         """Attempt to cancel an active running task."""
         async with self._lock:

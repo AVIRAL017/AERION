@@ -33,6 +33,7 @@ class ReadinessResponse(BaseModel):
     Reports operational readiness of the Phase 3A backend foundation and explicit status of subsystems.
     """
     ready: bool = Field(..., description="True if backend is ready to accept requests")
+    status: Optional[str] = Field(default="HEALTHY", description="Aggregated overall status (HEALTHY, DEGRADED, UNAVAILABLE)")
     timestamp: str = Field(default_factory=utc_now_iso, description="Current UTC timestamp")
     version: str = Field(default="v1", description="API version")
     components: Dict[str, ComponentStatus] = Field(

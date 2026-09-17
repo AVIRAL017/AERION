@@ -26,15 +26,56 @@ class APIClient {
       });
 
       if (response.status === 401) {
-        // Clear invalid token
-        localStorage.removeItem('aerion_access_token');
-        localStorage.removeItem('aerion_user');
+        // Only invalidate the session if the request actually sent an Authorization header
+        // and failed with 401, or if it was an explicit profile verification endpoint (/auth/me).
+        const hasAuthHeader = Boolean(headers['Authorization']);
+        const isAuthMe = endpoint.includes('/auth/me');
+        if (hasAuthHeader || isAuthMe) {
+          localStorage.removeItem('aerion_access_token');
+          localStorage.removeItem('aerion_user');
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('aerion:unauthorized'));
+          }
+        }
       }
 
-      const json = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      const requestId = response.headers.get('x-request-id') || undefined;
+      const text = await response.text();
+
+      let json: any = null;
+      if (text && text.trim().length > 0) {
+        if (contentType.includes('application/json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
+          try {
+            json = JSON.parse(text);
+          } catch {
+            json = null;
+          }
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(json.detail || json.message || `HTTP ${response.status}: ${response.statusText}`);
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        if (json && typeof json === 'object') {
+          if (typeof json.error === 'object' && json.error?.message) {
+            errorMessage = json.error.message;
+          } else if (json.error && typeof json.error === 'string') {
+            errorMessage = json.error;
+          } else if (json.detail) {
+            errorMessage = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail);
+          } else if (json.message) {
+            errorMessage = json.message;
+          }
+        } else if (text && text.trim().length > 0 && text.length < 300) {
+          errorMessage = text.trim();
+        }
+
+        return {
+          success: false,
+          data: null as any,
+          meta: requestId ? { request_id: requestId } : {},
+          error: errorMessage,
+        };
       }
 
       // Backend envelope wraps response as { success, data, meta }
@@ -45,8 +86,8 @@ class APIClient {
       // Direct response fallback
       return {
         success: true,
-        data: json as T,
-        meta: {},
+        data: (json !== null ? json : text) as T,
+        meta: requestId ? { request_id: requestId } : {},
       };
     } catch (err: any) {
       return {

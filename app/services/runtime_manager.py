@@ -68,6 +68,8 @@ class RuntimeManager:
         drone_model: str = "visdrone_only",
         terrain_context: Optional[str] = "arid",
         run_intelligence: bool = True,
+        confidence: Optional[float] = None,
+        iou: Optional[float] = None,
     ) -> Any:
         """Executes serialized static perception inference."""
         orch = await self.adapter.get_orchestrator(
@@ -86,6 +88,9 @@ class RuntimeManager:
                 image=image_path_or_array,
                 source_type=source_type,
                 run_intelligence=run_intelligence,
+                confidence=confidence,
+                iou=iou,
+                terrain_context=terrain_context,
             )
             return result
 

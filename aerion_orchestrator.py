@@ -218,10 +218,14 @@ class AERIONOrchestrator:
 
     def process_image(
         self,
-        image: Union[str, Path, Any],
+        image: Union[str, Path, Any] = None,
         source_type: str = "drone",
         run_intelligence: bool = True,
         background_ssim: float = 0.50,
+        confidence: Optional[float] = None,
+        iou: Optional[float] = None,
+        image_input: Optional[Union[str, Path, Any]] = None,
+        terrain_context: Optional[str] = None,
     ) -> AERIONAnalysisResult:
         """
         Process a single aerial or satellite frame through perception and scoring.
@@ -236,18 +240,30 @@ class AERIONOrchestrator:
             Whether to execute deterministic scene prioritization.
         background_ssim:
             Reference background similarity score for SSIM prioritization.
+        confidence:
+            Explicit confidence threshold to apply to detections.
+        iou:
+            IoU threshold for NMS.
+        image_input:
+            Alias for image parameter to support keyword-based invocation.
+        terrain_context:
+            Optional override for terrain context.
         """
+        target_image = image_input if image_input is not None else image
+        if target_image is None:
+            raise ValueError("No image provided to process_image.")
+
         analysis_id = str(uuid.uuid4())
         image_w: Optional[int] = None
         image_h: Optional[int] = None
 
         if source_type == "drone":
-            raw_res = self.detect_drone(image)
+            raw_res = self.detect_drone(target_image)
             image_w = raw_res.image_width
             image_h = raw_res.image_height
             detections = normalize_drone_result(raw_res, source="drone")
         elif source_type == "satellite":
-            raw_res = self.detect_satellite(image)
+            raw_res = self.detect_satellite(target_image)
             image_w = raw_res.image_width
             image_h = raw_res.image_height
             detections = normalize_satellite_result(raw_res, source="satellite")
@@ -255,6 +271,13 @@ class AERIONOrchestrator:
             raise ValueError(
                 f"Unsupported source_type '{source_type}' for process_image. Use 'drone' or 'satellite'."
             )
+
+        # Authoritative confidence filtering
+        eff_conf = float(confidence) if confidence is not None else float(self.confidence)
+        if not 0.0 <= eff_conf <= 1.0:
+            raise ValueError(f"Confidence threshold must be between 0.0 and 1.0, got {eff_conf}")
+
+        detections = [d for d in detections if d.confidence >= eff_conf]
 
         intel_items: List[IntelligenceItem] = []
         summary = SceneSummary()
@@ -278,6 +301,8 @@ class AERIONOrchestrator:
             "source_type": source_type,
             "drone_model": self.drone_model_name if source_type == "drone" else None,
             "configured_terrain": self._terrain_metadata,
+            "applied_confidence_threshold": eff_conf,
+            "requested_confidence_threshold": confidence if confidence is not None else self.confidence,
         }
 
         return AERIONAnalysisResult(

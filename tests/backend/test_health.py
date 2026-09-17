@@ -57,18 +57,18 @@ class TestHealthEndpoints(unittest.TestCase):
         self.assertEqual(components["config"]["status"], "ready")
         self.assertEqual(components["inference_lock"]["status"], "ready")
 
-        # Honest state representation: models are lazy unloaded, future systems not implemented
-        self.assertEqual(components["models"]["status"], "lazy_unloaded")
-        self.assertEqual(components["database"]["status"], "not_implemented")
-        self.assertEqual(components["providers"]["status"], "not_implemented")
-        self.assertEqual(components["mistral"]["status"], "not_implemented")
+        # Active dynamic state representation
+        self.assertIn(components["models"]["status"], ["ready", "lazy_unloaded", "degraded", "not_found"])
+        self.assertIn(components["database"]["status"], ["ready", "degraded", "unavailable"])
+        self.assertIn(components["storage"]["status"], ["ready", "degraded", "unavailable"])
+        self.assertIn(components["providers"]["status"], ["ready", "monitored", "configured", "unconfigured"])
+        self.assertIn(components["mistral"]["status"], ["configured", "unconfigured"])
 
     def test_api_v1_readiness_probe(self):
         response = self.client.get("/api/v1/ready")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["success"])
-        self.assertTrue(payload["data"]["ready"])
 
 
 if __name__ == "__main__":

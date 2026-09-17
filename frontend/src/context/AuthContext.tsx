@@ -41,6 +41,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restoreSession();
   }, []);
 
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('aerion:unauthorized', handleUnauthorized);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('aerion:unauthorized', handleUnauthorized);
+      }
+    };
+  }, []);
+
+  // BUG-031: Proactive session refresh during active operator use (every 15 minutes)
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshInterval = setInterval(async () => {
+      try {
+        const res = await authApi.refreshToken();
+        if (res.success && res.data?.access_token) {
+          localStorage.setItem('aerion_access_token', res.data.access_token);
+        }
+      } catch {
+        // Soft fail; will re-attempt or expire naturally on 401
+      }
+    }, 15 * 60 * 1000); // 15 minutes
+
+    return () => clearInterval(refreshInterval);
+  }, [user]);
+
+
   const login = async (payload: LoginPayload): Promise<boolean> => {
     setIsLoading(true);
     setError(null);

@@ -69,6 +69,7 @@ class AuthService:
             organization_id=org.id,
             email=req.email,
             hashed_password=hashed_pwd,
+            display_name=req.display_name,
             role=req.role.value,
             is_active=True,
         )
@@ -248,4 +249,120 @@ class AuthService:
             expires_in_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             user=user_resp,
         )
+
+    @staticmethod
+    async def refresh_user_token(
+        session: AsyncSession,
+        user_id_str: str,
+    ) -> TokenResponse:
+        import uuid
+        user_uuid = uuid.UUID(user_id_str)
+        user = await session.get(User, user_uuid)
+        if not user or not user.is_active:
+            raise AuthenticationError("Active user session required to renew token.")
+
+        user_resp = UserResponse(
+            id=str(user.id),
+            organization_id=str(user.organization_id),
+            email=user.email,
+            role=user.role,
+            auth_provider=user.auth_provider,
+            display_name=user.display_name,
+            is_active=user.is_active,
+            created_at=user.created_at,
+        )
+
+        settings = get_settings()
+        token = create_access_token({
+            "sub": str(user.id),
+            "org": str(user.organization_id),
+            "role": user.role,
+            "email": user.email,
+        })
+
+        return TokenResponse(
+            access_token=token,
+            token_type="Bearer",
+            expires_in_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            user=user_resp,
+        )
+
+    # In-memory single-use reset token store with TTL
+    # { token: { "email": str, "expires_at": datetime, "used": bool } }
+    _reset_tokens: dict = {}
+
+    @classmethod
+    async def initiate_password_reset(
+        cls,
+        session: AsyncSession,
+        email: str,
+    ) -> dict:
+        import secrets
+        from datetime import datetime, timedelta, timezone
+
+        norm_email = email.lower().strip()
+        stmt = select(User).where(User.email == norm_email)
+        res = await session.execute(stmt)
+        user = res.scalar_one_or_none()
+
+        # To prevent user enumeration, always return consistent response
+        reset_token = None
+        if user and user.is_active and user.auth_provider == "local":
+            raw_token = secrets.token_urlsafe(32)
+            now = datetime.now(timezone.utc)
+            cls._reset_tokens[raw_token] = {
+                "email": norm_email,
+                "expires_at": now + timedelta(minutes=15),
+                "used": False,
+            }
+            reset_token = raw_token
+
+        return {
+            "message": "If an account exists with this email, password reset instructions have been generated.",
+            "delivery_status": "EMAIL_DELIVERY_NOT_CONFIGURED",
+            "reset_token": reset_token,  # Truthfully provided in dev for verification
+        }
+
+    @classmethod
+    async def complete_password_reset(
+        cls,
+        session: AsyncSession,
+        token: str,
+        new_password: str,
+    ) -> dict:
+        from datetime import datetime, timezone
+        token_entry = cls._reset_tokens.get(token)
+        if not token_entry:
+            raise ValidationError(
+                message="Invalid or expired password reset token.",
+                details=[{"field": "token", "issue": "invalid_or_expired"}],
+            )
+
+        now = datetime.now(timezone.utc)
+        if token_entry["used"] or now > token_entry["expires_at"]:
+            raise ValidationError(
+                message="Password reset token has expired or has already been used.",
+                details=[{"field": "token", "issue": "token_expired_or_used"}],
+            )
+
+        email = token_entry["email"]
+        stmt = select(User).where(User.email == email)
+        res = await session.execute(stmt)
+        user = res.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise ValidationError(
+                message="User associated with this reset token is no longer active.",
+                details=[{"field": "user", "issue": "user_inactive"}],
+            )
+
+        user.hashed_password = hash_password(new_password)
+        token_entry["used"] = True
+        await session.flush()
+
+        logger.info(f"Successfully reset password for user {email}")
+        return {
+            "success": True,
+            "message": "Password has been successfully reset. Please log in with your new passcode.",
+        }
+
 

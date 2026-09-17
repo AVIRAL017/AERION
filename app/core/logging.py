@@ -90,6 +90,14 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_entry, default=str)
 
 
+class RequestIDFilter(logging.Filter):
+    """Ensures every log record contains a request_id attribute for standard formatting."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not hasattr(record, "request_id"):
+            record.request_id = request_id_ctx.get() or "-"
+        return True
+
+
 def setup_logging(level: str = "INFO", json_logs: bool = True) -> None:
     """
     Initialize root logging configuration for the AERION platform.
@@ -102,6 +110,7 @@ def setup_logging(level: str = "INFO", json_logs: bool = True) -> None:
         root_logger.removeHandler(handler)
 
     stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.addFilter(RequestIDFilter())
     if json_logs:
         stream_handler.setFormatter(JSONFormatter())
     else:

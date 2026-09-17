@@ -76,20 +76,25 @@ class InternationalBoundaryService:
         Queries PostGIS for registered authoritative international boundary datasets.
         Strict rule: Presence of ADM0/ADM1/ADM2 does NOT satisfy this contract.
         """
-        session = await self._get_session()
-        # 1. Check if an authoritative international boundary record exists in international_boundaries
-        stmt_count = select(func.count(DBInternationalBoundary.id)).where(
-            DBInternationalBoundary.boundary_type == "INTERNATIONAL_OPERATIONAL"
-        )
-        res_count = await session.execute(stmt_count)
-        boundary_count = res_count.scalar() or 0
+        boundary_count = 0
+        dataset_rec = None
+        try:
+            session = await self._get_session()
+            # 1. Check if an authoritative international boundary record exists in international_boundaries
+            stmt_count = select(func.count(DBInternationalBoundary.id)).where(
+                DBInternationalBoundary.boundary_type == "INTERNATIONAL_OPERATIONAL"
+            )
+            res_count = await session.execute(stmt_count)
+            boundary_count = res_count.scalar() or 0
 
-        # 2. Check dataset provenance registry
-        stmt_dataset = select(GeospatialDataset).where(
-            GeospatialDataset.dataset_id.in_(SOI_BORDER_DATASET_IDS)
-        )
-        res_dataset = await session.execute(stmt_dataset)
-        dataset_rec = res_dataset.scalar_one_or_none()
+            # 2. Check dataset provenance registry
+            stmt_dataset = select(GeospatialDataset).where(
+                GeospatialDataset.dataset_id.in_(SOI_BORDER_DATASET_IDS)
+            )
+            res_dataset = await session.execute(stmt_dataset)
+            dataset_rec = res_dataset.scalar_one_or_none()
+        except Exception as exc:
+            logger.warning(f"Database query failed during border contract status check ({exc}); returning UNAVAILABLE.")
 
         if boundary_count > 0 and dataset_rec:
             # Authoritative boundary successfully ingested and verified

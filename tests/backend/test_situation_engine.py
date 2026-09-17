@@ -197,6 +197,51 @@ class TestSituationEngine(unittest.TestCase):
         self.assertEqual(report.infrastructure_damage["blocked_road_segments_count"], 0)
         self.assertEqual(report.infrastructure_damage["blocked_segments_modality"], Modality.UNAVAILABLE)
 
+    def test_border_report_provenance_and_no_fake_border_perimeter(self):
+        """Verify that default border reports do NOT forge 'Alpha Border Perimeter' or fake 85% coverage."""
+        engine = SituationEngine(
+            project_id=str(uuid.uuid4()),
+            mode=OperationMode.BORDER_SECURITY,
+            temporal_mode=TemporalMode.RECORDED_FOOTAGE,
+        )
+        report = engine.generate_border_report()
+        self.assertEqual(len(report.sector_assessments), 1)
+        sector = report.sector_assessments[0]
+
+        # 1. Truthful naming and non-fabrication
+        self.assertNotEqual(sector.sector_name, "Alpha Border Perimeter")
+        self.assertIn("Internal", sector.sector_name)
+        self.assertFalse(sector.authoritative_border_available)
+        self.assertEqual(sector.sector_type, "SENSOR_RELATIVE")
+
+        # 2. Insufficient evidence invariant: unmeasured sensor coverage must NOT default to 0.85
+        self.assertIsNone(sector.vulnerability_score)
+        self.assertEqual(sector.vulnerability_status, "INSUFFICIENT_EVIDENCE")
+        self.assertEqual(sector.sensor_coverage_status, "DEGRADED")
+        self.assertEqual(sector.contributing_factors["sensor_coverage"]["status"], "UNAVAILABLE")
+
+    def test_operational_geofence_cannot_serialize_as_international_border(self):
+        """Verify that an operational geofence cannot be represented as an authoritative international border."""
+        engine = SituationEngine(
+            project_id=str(uuid.uuid4()),
+            mode=OperationMode.BORDER_SECURITY,
+            temporal_mode=TemporalMode.LIVE_STREAM,
+            sector_id="OP-ZONE-WEST",
+            sector_name="Forward Operating Zone Bravo",
+            sector_type="OPERATIONAL_GEOFENCE",
+            authoritative_border_available=False,
+            sensor_coverage_ratio=0.75,
+        )
+        report = engine.generate_border_report()
+        sector = report.sector_assessments[0]
+
+        self.assertEqual(sector.sector_type, "OPERATIONAL_GEOFENCE")
+        self.assertNotEqual(sector.sector_type, "AUTHORITATIVE_BORDER")
+        self.assertFalse(sector.authoritative_border_available)
+        self.assertIsNotNone(sector.vulnerability_score)
+        self.assertEqual(sector.vulnerability_status, "CALCULATED")
+
 
 if __name__ == "__main__":
     unittest.main()
+

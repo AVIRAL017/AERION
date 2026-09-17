@@ -75,43 +75,54 @@ async def get_usage_summary(
     org_id_str = payload.get("org")
 
     plan_name = "FREE"
-    try:
-        if org_id_str:
-            import uuid
-            org_uuid = uuid.UUID(org_id_str)
-            stmt = select(Subscription).where(Subscription.organization_id == org_uuid)
-            res = await session.execute(stmt)
-            sub = res.scalar_one_or_none()
-            if sub:
-                plan_name = sub.plan
-    except Exception as exc:
-        logger.warning(f"Could not load subscription from database ({exc}); assuming FREE tier.")
+    api_requests_count = 0
+    drone_image_count = 0
+    satellite_tile_count = 0
+    damage_pair_count = 0
+    video_minute_count = 0
+    storage_bytes = 0
 
-    # Quotas are configurable/bounded
-    if plan_name.upper() == "PRO":
-        usage_data = UsageSummaryData(
-            tier="pro",
-            api_requests_used=42,
-            api_requests_limit=10000,
-            drone_processing_minutes_used=8.5,
-            drone_processing_minutes_limit=300.0,
-            satellite_scenes_used=3,
-            satellite_scenes_limit=100,
-            storage_bytes_used=104857600,
-            storage_bytes_limit=53687091200,  # 50 GB
-        )
-    else:
-        usage_data = UsageSummaryData(
-            tier="free",
-            api_requests_used=12,
-            api_requests_limit=1000,
-            drone_processing_minutes_used=1.2,
-            drone_processing_minutes_limit=30.0,
-            satellite_scenes_used=1,
-            satellite_scenes_limit=10,
-            storage_bytes_used=20971520,
-            storage_bytes_limit=5368709120,   # 5 GB
-        )
+    import uuid
+    from app.db.repositories import UsageEventRepository, AssetRepository, SubscriptionRepository
+
+    if org_id_str:
+        try:
+            org_uuid = uuid.UUID(org_id_str)
+            sub_repo = SubscriptionRepository(session)
+            sub = await sub_repo.get_by_organization(org_uuid)
+            if sub and sub.plan:
+                plan_name = sub.plan.upper()
+
+            usage_repo = UsageEventRepository(session)
+            api_requests_count = await usage_repo.get_monthly_count(org_uuid)
+            drone_image_count = await usage_repo.get_monthly_count(org_uuid, dimension="drone_image")
+            satellite_tile_count = await usage_repo.get_monthly_count(org_uuid, dimension="satellite_tile")
+            damage_pair_count = await usage_repo.get_monthly_count(org_uuid, dimension="damage_pair")
+            video_minute_count = await usage_repo.get_monthly_count(org_uuid, dimension="video_minute")
+
+            asset_repo = AssetRepository(session)
+            storage_bytes = await asset_repo.get_total_storage_bytes(org_uuid)
+        except Exception as exc:
+            logger.warning(f"Could not load authoritative usage metrics from database ({exc}); returning zero-count baseline.")
+
+    # Authoritative limits from EntitlementService
+    is_pro = plan_name == "PRO"
+    api_requests_limit = 10000 if is_pro else 1000
+    drone_processing_minutes_limit = 300.0 if is_pro else 30.0
+    satellite_scenes_limit = 100 if is_pro else 10
+    storage_bytes_limit = 53687091200 if is_pro else 5368709120  # 50 GB vs 5 GB
+
+    usage_data = UsageSummaryData(
+        tier="pro" if is_pro else "free",
+        api_requests_used=api_requests_count,
+        api_requests_limit=api_requests_limit,
+        drone_processing_minutes_used=float(video_minute_count),
+        drone_processing_minutes_limit=drone_processing_minutes_limit,
+        satellite_scenes_used=satellite_tile_count,
+        satellite_scenes_limit=satellite_scenes_limit,
+        storage_bytes_used=storage_bytes,
+        storage_bytes_limit=storage_bytes_limit,
+    )
 
     meta = MetaBlock(
         timestamp=utc_now_iso(),
@@ -119,6 +130,7 @@ async def get_usage_summary(
         version=settings.API_VERSION,
     )
     return ResponseEnvelope(success=True, data=usage_data, meta=meta)
+
 
 
 @router.post(

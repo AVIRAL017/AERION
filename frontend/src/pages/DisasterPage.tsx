@@ -1,16 +1,33 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { situationsApi } from '../api';
-import { DamageSummary, AERIONAnalysisResultData } from '../types';
+import { Link, useSearchParams } from 'react-router-dom';
+import { situationsApi, analysisApi, externalApi } from '../api';
+import { DamageSummary, AERIONAnalysisResultData, Situation, LocationProvenance, RouteOption, ShelterData } from '../types';
 import { UploadModal } from '../components/UploadModal';
+import { OperatorLocationModal } from '../components/OperatorLocationModal';
+import { AnalysisHistoryModal } from '../components/AnalysisHistoryModal';
+import { downloadAuthenticatedArtifact } from '../utils/download';
 
 export const DisasterPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [sliderPosition, setSliderPosition] = useState<number>(50);
+  const [situation, setSituation] = useState<Situation | null>(null);
   const [damage, setDamage] = useState<DamageSummary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState<boolean>(false);
+  const [operatorLocation, setOperatorLocation] = useState<LocationProvenance | null>(null);
+  const [weatherData, setWeatherData] = useState<any | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState<boolean>(false);
   const [activeAnalysisResult, setActiveAnalysisResult] = useState<AERIONAnalysisResultData | null>(null);
   const [customPreUrl, setCustomPreUrl] = useState<string | null>(null);
   const [customPostUrl, setCustomPostUrl] = useState<string | null>(null);
+  const [showDamageOverlay, setShowDamageOverlay] = useState<boolean>(true);
+  const [displayMode, setDisplayMode] = useState<'split' | 'pre' | 'post' | 'damage'>('split');
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [routes, setRoutes] = useState<RouteOption[]>([]);
+  const [shelters, setShelters] = useState<ShelterData[]>([]);
+  const [routesLoading, setRoutesLoading] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -20,6 +37,7 @@ export const DisasterPage: React.FC = () => {
         const listRes = await situationsApi.list();
         if (listRes.success && listRes.data && listRes.data.length > 0) {
           const active = listRes.data.find(s => s.situation_type === 'DISASTER_RESPONSE') || listRes.data[0];
+          setSituation(active);
           if (active.damage) {
             setDamage(active.damage);
           }
@@ -32,6 +50,91 @@ export const DisasterPage: React.FC = () => {
     };
     fetchDisasterData();
   }, []);
+
+  // Restore analysis from URL search parameter (e.g. ?analysis_id=UUID)
+  useEffect(() => {
+    const analysisIdParam = searchParams.get('analysis_id');
+    if (!analysisIdParam) return;
+
+    const restoreAnalysis = async () => {
+      try {
+        const resp = await analysisApi.getById(analysisIdParam);
+        if (resp.success && resp.data) {
+          const data = resp.data;
+          setActiveAnalysisResult(data);
+          if (data.damage_analysis) {
+            const dmg = data.damage_analysis;
+            const percentage = dmg.damage_percentage || (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
+            let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
+            if (percentage >= 50) classification = 'CATASTROPHIC';
+            else if (percentage >= 25) classification = 'SEVERE';
+            else if (percentage >= 10) classification = 'MODERATE';
+            else if (percentage > 0) classification = 'MINOR';
+
+            setDamage({
+              damage_percentage: percentage,
+              damaged_pixels: dmg.damage_pixels || 0,
+              total_pixels: dmg.total_pixels || 0,
+              mean_damage_probability: dmg.probability_mean || 0,
+              classification,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not restore disaster analysis ${analysisIdParam}:`, err);
+      }
+    };
+
+    restoreAnalysis();
+  }, [searchParams]);
+
+  // Fetch live weather when valid operator location is provided
+  useEffect(() => {
+    if (!operatorLocation || typeof operatorLocation.latitude !== 'number' || typeof operatorLocation.longitude !== 'number') {
+      setWeatherData(null);
+      return;
+    }
+
+    const fetchWeather = async () => {
+      setWeatherLoading(true);
+      try {
+        const resp = await externalApi.getWeather(operatorLocation.latitude, operatorLocation.longitude);
+        if (resp.success && resp.data) {
+          setWeatherData(resp.data);
+        } else {
+          setWeatherData({ status: 'UNAVAILABLE' });
+        }
+      } catch {
+        setWeatherData({ status: 'UNAVAILABLE' });
+      } finally {
+        setWeatherLoading(false);
+      }
+    };
+
+    fetchWeather();
+  }, [operatorLocation]);
+
+  // Fetch verified routes and shelters when disaster situation is available
+  useEffect(() => {
+    if (!situation?.id) return;
+    const fetchEvacData = async () => {
+      setRoutesLoading(true);
+      try {
+        const routesRes = await situationsApi.getRoutes(situation.id);
+        if (routesRes.success && routesRes.data) {
+          setRoutes(routesRes.data);
+        }
+        if (situation.shelters) {
+          setShelters(situation.shelters);
+        }
+      } catch (err) {
+        console.warn('Could not fetch disaster routes/shelters:', err);
+      } finally {
+        setRoutesLoading(false);
+      }
+    };
+    fetchEvacData();
+  }, [situation]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
@@ -71,13 +174,112 @@ export const DisasterPage: React.FC = () => {
             }`}>
               {activeAnalysisResult ? 'SIAMESE INFERENCE VERIFIED' : 'SIAMESE FUSED'}
             </span>
+
+            {/* Location Provenance Badge / Trigger */}
+            {operatorLocation ? (
+              <button
+                onClick={() => setIsLocationModalOpen(true)}
+                className="px-2 py-0.5 rounded bg-status-ai/15 border border-status-ai/30 text-status-ai text-[10px] flex items-center gap-1 hover:bg-status-ai/25 transition-all"
+                title="Operator-provided approximate location active"
+              >
+                <span className="material-symbols-outlined text-[13px]">pin_drop</span>
+                <span className="font-bold">
+                  {operatorLocation.label || `[${operatorLocation.latitude.toFixed(2)}, ${operatorLocation.longitude.toFixed(2)}]`}
+                </span>
+                <span className="text-[9px] bg-status-ai/20 px-1 rounded text-paper">APPROXIMATE</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsLocationModalOpen(true)}
+                className="px-2 py-0.5 rounded bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40 text-[10px] flex items-center gap-1 transition-all"
+                title="No embedded GPS in damage pair. Click to provide approximate coordinates."
+              >
+                <span className="material-symbols-outlined text-[13px]">add_location_alt</span>
+                <span>GEO-CONTEXT: UNAVAILABLE</span>
+              </button>
+            )}
+
+            {/* Operational Situation Report Navigation */}
+            <Link
+              to={`/situations/${situation?.id || '00000000-0000-0000-0000-000000000002'}/report${activeAnalysisResult?.analysis_id ? `?analysis_id=${activeAnalysisResult.analysis_id}` : ''}`}
+              className="px-2.5 py-1 rounded bg-status-ai/20 border border-status-ai/40 text-status-ai hover:bg-status-ai/30 transition-all flex items-center gap-1 text-[10px] font-mono font-semibold"
+              title="View Deterministic Situation Report & Mistral AI Advisory"
+            >
+              <span className="material-symbols-outlined text-[13px]">description</span>
+              <span>OPERATIONAL REPORT</span>
+            </Link>
+
+            {/* History Drawer Trigger */}
+            <button
+              onClick={() => setIsHistoryOpen(true)}
+              className="px-2.5 py-1 rounded bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40 text-[10px] font-mono flex items-center gap-1 transition-all"
+              title="View past analysis history and reopen analyses"
+            >
+              <span className="material-symbols-outlined text-[13px]">history</span>
+              <span>HISTORY</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-3 font-mono text-[11px]">
-            <span className="text-muted mr-2">CURTAIN SPLIT: {Math.round(sliderPosition)}%</span>
+            {/* View Mode Switcher */}
+            {preImgUrl && postImgUrl && (
+              <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                <button
+                  onClick={() => setDisplayMode('split')}
+                  className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
+                    displayMode === 'split' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                  }`}
+                >
+                  SPLIT SLIDER
+                </button>
+                <button
+                  onClick={() => setDisplayMode('pre')}
+                  className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
+                    displayMode === 'pre' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                  }`}
+                >
+                  PRE (T0)
+                </button>
+                <button
+                  onClick={() => setDisplayMode('post')}
+                  className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
+                    displayMode === 'post' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                  }`}
+                >
+                  POST (T1)
+                </button>
+                {activeAnalysisResult?.damage_mask_base64 && (
+                  <button
+                    onClick={() => setDisplayMode('damage')}
+                    className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
+                      displayMode === 'damage' ? 'bg-status-critical text-white font-bold shadow' : 'text-muted hover:text-paper'
+                    }`}
+                  >
+                    DAMAGE MASK
+                  </button>
+                )}
+              </div>
+            )}
+
+            {activeAnalysisResult?.damage_mask_base64 && displayMode === 'split' && (
+              <button
+                onClick={() => setShowDamageOverlay(!showDamageOverlay)}
+                className={`px-2.5 py-1 rounded border text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
+                  showDamageOverlay
+                    ? 'bg-status-critical/20 border-status-critical text-status-critical'
+                    : 'bg-elevated border-white/[0.1] text-muted hover:text-paper'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[13px]">layers</span>
+                <span>OVERLAY: {showDamageOverlay ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+            {displayMode === 'split' && (
+              <span className="text-muted mr-2">SPLIT: {Math.round(sliderPosition)}%</span>
+            )}
             <button
               onClick={() => setIsUploadOpen(true)}
-              className="px-3 py-1 rounded bg-accent text-graphite font-bold text-[10px] hover:bg-accent/90 transition-all flex items-center gap-1.5"
+              className="px-3 py-1 rounded bg-accent text-graphite font-bold text-[10px] hover:bg-accent/90 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <span className="material-symbols-outlined text-[14px]">compare</span>
               <span>INGEST DAMAGE PAIR</span>
@@ -88,39 +290,69 @@ export const DisasterPage: React.FC = () => {
         {/* Bi-Temporal Split View Canvas */}
         <div
           ref={containerRef}
-          onMouseMove={handleMouseMove}
-          className="flex-1 relative bg-[#07090C] telemetry-grid overflow-hidden cursor-ew-resize select-none"
+          onMouseMove={displayMode === 'split' ? handleMouseMove : undefined}
+          className={`flex-1 relative bg-[#07090C] telemetry-grid overflow-hidden select-none ${displayMode === 'split' ? 'cursor-ew-resize' : ''}`}
         >
           {preImgUrl && postImgUrl ? (
             <div className="relative w-full h-full">
-              {/* Post-Disaster Layer (Underneath / Right side) */}
-              <img
-                src={postImgUrl}
-                alt="Post-Disaster Observation"
-                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-              />
-
-              {/* Pre-Disaster Layer (Clipped curtain / Left side) */}
-              <div
-                className="slider-curtain"
-                style={{ width: `${sliderPosition}%` }}
-              >
+              {displayMode === 'pre' && (
                 <img
                   src={preImgUrl}
                   alt="Pre-Disaster Baseline"
-                  className="slider-inner object-cover"
+                  className="w-full h-full object-cover"
                 />
-              </div>
+              )}
 
-              {/* Slider Handle Divider Line */}
-              <div
-                className="absolute top-0 bottom-0 w-0.5 bg-accent z-30 pointer-events-none shadow-[0_0_10px_#38D5F5]"
-                style={{ left: `${sliderPosition}%` }}
-              >
-                <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-graphite border-2 border-accent flex items-center justify-center text-accent text-[10px] font-mono">
-                  ⇆
-                </div>
-              </div>
+              {displayMode === 'post' && (
+                <img
+                  src={postImgUrl}
+                  alt="Post-Disaster Observation"
+                  className="w-full h-full object-cover"
+                />
+              )}
+
+              {displayMode === 'damage' && activeAnalysisResult?.damage_mask_base64 && (
+                <img
+                  src={`data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`}
+                  alt="Siamese Damage Mask"
+                  className="w-full h-full object-cover"
+                />
+              )}
+
+              {displayMode === 'split' && (
+                <>
+                  {/* Post-Disaster Layer (Underneath / Right side) */}
+                  <img
+                    src={showDamageOverlay && activeAnalysisResult?.damage_mask_base64
+                      ? `data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`
+                      : postImgUrl}
+                    alt="Post-Disaster Observation"
+                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                  />
+
+                  {/* Pre-Disaster Layer (Clipped curtain / Left side) */}
+                  <div
+                    className="slider-curtain"
+                    style={{ width: `${sliderPosition}%` }}
+                  >
+                    <img
+                      src={preImgUrl}
+                      alt="Pre-Disaster Baseline"
+                      className="slider-inner object-cover"
+                    />
+                  </div>
+
+                  {/* Slider Handle Divider Line */}
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-accent z-30 pointer-events-none shadow-[0_0_10px_#38D5F5]"
+                    style={{ left: `${sliderPosition}%` }}
+                  >
+                    <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-graphite border-2 border-accent flex items-center justify-center text-accent text-[10px] font-mono">
+                      ⇆
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
@@ -143,16 +375,42 @@ export const DisasterPage: React.FC = () => {
             </div>
           )}
 
-          {/* Left/Right Overlays */}
+          {/* Left/Right Overlays & Evidence Download */}
           <div className="absolute bottom-4 left-4 z-20 pointer-events-none">
             <span className="px-2 py-1 rounded bg-graphite/80 border border-white/[0.08] text-[10px] font-mono text-muted">
               PRE-DISASTER BASELINE (T0)
             </span>
           </div>
-          <div className="absolute bottom-4 right-4 z-20 pointer-events-none">
+          <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2">
             <span className="px-2 py-1 rounded bg-graphite/80 border border-white/[0.08] text-[10px] font-mono text-accent">
-              POST-DISASTER OBSERVATION (T1)
+              {showDamageOverlay && activeAnalysisResult?.damage_mask_base64
+                ? 'POST-DISASTER WITH DAMAGE OVERLAY (T1)'
+                : 'POST-DISASTER OBSERVATION (T1)'}
             </span>
+            {activeAnalysisResult?.damage_artifact && (
+              <button
+                disabled={isDownloading}
+                onClick={async () => {
+                  const artKey = activeAnalysisResult.damage_artifact?.artifact_key;
+                  if (!artKey) return;
+                  setIsDownloading(true);
+                  try {
+                    await downloadAuthenticatedArtifact(
+                      `/api/v1/evidence/${artKey}`,
+                      `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_damage_mask.jpg`
+                    );
+                  } catch (e: any) {
+                    alert(e.message || 'Download failed');
+                  } finally {
+                    setIsDownloading(false);
+                  }
+                }}
+                className="px-2 py-1 rounded bg-accent text-graphite hover:bg-accent/90 disabled:opacity-50 text-[10px] font-mono font-bold flex items-center gap-1 shadow transition-all cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[13px]">download</span>
+                <span>{isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD DAMAGE MASK'}</span>
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -254,18 +512,165 @@ export const DisasterPage: React.FC = () => {
         </div>
 
         {/* AI Advisory Grounding */}
-        <div className="p-4 flex-1">
-          <span className="text-[10px] font-mono text-muted uppercase tracking-wider block mb-2">
-            AERION INTELLIGENCE // ADVISORY
-          </span>
-          <div className="p-3 bg-graphite/50 border border-white/[0.06] rounded">
-            <div className="flex items-center gap-1.5 text-status-ai text-[11px] font-mono mb-2">
-              <span className="material-symbols-outlined text-[16px]">psychology</span>
-              <span>ADVISORY ONLY</span>
+        <div className="p-4 flex-1 space-y-4">
+          {activeAnalysisResult?.pair_validation && (
+            <div>
+              <span className="text-[10px] font-mono text-muted uppercase tracking-wider block mb-2">
+                PAIR COMPATIBILITY VALIDATION
+              </span>
+              <div className="p-3 bg-graphite/50 border border-white/[0.06] rounded space-y-1.5 font-mono text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-faint">STATUS:</span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    activeAnalysisResult.pair_validation.is_compatible
+                      ? 'bg-accent/15 text-accent border border-accent/30'
+                      : 'bg-status-critical/15 text-status-critical border border-status-critical/30'
+                  }`}>
+                    {activeAnalysisResult.pair_validation.status}
+                  </span>
+                </div>
+                {activeAnalysisResult.pair_validation.warnings?.map((w: string, idx: number) => (
+                  <p key={idx} className="text-status-warning text-[10px] leading-tight">⚠ {w}</p>
+                ))}
+                {activeAnalysisResult.pair_validation.limitations?.map((l: string, idx: number) => (
+                  <p key={idx} className="text-muted text-[10px] leading-tight">• {l}</p>
+                ))}
+              </div>
             </div>
-            <p className="text-[11px] text-muted leading-relaxed">
-              Operator verification is required before field dispatch. Siamese damage masks reflect spatial change probability and must be corroborated by ground teams.
-            </p>
+          )}
+
+          {/* Operational Weather & Geo-Context Card */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
+                METEOROLOGICAL OBSERVATIONS
+              </span>
+              {operatorLocation && (
+                <span className="text-[9px] font-mono text-accent">
+                  GEO-GROUNDED
+                </span>
+              )}
+            </div>
+
+            {weatherLoading ? (
+              <div className="p-3 bg-graphite/50 border border-white/[0.06] rounded font-mono text-[11px] text-muted flex items-center gap-2">
+                <span className="material-symbols-outlined text-accent animate-spin text-[16px]">progress_activity</span>
+                <span>QUERYING OPEN-METEO OBSERVATION...</span>
+              </div>
+            ) : operatorLocation && weatherData && weatherData.status !== 'UNAVAILABLE' ? (
+              <div className="p-3 bg-graphite/50 border border-white/[0.06] rounded space-y-2 font-mono text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-faint">CONDITIONS:</span>
+                  <span className="text-paper font-bold">{weatherData.conditions || weatherData.condition_description || 'CLEAR'}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-faint">TEMPERATURE:</span>
+                  <span className="text-accent">{weatherData.temperature_c ?? weatherData.temperature_celsius ?? '--'} °C</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-faint">WIND SPEED:</span>
+                  <span className="text-paper">{weatherData.wind_speed_ms ?? weatherData.wind_speed_mps ?? '--'} m/s</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-faint">FLIGHT SUITABILITY:</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] ${
+                    weatherData.flight_suitability === 'OPTIMAL' ? 'bg-accent/20 text-accent' : 'bg-status-warning/20 text-status-warning'
+                  }`}>
+                    {weatherData.flight_suitability || 'OPTIMAL'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-graphite/30 border border-white/[0.06] rounded text-center font-mono space-y-1">
+                <span className="text-status-warning text-[11px] block font-bold">
+                  WEATHER: UNAVAILABLE
+                </span>
+                <p className="text-faint text-[10px] leading-tight">
+                  {!operatorLocation
+                    ? 'No coordinates provided for disaster asset. Click GEO-CONTEXT above to set approximate location.'
+                    : 'Weather provider query unavailable or timed out.'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Safe Route & Safe Shelter Assessment */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
+                EVACUATION CORRIDORS & SHELTERS
+              </span>
+              <span className="text-[9px] font-mono text-accent">
+                {routes.length > 0 ? `${routes.length} FEASIBLE` : 'ORS BOUNDED'}
+              </span>
+            </div>
+
+            <div className="p-3 bg-graphite/50 border border-white/[0.06] rounded space-y-2 font-mono text-[11px]">
+              {routesLoading ? (
+                <div className="text-muted text-[10px] flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-accent animate-spin text-[14px]">progress_activity</span>
+                  <span>EVALUATING ROAD NETWORK CORRIDORS...</span>
+                </div>
+              ) : routes.length > 0 ? (
+                <div className="space-y-1.5">
+                  {routes.map((r, idx) => (
+                    <div key={idx} className="p-2 bg-graphite/60 rounded border border-white/[0.04]">
+                      <div className="flex items-center justify-between text-paper font-semibold">
+                        <span>{r.name}</span>
+                        <span className="text-accent">{r.distance_km} km</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-faint mt-0.5">
+                        <span>EST. DURATION: {r.duration_min} MIN</span>
+                        <span className="text-status-success">VIABLE</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[10px] text-muted space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-faint">ROUTE ENGINE:</span>
+                    <span className="text-paper">OpenRouteService</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-faint">ROAD BLOCKAGE STATUS:</span>
+                    <span className="text-status-warning">NOT ESTABLISHED</span>
+                  </div>
+                  <p className="text-[9px] text-faint leading-tight pt-1 border-t border-white/[0.04]">
+                    Corroborated ground data required before establishing road blockages.
+                  </p>
+                </div>
+              )}
+
+              {shelters.length > 0 && (
+                <div className="pt-2 border-t border-white/[0.06] space-y-1">
+                  <span className="text-[9px] text-muted block font-semibold">REGISTERED SHELTERS:</span>
+                  {shelters.slice(0, 3).map((s, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-[10px]">
+                      <span className="text-paper truncate max-w-[140px]">{s.name}</span>
+                      <span className={`text-[9px] px-1 rounded ${s.status === 'OPEN' ? 'text-status-success bg-status-success/10' : 'text-faint'}`}>
+                        {s.status} ({s.current_occupancy}/{s.capacity})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block mb-2">
+              AERION INTELLIGENCE // ADVISORY
+            </span>
+            <div className="p-3 bg-graphite/50 border border-white/[0.06] rounded">
+              <div className="flex items-center gap-1.5 text-status-ai text-[11px] font-mono mb-2">
+                <span className="material-symbols-outlined text-[16px]">psychology</span>
+                <span>ADVISORY ONLY</span>
+              </div>
+              <p className="text-[11px] text-muted leading-relaxed">
+                Operator verification is required before field dispatch. Siamese damage masks reflect spatial change probability and must be corroborated by ground teams.
+              </p>
+            </div>
           </div>
         </div>
       </aside>
@@ -279,6 +684,74 @@ export const DisasterPage: React.FC = () => {
           setActiveAnalysisResult(res);
           if (meta?.preUrl) setCustomPreUrl(meta.preUrl);
           if (meta?.postUrl) setCustomPostUrl(meta.postUrl);
+          if (res.damage_analysis) {
+            const dmg = res.damage_analysis;
+            const percentage = dmg.damage_percentage !== undefined ? dmg.damage_percentage : (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
+            let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
+            if (percentage >= 50) classification = 'CATASTROPHIC';
+            else if (percentage >= 25) classification = 'SEVERE';
+            else if (percentage >= 10) classification = 'MODERATE';
+            else if (percentage > 0) classification = 'MINOR';
+
+            setDamage({
+              damage_percentage: percentage,
+              damaged_pixels: dmg.damage_pixels || 0,
+              total_pixels: dmg.total_pixels || 0,
+              mean_damage_probability: dmg.probability_mean || 0,
+              classification,
+            });
+          }
+          if (res.analysis_id) {
+            setSearchParams({ analysis_id: res.analysis_id });
+          }
+        }}
+      />
+
+      {/* Analysis History Modal */}
+      <AnalysisHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        currentMode="disaster"
+        onSelectAnalysis={async (item) => {
+          const targetId = item.analysis_id || item.job_id;
+          if (targetId) {
+            setSearchParams({ analysis_id: targetId });
+            try {
+              const resp = await analysisApi.getById(targetId);
+              if (resp.success && resp.data) {
+                setActiveAnalysisResult(resp.data);
+                if (resp.data.damage_analysis) {
+                  const dmg = resp.data.damage_analysis;
+                  const percentage = dmg.damage_percentage || (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
+                  let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
+                  if (percentage >= 50) classification = 'CATASTROPHIC';
+                  else if (percentage >= 25) classification = 'SEVERE';
+                  else if (percentage >= 10) classification = 'MODERATE';
+                  else if (percentage > 0) classification = 'MINOR';
+
+                  setDamage({
+                    damage_percentage: percentage,
+                    damaged_pixels: dmg.damage_pixels || 0,
+                    total_pixels: dmg.total_pixels || 0,
+                    mean_damage_probability: dmg.probability_mean || 0,
+                    classification,
+                  });
+                }
+              }
+            } catch (err) {
+              console.warn('Could not reopen disaster analysis:', err);
+            }
+          }
+        }}
+      />
+
+      {/* Operator Location Modal */}
+      <OperatorLocationModal
+        isOpen={isLocationModalOpen}
+        onClose={() => setIsLocationModalOpen(false)}
+        existingLocation={operatorLocation}
+        onConfirmLocation={(loc) => {
+          setOperatorLocation(loc);
         }}
       />
     </div>

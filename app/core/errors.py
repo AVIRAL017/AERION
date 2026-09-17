@@ -158,6 +158,23 @@ class RateLimitExceededError(AERIONException):
         )
 
 
+class QuotaExceededError(AERIONException):
+    """Raised when an organization has reached or exceeded its monthly quota limit."""
+    def __init__(
+        self,
+        message: str = "Resource quota limit reached. Upgrade subscription tier to increase quota.",
+        details: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code=StandardErrorCode.USAGE_LIMIT_EXCEEDED,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            error_type="QuotaError",
+            details=details,
+        )
+
+
+
 def _get_request_id(request: Request) -> str:
     """Extract correlation request ID from request state or context variable."""
     if hasattr(request, "state") and hasattr(request.state, "request_id"):

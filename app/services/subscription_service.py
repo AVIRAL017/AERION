@@ -104,10 +104,11 @@ class EntitlementService:
                     "geofence_management": True,
                 },
                 usage_limits={
-                    UsageDimension.DRONE_IMAGE: None,  # TBD
-                    UsageDimension.SATELLITE_TILE: None,  # TBD
-                    UsageDimension.DAMAGE_PAIR: None,  # TBD
-                    UsageDimension.VIDEO_MINUTE: None,  # TBD
+                    UsageDimension.DRONE_IMAGE: 100,
+                    UsageDimension.SATELLITE_TILE: 10,
+                    UsageDimension.DAMAGE_PAIR: 20,
+                    UsageDimension.VIDEO_MINUTE: 30,
+                    UsageDimension.RAG_REQUEST: 50,
                 },
             ),
             PlanTier.PRO: PlanDefinition(
@@ -123,16 +124,17 @@ class EntitlementService:
                     "geofence_management": True,
                 },
                 usage_limits={
-                    UsageDimension.DRONE_IMAGE: None,  # TBD (Higher tier, bounded, not unlimited)
-                    UsageDimension.SATELLITE_TILE: None,  # TBD
-                    UsageDimension.DAMAGE_PAIR: None,  # TBD
-                    UsageDimension.VIDEO_MINUTE: None,  # TBD
+                    UsageDimension.DRONE_IMAGE: 10000,
+                    UsageDimension.SATELLITE_TILE: 100,
+                    UsageDimension.DAMAGE_PAIR: 200,
+                    UsageDimension.VIDEO_MINUTE: 300,
+                    UsageDimension.RAG_REQUEST: 1000,
                 },
             ),
         }
 
     def get_plan(self, tier: PlanTier) -> PlanDefinition:
-        return self._plans[tier]
+        return self._plans.get(tier, self._plans[PlanTier.FREE])
 
     def check_feature_entitlement(self, subscription: SubscriptionState, feature_key: str) -> bool:
         if not subscription.is_active:
@@ -145,6 +147,38 @@ class EntitlementService:
             raise PermissionDeniedError(
                 message=f"Feature '{feature_key}' is not permitted under subscription plan '{subscription.plan.value}'."
             )
+
+    def get_dimension_limit(self, tier: PlanTier, dimension: UsageDimension) -> Optional[int]:
+        plan = self.get_plan(tier)
+        return plan.usage_limits.get(dimension)
+
+    def evaluate_quota(
+        self,
+        tier: PlanTier,
+        dimension: UsageDimension,
+        current_used: int,
+        requested_quantity: int = 1,
+    ) -> Dict[str, Any]:
+        limit = self.get_dimension_limit(tier, dimension)
+        if limit is None:
+            return {
+                "status": "UNCONFIGURED",
+                "limit": None,
+                "used": current_used,
+                "remaining": None,
+                "is_exhausted": False,
+            }
+        
+        remaining = max(0, limit - current_used)
+        is_exhausted = (current_used + requested_quantity) > limit
+        return {
+            "status": "EXHAUSTED" if is_exhausted else "AVAILABLE",
+            "limit": limit,
+            "used": current_used,
+            "remaining": remaining,
+            "is_exhausted": is_exhausted,
+        }
+
 
 
 class UsageMeter:
