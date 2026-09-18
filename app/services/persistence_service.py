@@ -86,11 +86,12 @@ class AnalysisPersistenceService:
         existing_job_id: Optional[uuid.UUID] = None,
         user_id: Optional[uuid.UUID] = None,
         organization_id: Optional[uuid.UUID] = None,
+        raw_payload_override: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Persists a complete AERIONAnalysisResult:
         1. Creates/verifies DBAnalysisJob (or links to existing_job_id)
-        2. Creates DBAnalysisResult
+        2. Creates DBAnalysisResult with audit-grade raw_payload including visual artifact references
         3. Persists individual DBDetection records (with pixel_bbox / pixel_obb)
         4. Persists DBDamageAnalysis if present
         5. Builds and persists DBEvidenceRecord lineage entries via EvidenceBuilder
@@ -186,7 +187,18 @@ class AnalysisPersistenceService:
                     job.user_id = user_id
             await session.flush()
 
-            # 3. Create AnalysisResult row
+            # 3. Create AnalysisResult row with complete visual artifact linkage
+            payload_to_store = dict(raw_payload_override) if raw_payload_override else (result.to_dict() if hasattr(result, "to_dict") else dict(result))
+            if annotated_artifact_key and "annotated_artifact" not in payload_to_store:
+                payload_to_store["annotated_artifact"] = {
+                    "artifact_key": annotated_artifact_key,
+                    "mime_type": "video/mp4" if annotated_artifact_key.endswith(".mp4") else "image/jpeg",
+                }
+            if source_asset_key and "source_artifact" not in payload_to_store:
+                payload_to_store["source_artifact"] = {
+                    "artifact_key": source_asset_key,
+                }
+
             analysis_uuid = uuid.UUID(result.analysis_id) if isinstance(result.analysis_id, str) and len(result.analysis_id) == 36 else uuid.uuid4()
             db_result = DBAnalysisResult(
                 id=uuid.uuid4(),
@@ -197,7 +209,7 @@ class AnalysisPersistenceService:
                 summary_high=result.summary.high if result.summary else 0,
                 summary_medium=result.summary.medium if result.summary else 0,
                 summary_low=result.summary.low if result.summary else 0,
-                raw_payload=result.to_dict() if hasattr(result, "to_dict") else dict(result),
+                raw_payload=payload_to_store,
             )
             session.add(db_result)
             await session.flush()

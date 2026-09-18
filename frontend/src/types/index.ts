@@ -371,6 +371,12 @@ export interface AERIONAnalysisResultData {
     image_height: number;
     is_zero_damage?: boolean;
   } | null;
+  source_artifact?: {
+    artifact_key: string;
+    mime_type?: string;
+    sha256?: string;
+    size_bytes?: number;
+  } | null;
   pair_validation?: {
     is_compatible: boolean;
     status: string;

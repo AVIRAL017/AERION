@@ -73,6 +73,33 @@ export const ImagePage: React.FC = () => {
     }
   };
 
+  const handleDownloadOriginal = async () => {
+    if (!activeResult) return;
+    if (rawImageUrl) {
+      const a = document.createElement('a');
+      a.href = rawImageUrl;
+      a.download = `AERION_ORIGINAL_${activeResult.analysis_id.substring(0, 8)}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+    const srcKey = activeResult.source_artifact?.artifact_key;
+    if (srcKey) {
+      setIsDownloading(true);
+      try {
+        await downloadAuthenticatedArtifact(
+          `${API_BASE}/evidence/${encodeURIComponent(srcKey)}`,
+          `AERION_ORIGINAL_${activeResult.analysis_id.substring(0, 8)}.jpg`
+        );
+      } catch (e: any) {
+        alert(e.message || 'Original image download failed');
+      } finally {
+        setIsDownloading(false);
+      }
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-graphite">
       {/* Top Telemetry Header */}
@@ -240,27 +267,38 @@ export const ImagePage: React.FC = () => {
                   </button>
                 </div>
 
-                {activeResult.annotated_artifact && (
+                {/* PRIMARY: Download Annotated Image */}
+                {activeResult.annotated_artifact ? (
                   <button
                     onClick={handleDownloadAnnotated}
                     disabled={isDownloading}
-                    className="px-2 py-0.5 rounded bg-accent text-graphite hover:bg-accent/90 text-[10px] font-mono font-bold flex items-center gap-1 shadow transition-all cursor-pointer disabled:opacity-50"
+                    className="px-2.5 py-1 rounded bg-accent text-graphite hover:bg-accent/90 text-[10px] font-mono font-bold flex items-center gap-1.5 shadow transition-all cursor-pointer disabled:opacity-50"
+                    title="Download high-resolution annotated image with verified model detections"
                   >
-                    <span className="material-symbols-outlined text-[12px]">download</span>
-                    <span>{isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD ANNOTATED'}</span>
+                    <span className="material-symbols-outlined text-[13px]">download</span>
+                    <span>{isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD ANNOTATED IMAGE'}</span>
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="px-2.5 py-1 rounded bg-elevated/40 border border-white/[0.06] text-muted/60 text-[10px] font-mono font-medium flex items-center gap-1.5 cursor-not-allowed opacity-60"
+                    title="Annotated visual artifact is unavailable for this analysis"
+                  >
+                    <span className="material-symbols-outlined text-[13px]">block</span>
+                    <span>ANNOTATED ARTIFACT UNAVAILABLE</span>
                   </button>
                 )}
 
-                {rawImageUrl && (
-                  <a
-                    href={rawImageUrl}
-                    download={`AERION_ORIGINAL_${activeResult.analysis_id.substring(0, 8)}.jpg`}
-                    className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-[12px]">download</span>
-                    <span>DOWNLOAD ORIGINAL</span>
-                  </a>
-                )}
+                {/* SECONDARY: Download Original Image */}
+                <button
+                  onClick={handleDownloadOriginal}
+                  disabled={isDownloading || (!rawImageUrl && !activeResult.source_artifact?.artifact_key)}
+                  className="px-2.5 py-1 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] font-mono flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Download unmodified original source image"
+                >
+                  <span className="material-symbols-outlined text-[13px]">photo</span>
+                  <span>DOWNLOAD ORIGINAL IMAGE</span>
+                </button>
               </div>
             )}
           </div>

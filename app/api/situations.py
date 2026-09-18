@@ -761,6 +761,8 @@ async def get_situation_report(
         detection_summary=detection_summary,
         damage_summary=damage_summary,
         artifacts=report_artifacts,
+        annotated_artifact=raw_payload.get("annotated_artifact"),
+        annotated_image_base64=raw_payload.get("annotated_image_base64"),
         ai_advisory=ai_advisory,
         evidence_lineage=lineage_entries,
     )

@@ -31,16 +31,21 @@ class EmailService:
     def __init__(self):
         self.settings = get_settings()
 
+    def get_delivery_mode(self) -> str:
+        """Returns the active email provider mode ('console' or 'smtp')."""
+        return (self.settings.EMAIL_PROVIDER or "console").lower()
+
     async def send_login_notification(
         self,
         recipient_email: str,
         auth_method: str = "Password",
         client_ip: Optional[str] = None,
         login_timestamp: Optional[datetime] = None,
-    ) -> bool:
+    ) -> Dict[str, Any]:
         """
         Sends an asynchronous security notification email after successful authentication.
         Safe wrapper that handles delivery exceptions without disrupting the caller.
+        Returns a delivery result descriptor indicating status and provider.
         """
         ts = login_timestamp or datetime.now(timezone.utc)
         ts_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -56,17 +61,35 @@ class EmailService:
             f"If you did not perform this login, please contact your security administrator immediately.\n"
         )
 
-        provider = (self.settings.EMAIL_PROVIDER or "console").lower()
+        provider = self.get_delivery_mode()
 
         if provider == "smtp":
-            return await self._send_smtp_async(recipient_email, subject, body)
+            success = await self._send_smtp_async(recipient_email, subject, body)
+            return {
+                "delivered": success,
+                "provider": "smtp",
+                "status": "SMTP_DELIVERED" if success else "FAILED",
+                "recipient": recipient_email,
+                "timestamp": ts_str,
+            }
         else:
-            # Console / log provider (default)
+            # Console / log provider (default for local development and non-SMTP environments)
+            logger.warning(
+                f"[NOTIFICATION EMAIL - CONSOLE SIMULATION ONLY] EMAIL_PROVIDER is '{provider}'. "
+                f"Notification for {recipient_email} was logged to application console only and was NOT delivered to an external mailbox. "
+                "For actual mailbox delivery, set EMAIL_PROVIDER=smtp and configure SMTP credentials in backend environment."
+            )
             logger.info(
-                f"[NOTIFICATION EMAIL - {provider.upper()}] To: {recipient_email} | Subject: '{subject}' | "
+                f"[NOTIFICATION EMAIL - CONSOLE LOG] To: {recipient_email} | Subject: '{subject}' | "
                 f"Method: {auth_method} | Time: {ts_str} | IP: {ip_display}"
             )
-            return True
+            return {
+                "delivered": False,
+                "provider": "console",
+                "status": "CONSOLE_LOGGED",
+                "recipient": recipient_email,
+                "timestamp": ts_str,
+            }
 
     async def _send_smtp_async(self, recipient_email: str, subject: str, body: str) -> bool:
         """Runs synchronous SMTP delivery in threadpool to keep event loop unblocked."""
@@ -79,7 +102,7 @@ class EmailService:
         from_addr = self.settings.SMTP_FROM
 
         if not host:
-            logger.warning("SMTP provider configured but SMTP_HOST is not set; falling back to console log.")
+            logger.warning("SMTP provider configured but SMTP_HOST is not set; mailbox delivery skipped.")
             logger.info(f"[NOTIFICATION EMAIL - CONSOLE FALLBACK] To: {recipient_email} | Subject: {subject}\n{body}")
             return False
 

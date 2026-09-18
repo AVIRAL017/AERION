@@ -39,7 +39,8 @@ from app.db.repositories import (
     AnalysisResultRepository,
     ProjectRepository,
 )
-from app.db.models import AnalysisJob as DBAnalysisJob, AnalysisResult as DBAnalysisResult, Project as DBProject
+from app.db.models import AnalysisJob as DBAnalysisJob, AnalysisResult as DBAnalysisResult, Project as DBProject, EvidenceRecord as DBEvidenceRecord
+from app.services.storage_service import LocalArtifactStorage
 from app.services.annotation_service import AnnotationService
 from app.services.application_services import (
     BorderVideoJobService,
@@ -78,6 +79,7 @@ async def _safely_persist_result(
     existing_job_id_str: Optional[str] = None,
     user_id_str: Optional[str] = None,
     org_id_str: Optional[str] = None,
+    raw_payload_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Attempts to persist analysis result to PostgreSQL/PostGIS.
@@ -102,6 +104,7 @@ async def _safely_persist_result(
             existing_job_id=job_uuid,
             user_id=user_uuid,
             organization_id=org_uuid,
+            raw_payload_override=raw_payload_override,
         )
         persist_info["database_available"] = True
         return persist_info
@@ -284,11 +287,33 @@ async def analyze_image(
 
         result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
 
+        # Store verified original source image asset for secondary download
+        source_key: Optional[str] = None
+        source_artifact_info: Optional[Dict[str, Any]] = None
+        proj_uuid = uuid.UUID(req.project_id) if req.project_id and len(req.project_id) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
+        try:
+            storage = LocalArtifactStorage()
+            src_key, src_sha, src_bytes = storage.store_file(
+                source_path=target_path,
+                asset_type="source_image",
+                project_id=proj_uuid,
+                suffix=target_path.suffix or ".jpg",
+            )
+            source_key = src_key
+            source_artifact_info = {
+                "artifact_key": src_key,
+                "mime_type": "image/jpeg" if (target_path.suffix.lower() in (".jpg", ".jpeg") or is_temp) else "image/png",
+                "sha256": src_sha,
+                "size_bytes": src_bytes,
+            }
+            result_dict["source_artifact"] = source_artifact_info
+        except Exception as src_exc:
+            logger.warning(f"Failed to store source image asset: {src_exc}")
+
         # Roadmap Step 15: Annotated Visual Evidence Pipeline
         annotated_artifact_info: Optional[Dict[str, Any]] = None
         annotated_key: Optional[str] = None
         try:
-            proj_uuid = uuid.UUID(req.project_id) if req.project_id and len(req.project_id) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
             annotator = AnnotationService()
             annot_res = annotator.annotate_and_store(
                 source_image_path=target_path,
@@ -318,9 +343,11 @@ async def analyze_image(
             result=result,
             project_id_str=req.project_id,
             situation_id_str=req.situation_id,
+            source_asset_key=source_key,
             annotated_artifact_key=annotated_key,
             user_id_str=payload.get("sub"),
             org_id_str=payload.get("org"),
+            raw_payload_override=result_dict,
         )
         result_dict["persistence"] = persist_info
 
@@ -2014,6 +2041,26 @@ async def get_analysis_by_id(
         payload_data["analysis_id"] = str(db_result.analysis_id)
         payload_data["job_id"] = str(db_result.job_id)
         payload_data["overall_status"] = db_result.overall_status
+
+        # If annotated_artifact is not already in payload_data, lookup from evidence lineage
+        if not payload_data.get("annotated_artifact") and db_job:
+            try:
+                ev_stmt = select(DBEvidenceRecord).where(
+                    (DBEvidenceRecord.project_id == db_job.project_id) &
+                    (DBEvidenceRecord.raw_payload_uri.is_not(None))
+                ).order_by(DBEvidenceRecord.created_at.desc())
+                ev_rows = (await session.execute(ev_stmt)).scalars().all()
+                for ev in ev_rows:
+                    uri = ev.raw_payload_uri or ""
+                    if "annotated" in uri.lower() or uri.endswith(".jpg") or uri.endswith(".png") or uri.endswith(".mp4"):
+                        payload_data["annotated_artifact"] = {
+                            "artifact_key": uri,
+                            "mime_type": "video/mp4" if uri.endswith(".mp4") else "image/jpeg",
+                            "sha256": (ev.sensor_metadata or {}).get("sha256") or "VERIFIED_RECORD",
+                        }
+                        break
+            except Exception as ev_lookup_exc:
+                logger.debug(f"Could not load fallback evidence artifact: {ev_lookup_exc}")
 
         meta = MetaBlock(
             timestamp=utc_now_iso(),
