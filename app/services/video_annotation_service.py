@@ -151,10 +151,10 @@ class VideoAnnotationService:
             for det in detections:
                 color = CLASS_PALETTE_BGR.get(det.class_name.lower(), DEFAULT_BOX_COLOR)
                 
-                # Compact presentation: ABBREV • CONF • TID
-                short_class = abbrev_map.get(det.class_name.lower(), det.class_name.upper())
-                track_tag = f" • T{det.track_id}" if det.track_id is not None else ""
-                label_text = f"{short_class} • {det.confidence:.2f}{track_tag}"
+                # Compact presentation: CLASS CONF% (Detection ID preserved in structured evidence panel)
+                short_class = abbrev_map.get(det.class_name.lower(), det.class_name.replace("_", " ").upper())
+                conf_pct = int(round(det.confidence * 100))
+                label_text = f"{short_class} {conf_pct}%"
 
                 if det.bbox:
                     self._render_bbox(
@@ -237,9 +237,7 @@ class VideoAnnotationService:
                 thickness=tail_thickness,
                 lineType=cv2.LINE_AA,
             )
-            # Small circle at latest center
-            last_pt = pts[-1]
-            cv2.circle(canvas, (int(last_pt[0]), int(last_pt[1])), 3, (56, 213, 245), -1)
+            # Center-point dot removed per Issue 5 (bounding boxes are primary visualization)
 
     def _render_bbox(
         self,
@@ -251,7 +249,7 @@ class VideoAnnotationService:
         font_scale: float,
         font_thickness: int,
     ) -> None:
-        """Renders bounding box with solid badge."""
+        """Renders bounding box with compact badge and collision avoidance."""
         x1 = max(0, int(round(bbox.x1)))
         y1 = max(0, int(round(bbox.y1)))
         x2 = min(canvas.shape[1] - 1, int(round(bbox.x2)))
@@ -259,14 +257,25 @@ class VideoAnnotationService:
 
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness)
 
-        (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
-        badge_y1 = max(0, y1 - text_h - 8)
-        badge_y2 = y1
-        badge_x2 = min(canvas.shape[1], x1 + text_w + 8)
+        if not label:
+            return
+
+        (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
+        pad = 3
+        # If box has room above, place badge atop; otherwise anchor inside top of bounding box
+        if y1 - text_h - (pad * 2) >= 0:
+            badge_y1 = y1 - text_h - (pad * 2)
+            badge_y2 = y1
+            text_y = y1 - pad - 1
+        else:
+            badge_y1 = y1
+            badge_y2 = min(canvas.shape[0], y1 + text_h + (pad * 2))
+            text_y = badge_y2 - pad - 1
+
+        badge_x2 = min(canvas.shape[1], x1 + text_w + (pad * 2))
 
         cv2.rectangle(canvas, (x1, badge_y1), (badge_x2, badge_y2), color, -1)
-        text_y = badge_y2 - 4
-        cv2.putText(canvas, label, (x1 + 4, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (7, 9, 12), font_thickness, cv2.LINE_AA)
+        cv2.putText(canvas, label, (x1 + pad, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (7, 9, 12), font_thickness, cv2.LINE_AA)
 
     def _render_zero_detection_watermark(
         self,

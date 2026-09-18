@@ -22,6 +22,8 @@ export const ImagePage: React.FC = () => {
   const [densityMode, setDensityMode] = useState<'normal' | 'dense'>('normal');
   const [showBoxes, setShowBoxes] = useState<boolean>(true);
   const [showLabels, setShowLabels] = useState<boolean>(true);
+  const [showDetectionIds, setShowDetectionIds] = useState<boolean>(false);
+  const [showConfidence, setShowConfidence] = useState<boolean>(true);
   const [zoomScale, setZoomScale] = useState<number>(1.0);
   const [selectedDet, setSelectedDet] = useState<any | null>(null);
 
@@ -198,7 +200,7 @@ export const ImagePage: React.FC = () => {
                 </div>
 
                 {/* Layer Toggles */}
-                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 gap-0.5">
                   <button
                     onClick={() => setShowBoxes(!showBoxes)}
                     className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
@@ -214,6 +216,22 @@ export const ImagePage: React.FC = () => {
                     }`}
                   >
                     LABELS: {showLabels ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => setShowConfidence(!showConfidence)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
+                      showConfidence ? 'text-accent font-bold' : 'text-faint'
+                    }`}
+                  >
+                    CONF: {showConfidence ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => setShowDetectionIds(!showDetectionIds)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
+                      showDetectionIds ? 'text-accent font-bold' : 'text-faint'
+                    }`}
+                  >
+                    IDS: {showDetectionIds ? 'ON' : 'OFF'}
                   </button>
                 </div>
 
@@ -343,6 +361,15 @@ export const ImagePage: React.FC = () => {
                             const bw = det.bbox.x2 - det.bbox.x1;
                             const bh = det.bbox.y2 - det.bbox.y1;
                             const isSelected = selectedDet === det;
+                            const shortClass = det.class_name.toUpperCase().replace(/_/g, ' ');
+                            const confStr = showConfidence ? ` ${Math.round(det.confidence * 100)}%` : '';
+                            const idStr = showDetectionIds ? ` #${idx + 1}` : '';
+                            const labelText = `${shortClass}${confStr}${idStr}`;
+                            const badgeW = Math.max(50, labelText.length * 7.5 + 10);
+                            const isNearTop = by < 22;
+                            const badgeY = isNearTop ? by + 2 : by - 18;
+                            const textY = isNearTop ? by + 14 : by - 5;
+
                             return (
                               <g
                                 key={`det-${idx}`}
@@ -358,17 +385,29 @@ export const ImagePage: React.FC = () => {
                                   stroke="#38D5F5"
                                   strokeWidth={Math.max(1.5, (activeResult.image_width || 1000) / 600)}
                                 />
-                                {showLabels && densityMode === 'normal' && (
-                                  <text
-                                    x={bx + 3}
-                                    y={Math.max(12, by - 3)}
-                                    fill="#38D5F5"
-                                    fontSize={Math.max(10, (activeResult.image_width || 1000) / 90)}
-                                    fontFamily="monospace"
-                                    fontWeight="bold"
-                                  >
-                                    {det.class_name.toUpperCase()} {Math.round(det.confidence * 100)}%
-                                  </text>
+                                {showLabels && (densityMode === 'normal' || isSelected || bw >= 45) && (
+                                  <>
+                                    <rect
+                                      x={bx}
+                                      y={badgeY}
+                                      width={badgeW}
+                                      height={16}
+                                      fill={isSelected ? '#38D5F5' : 'rgba(7, 9, 12, 0.85)'}
+                                      stroke="#38D5F5"
+                                      strokeWidth={1}
+                                      rx={2}
+                                    />
+                                    <text
+                                      x={bx + 3}
+                                      y={textY}
+                                      fill={isSelected ? '#07090C' : '#38D5F5'}
+                                      fontSize={Math.max(9, (activeResult.image_width || 1000) / 105)}
+                                      fontFamily="monospace"
+                                      fontWeight="bold"
+                                    >
+                                      {labelText}
+                                    </text>
+                                  </>
                                 )}
                               </g>
                             );

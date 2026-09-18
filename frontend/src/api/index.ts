@@ -92,9 +92,12 @@ export const situationsApi = {
     return apiClient.get<SituationReport>(`/situations/${id}/report${qs}`);
   },
 
-  downloadReportUrl: (id: string, format: 'pdf' | 'json' = 'pdf', loc?: any, analysisId?: string): string => {
+  downloadReportUrl: (id: string, format: 'pdf' | 'json' = 'pdf', loc?: any, analysisId?: string, radius_km?: number): string => {
     const params = new URLSearchParams({ format });
     if (analysisId) params.append('analysis_id', analysisId);
+    if (loc?.latitude !== undefined && loc?.latitude !== null) params.append('latitude', loc.latitude.toString());
+    if (loc?.longitude !== undefined && loc?.longitude !== null) params.append('longitude', loc.longitude.toString());
+    if (radius_km !== undefined && radius_km !== null) params.append('radius_km', radius_km.toString());
     if (loc?.location_source) params.append('location_source', loc.location_source);
     if (loc?.location_precision) params.append('location_precision', loc.location_precision);
     if (loc?.location_method) params.append('location_method', loc.location_method);

@@ -784,11 +784,14 @@ async def download_situation_report(
     situation_id: str,
     request: Request,
     format: str = Query("pdf", pattern="^(pdf|json)$", description="Report format: pdf or json"),
-    analysis_id: Optional[str] = Query(None, description="Optional stable analysis or job UUID"),
-    location_source: Optional[str] = Query(None, description="Location provenance source"),
-    location_precision: Optional[str] = Query(None, description="Location precision"),
+    analysis_id: Optional[str] = Query(None, description="Analysis UUID to include in report"),
+    location_source: Optional[str] = Query(None, description="Source of operator location context"),
+    location_precision: Optional[str] = Query(None, description="Precision of location context"),
     location_method: Optional[str] = Query(None, description="Location method"),
     label: Optional[str] = Query(None, description="Location label"),
+    latitude: Optional[float] = Query(None, ge=-90.0, le=90.0, description="Operator context latitude"),
+    longitude: Optional[float] = Query(None, ge=-180.0, le=180.0, description="Operator context longitude"),
+    radius_km: Optional[float] = Query(None, ge=0.5, le=500.0, description="Shelter search radius in km"),
     state: Optional[str] = Query(None, description="Resolved administrative state"),
     country: Optional[str] = Query(None, description="Resolved country"),
     relevant_border: Optional[str] = Query(None, description="Resolved relevant international border or UNAVAILABLE"),
@@ -798,8 +801,10 @@ async def download_situation_report(
 ) -> Response:
     from fastapi.responses import Response
     from app.services.pdf_report_generator import generate_situation_report_pdf
+    from app.services.shelter_service import ShelterService
+    from app.services.external_routing_service import ExternalRoutingService
 
-    # Fetch authoritative report data backed by analysis
+    # Fetch comprehensive report data backed by analysis
     report_envelope = await get_situation_report(
         situation_id=situation_id,
         request=request,
@@ -810,7 +815,70 @@ async def download_situation_report(
     report_dict = report_envelope.data.model_dump()
 
     loc_context = None
-    if location_source or relevant_border or state:
+    if latitude is not None and longitude is not None:
+        loc_context = {
+            "location_source": location_source or "OPERATOR_DECLARED",
+            "location_precision": location_precision or "APPROXIMATE",
+            "location_method": location_method or "PLACE_SEARCH",
+            "label": label or f"Coordinates [{latitude:.4f}, {longitude:.4f}]",
+            "latitude": latitude,
+            "longitude": longitude,
+            "state": state or "Monitored Administrative Region",
+            "country": country or "India",
+            "relevant_border": relevant_border or "BORDER CONTEXT UNAVAILABLE",
+            "geofence_status": geofence_status or "NO RESTRICTED GEOFENCE EVENT",
+        }
+        report_dict["geo_context"] = loc_context
+
+        # Query real verified shelters from PostGIS
+        try:
+            sh_svc = ShelterService(session)
+            sh_res = await sh_svc.query_shelters(
+                latitude=latitude,
+                longitude=longitude,
+                radius_km=radius_km,
+                limit=10,
+            )
+            report_dict["shelter_enrichment"] = {
+                "available": sh_res.available,
+                "record_count": sh_res.record_count,
+                "radius_km": radius_km,
+                "shelters": [s.model_dump() for s in sh_res.shelters],
+            }
+
+            # If shelters are available, calculate route to nearest verified facility via ORS
+            if sh_res.available and sh_res.shelters:
+                target_shelter = sh_res.shelters[0]
+                dest_geo = target_shelter.location
+                r_svc = ExternalRoutingService()
+                r_rec = await r_svc.calculate_route(
+                    origin_lat=latitude,
+                    origin_lon=longitude,
+                    dest_lat=dest_geo.latitude,
+                    dest_lon=dest_geo.longitude,
+                )
+                report_dict["routing_summary"] = {
+                    "status": r_rec.status.value if hasattr(r_rec.status, "value") else str(r_rec.status),
+                    "provider": r_rec.provider_name,
+                    "destination_name": target_shelter.name,
+                    "destination_lat": dest_geo.latitude,
+                    "destination_lon": dest_geo.longitude,
+                    "distance_km": round(r_rec.total_distance_meters / 1000.0, 2) if r_rec.total_distance_meters else None,
+                    "duration_min": round(r_rec.total_duration_seconds / 60.0, 1) if r_rec.total_duration_seconds else None,
+                    "warnings": r_rec.warnings,
+                }
+            else:
+                report_dict["routing_summary"] = {
+                    "status": "UNAVAILABLE",
+                    "provider": "OpenRouteService",
+                    "reason": "No verified shelters found within configured search radius.",
+                }
+        except Exception as sh_err:
+            logger.warning(f"Shelter/route enrichment in report download degraded: {sh_err}")
+            report_dict["shelter_enrichment"] = {"available": False, "error": str(sh_err), "shelters": []}
+            report_dict["routing_summary"] = {"status": "UNAVAILABLE", "provider": "OpenRouteService", "error": str(sh_err)}
+
+    elif location_source or relevant_border or state:
         loc_context = {
             "location_source": location_source or "UNAVAILABLE",
             "location_precision": location_precision or "UNAVAILABLE",
@@ -821,6 +889,7 @@ async def download_situation_report(
             "relevant_border": relevant_border or "BORDER CONTEXT UNAVAILABLE",
             "geofence_status": geofence_status or "NO RESTRICTED GEOFENCE EVENT",
         }
+        report_dict["geo_context"] = loc_context
 
     timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     report_identifier = report_dict.get("analysis_id") or report_dict.get("job_id") or situation_id[:8]

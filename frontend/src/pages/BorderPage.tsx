@@ -36,6 +36,13 @@ export const BorderPage: React.FC = () => {
   const [demoBoundaryResult, setDemoBoundaryResult] = useState<any | null>(null);
   const [evaluatingBoundary, setEvaluatingBoundary] = useState<boolean>(false);
 
+  // Display Controls (Issue 5 & Issue 6)
+  const [showBoxes, setShowBoxes] = useState<boolean>(true);
+  const [showLabels, setShowLabels] = useState<boolean>(true);
+  const [showDetectionIds, setShowDetectionIds] = useState<boolean>(false);
+  const [showConfidence, setShowConfidence] = useState<boolean>(true);
+  const [densityMode, setDensityMode] = useState<'normal' | 'dense'>('normal');
+
   useEffect(() => {
     const fetchSituationData = async () => {
       setIsLoading(true);
@@ -202,6 +209,57 @@ export const BorderPage: React.FC = () => {
                   </button>
                 </div>
               )}
+
+              {/* Display Controls Toolbar */}
+              {activeAnalysisResult && (activeAnalysisResult.detections?.length || activeAnalysisResult.annotated_image_base64) && (
+                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-1 gap-1 font-mono text-[9px]">
+                  <button
+                    onClick={() => setShowBoxes(!showBoxes)}
+                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                      showBoxes ? 'bg-accent/20 text-accent font-bold' : 'text-faint hover:text-muted'
+                    }`}
+                    title="Toggle Bounding Boxes"
+                  >
+                    BOXES: {showBoxes ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => setShowLabels(!showLabels)}
+                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                      showLabels ? 'bg-accent/20 text-accent font-bold' : 'text-faint hover:text-muted'
+                    }`}
+                    title="Toggle Labels"
+                  >
+                    LABELS: {showLabels ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => setShowConfidence(!showConfidence)}
+                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                      showConfidence ? 'bg-accent/20 text-accent font-bold' : 'text-faint hover:text-muted'
+                    }`}
+                    title="Toggle Confidence %"
+                  >
+                    CONF: {showConfidence ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => setShowDetectionIds(!showDetectionIds)}
+                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                      showDetectionIds ? 'bg-accent/20 text-accent font-bold' : 'text-faint hover:text-muted'
+                    }`}
+                    title="Toggle Detection IDs"
+                  >
+                    IDS: {showDetectionIds ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    onClick={() => setDensityMode(densityMode === 'normal' ? 'dense' : 'normal')}
+                    className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                      densityMode === 'dense' ? 'bg-status-warning text-graphite font-bold' : 'text-faint hover:text-muted'
+                    }`}
+                    title="Toggle High Density Mode"
+                  >
+                    {densityMode === 'dense' ? 'DENSE' : 'NORMAL'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 font-mono text-[11px]">
@@ -287,7 +345,7 @@ export const BorderPage: React.FC = () => {
                       )}
 
                       {/* Interactive SVG overlay shown in raw view or when no pre-rendered base64 is available */}
-                      {(viewMode === 'raw' || !activeAnalysisResult.annotated_image_base64) && activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 && activeAnalysisResult.image_width && activeAnalysisResult.image_height && (
+                      {showBoxes && (viewMode === 'raw' || !activeAnalysisResult.annotated_image_base64) && activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 && activeAnalysisResult.image_width && activeAnalysisResult.image_height && (
                         <svg
                           className="absolute inset-0 w-full h-full pointer-events-auto"
                           viewBox={`0 0 ${activeAnalysisResult.image_width} ${activeAnalysisResult.image_height}`}
@@ -300,43 +358,64 @@ export const BorderPage: React.FC = () => {
                               const w = det.bbox.x2 - det.bbox.x1;
                               const h = det.bbox.y2 - det.bbox.y1;
                               const isSelected = selectedRuntimeDetection === det;
+                              const shortClass = det.class_name.toUpperCase().replace(/_/g, ' ');
+                              const confStr = showConfidence ? ` ${Math.round(det.confidence * 100)}%` : '';
+                              const idStr = showDetectionIds ? ` #${idx + 1}` : '';
+                              const labelText = `${shortClass}${confStr}${idStr}`;
+                              const badgeW = Math.max(50, labelText.length * 8 + 12);
+                              const isNearTop = y < 22;
+                              const badgeY = isNearTop ? y + 2 : y - 20;
+                              const textY = isNearTop ? y + 15 : y - 6;
+
                               return (
                                 <g
                                   key={`det-${idx}`}
                                   onClick={() => setSelectedRuntimeDetection(det)}
                                   className="cursor-pointer"
                                 >
+                                  {/* High-tech tactical bounding box */}
                                   <rect
                                     x={x}
                                     y={y}
                                     width={w}
                                     height={h}
-                                    fill={isSelected ? 'rgba(56, 213, 245, 0.25)' : 'rgba(239, 68, 68, 0.15)'}
+                                    fill={isSelected ? 'rgba(56, 213, 245, 0.22)' : 'rgba(239, 68, 68, 0.12)'}
                                     stroke={isSelected ? '#38D5F5' : '#EF4444'}
-                                    strokeWidth={Math.max(2, (activeAnalysisResult.image_width || 1000) / 400)}
+                                    strokeWidth={Math.max(1.5, (activeAnalysisResult.image_width || 1000) / 550)}
+                                    rx={1}
                                   />
-                                  <rect
-                                    x={x}
-                                    y={Math.max(0, y - 22)}
-                                    width={Math.max(80, det.class_name.length * 11 + 45)}
-                                    height={20}
-                                    fill={isSelected ? '#38D5F5' : '#EF4444'}
-                                  />
-                                  <text
-                                    x={x + 4}
-                                    y={Math.max(14, y - 8)}
-                                    fill="#07090C"
-                                    fontSize={Math.max(12, (activeAnalysisResult.image_width || 1000) / 80)}
-                                    fontFamily="monospace"
-                                    fontWeight="bold"
-                                  >
-                                    {det.class_name.toUpperCase()} {Math.round(det.confidence * 100)}%
-                                  </text>
+                                  {/* Compact label badge */}
+                                  {showLabels && (densityMode === 'normal' || isSelected || w >= 45) && (
+                                    <>
+                                      <rect
+                                        x={x}
+                                        y={badgeY}
+                                        width={badgeW}
+                                        height={18}
+                                        fill={isSelected ? '#38D5F5' : '#EF4444'}
+                                        rx={2}
+                                      />
+                                      <text
+                                        x={x + 4}
+                                        y={textY}
+                                        fill="#07090C"
+                                        fontSize={Math.max(9, (activeAnalysisResult.image_width || 1000) / 105)}
+                                        fontFamily="monospace"
+                                        fontWeight="bold"
+                                      >
+                                        {labelText}
+                                      </text>
+                                    </>
+                                  )}
                                 </g>
                               );
                             } else if (det.obb_points && det.obb_points.length === 4) {
                               const pts = det.obb_points.map(p => `${p.x},${p.y}`).join(' ');
                               const isSelected = selectedRuntimeDetection === det;
+                              const shortClass = det.class_name.toUpperCase().replace(/_/g, ' ');
+                              const confStr = showConfidence ? ` ${Math.round(det.confidence * 100)}%` : '';
+                              const idStr = showDetectionIds ? ` #${idx + 1}` : '';
+                              const labelText = `${shortClass}${confStr}${idStr}`;
                               return (
                                 <g
                                   key={`obb-${idx}`}
@@ -345,20 +424,22 @@ export const BorderPage: React.FC = () => {
                                 >
                                   <polygon
                                     points={pts}
-                                    fill={isSelected ? 'rgba(56, 213, 245, 0.3)' : 'rgba(56, 213, 245, 0.15)'}
+                                    fill={isSelected ? 'rgba(56, 213, 245, 0.25)' : 'rgba(56, 213, 245, 0.12)'}
                                     stroke="#38D5F5"
-                                    strokeWidth={Math.max(2, (activeAnalysisResult.image_width || 1000) / 400)}
+                                    strokeWidth={Math.max(1.5, (activeAnalysisResult.image_width || 1000) / 550)}
                                   />
-                                  <text
-                                    x={det.obb_points[0].x}
-                                    y={det.obb_points[0].y - 5}
-                                    fill="#38D5F5"
-                                    fontSize={Math.max(12, (activeAnalysisResult.image_width || 1000) / 80)}
-                                    fontFamily="monospace"
-                                    fontWeight="bold"
-                                  >
-                                    {det.class_name.toUpperCase()} {Math.round(det.confidence * 100)}%
-                                  </text>
+                                  {showLabels && (
+                                    <text
+                                      x={det.obb_points[0].x}
+                                      y={Math.max(12, det.obb_points[0].y - 5)}
+                                      fill="#38D5F5"
+                                      fontSize={Math.max(9, (activeAnalysisResult.image_width || 1000) / 105)}
+                                      fontFamily="monospace"
+                                      fontWeight="bold"
+                                    >
+                                      {labelText}
+                                    </text>
+                                  )}
                                 </g>
                               );
                             }
@@ -389,7 +470,7 @@ export const BorderPage: React.FC = () => {
                             autoPlay
                             loop
                             muted
-                            className="max-w-full max-h-[70vh] object-contain select-none"
+                            className="max-w-full max-h-[70vh] object-contain select-none transform-gpu will-change-transform"
                           />
                         ) : analyzedVideoUrl ? (
                           <video
@@ -399,7 +480,7 @@ export const BorderPage: React.FC = () => {
                             autoPlay
                             loop
                             muted
-                            className="max-w-full max-h-[70vh] object-contain select-none"
+                            className="max-w-full max-h-[70vh] object-contain select-none transform-gpu will-change-transform"
                           />
                         ) : (
                           <div className="p-12 text-center font-mono text-xs text-muted">

@@ -27,6 +27,143 @@ from app.schemas.external import NormalizedGeocodeResult, ProviderStatus
 
 logger = logging.getLogger("aerion.external.geocoding")
 
+# Curated fallback geographic reference points for disaster zones.
+# These provide regional reference coordinates when external online geocoders are unreachable.
+# They are fallback reference coordinates, NOT authoritative geographic truth or street-level precision.
+# Marked explicitly with VerificationState.CALCULATED and approximate regional precision.
+OFFLINE_DISASTER_LOCATIONS = [
+    {
+        "name": "Chamoli",
+        "state": "Uttarakhand",
+        "district": "Chamoli",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 30.5574,
+        "longitude": 79.5670,
+        "display_name": "Chamoli, Uttarakhand, India",
+    },
+    {
+        "name": "Joshimath",
+        "state": "Uttarakhand",
+        "district": "Chamoli",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 30.5574,
+        "longitude": 79.5670,
+        "display_name": "Joshimath, Chamoli, Uttarakhand, India",
+    },
+    {
+        "name": "Kedarnath",
+        "state": "Uttarakhand",
+        "district": "Rudraprayag",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 30.7352,
+        "longitude": 79.0669,
+        "display_name": "Kedarnath, Rudraprayag, Uttarakhand, India",
+    },
+    {
+        "name": "Uttarkashi",
+        "state": "Uttarakhand",
+        "district": "Uttarkashi",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 30.7268,
+        "longitude": 78.4354,
+        "display_name": "Uttarkashi, Uttarakhand, India",
+    },
+    {
+        "name": "Wayanad",
+        "state": "Kerala",
+        "district": "Wayanad",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 11.6854,
+        "longitude": 76.1320,
+        "display_name": "Wayanad, Kerala, India",
+    },
+    {
+        "name": "Silchar",
+        "state": "Assam",
+        "district": "Cachar",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 24.8333,
+        "longitude": 92.7789,
+        "display_name": "Silchar, Cachar, Assam, India",
+    },
+    {
+        "name": "Cuttack",
+        "state": "Odisha",
+        "district": "Cuttack",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 20.4625,
+        "longitude": 85.8828,
+        "display_name": "Cuttack, Odisha, India",
+    },
+    {
+        "name": "Mandi",
+        "state": "Himachal Pradesh",
+        "district": "Mandi",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 31.5892,
+        "longitude": 76.9182,
+        "display_name": "Mandi, Himachal Pradesh, India",
+    },
+    {
+        "name": "Shimla",
+        "state": "Himachal Pradesh",
+        "district": "Shimla",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 31.1048,
+        "longitude": 77.1734,
+        "display_name": "Shimla, Himachal Pradesh, India",
+    },
+    {
+        "name": "Srinagar",
+        "state": "Jammu and Kashmir",
+        "district": "Srinagar",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 34.0837,
+        "longitude": 74.7973,
+        "display_name": "Srinagar, Jammu and Kashmir, India",
+    },
+    {
+        "name": "Leh",
+        "state": "Ladakh",
+        "district": "Leh",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 34.1526,
+        "longitude": 77.5771,
+        "display_name": "Leh, Ladakh, India",
+    },
+    {
+        "name": "Darjeeling",
+        "state": "West Bengal",
+        "district": "Darjeeling",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 27.0410,
+        "longitude": 88.2663,
+        "display_name": "Darjeeling, West Bengal, India",
+    },
+    {
+        "name": "New Delhi",
+        "state": "Delhi",
+        "district": "New Delhi",
+        "country": "India",
+        "country_code": "IN",
+        "latitude": 28.6139,
+        "longitude": 77.2090,
+        "display_name": "New Delhi, Delhi, India",
+    },
+]
+
 
 class ExternalGeocodingService:
     """
@@ -179,6 +316,53 @@ class ExternalGeocodingService:
             except Exception as e:
                 logger.warning(f"Nominatim search failed: {e}")
 
+        # Fallback to Curated Offline Indian Disaster Locations if no online results found
+        if not results:
+            q_lower = cleaned_query.lower()
+            for loc in OFFLINE_DISASTER_LOCATIONS:
+                if (
+                    q_lower in loc["name"].lower()
+                    or q_lower in loc["display_name"].lower()
+                    or loc["name"].lower() in q_lower
+                ):
+                    lat = loc["latitude"]
+                    lon = loc["longitude"]
+                    evidence_rec = EvidenceRecord(
+                        evidence_id=str(uuid.uuid4()),
+                        parent_evidence_ids=[],
+                        source_type=EvidenceSourceType.GEOSPATIAL_REGISTRY,
+                        created_at_utc=utcnow(),
+                        temporal_mode=TemporalMode.STATIC_IMAGE,
+                        crs="EPSG:4326",
+                        geo_location=GeoPoint(latitude=lat, longitude=lon),
+                        modality=Modality.EXTERNALLY_PROVIDED,
+                        confidence=0.95,
+                        verification_state=VerificationState.CALCULATED,
+                        sensor_metadata={"provider": "Curated-Offline-Disaster-Registry"},
+                    )
+                    results.append(
+                        NormalizedGeocodeResult(
+                            provider_name="Curated-Offline-Disaster-Registry",
+                            status=ProviderStatus.AVAILABLE,
+                            query=cleaned_query,
+                            latitude=lat,
+                            longitude=lon,
+                            display_name=loc["display_name"],
+                            locality=loc["name"],
+                            district=loc.get("district"),
+                            state=loc.get("state"),
+                            country=loc["country"],
+                            country_code=loc["country_code"],
+                            confidence=0.95,
+                            fetched_at_utc=utcnow(),
+                            raw_properties=loc,
+                            cached=False,
+                            evidence=evidence_rec,
+                        )
+                    )
+                    if len(results) >= limit:
+                        break
+
         if results:
             await geocoding_cache.set(cache_key, results)
         return results
@@ -261,4 +445,44 @@ class ExternalGeocodingService:
 
         except Exception as e:
             logger.warning(f"Nominatim reverse geocode failed: {e}")
-            return None
+
+        # Check for close match in curated offline locations
+        for loc in OFFLINE_DISASTER_LOCATIONS:
+            d_lat = abs(latitude - loc["latitude"])
+            d_lon = abs(longitude - loc["longitude"])
+            if d_lat < 0.35 and d_lon < 0.35:
+                evidence_rec = EvidenceRecord(
+                    evidence_id=str(uuid.uuid4()),
+                    parent_evidence_ids=[],
+                    source_type=EvidenceSourceType.GEOSPATIAL_REGISTRY,
+                    created_at_utc=utcnow(),
+                    temporal_mode=TemporalMode.STATIC_IMAGE,
+                    crs="EPSG:4326",
+                    geo_location=GeoPoint(latitude=latitude, longitude=longitude),
+                    modality=Modality.EXTERNALLY_PROVIDED,
+                    confidence=0.9,
+                    verification_state=VerificationState.CALCULATED,
+                    sensor_metadata={"provider": "Curated-Offline-Disaster-Registry"},
+                )
+                res = NormalizedGeocodeResult(
+                    provider_name="Curated-Offline-Disaster-Registry",
+                    status=ProviderStatus.AVAILABLE,
+                    query=f"{latitude},{longitude}",
+                    latitude=latitude,
+                    longitude=longitude,
+                    display_name=loc["display_name"],
+                    locality=loc["name"],
+                    district=loc.get("district"),
+                    state=loc.get("state"),
+                    country=loc["country"],
+                    country_code=loc["country_code"],
+                    confidence=0.9,
+                    fetched_at_utc=utcnow(),
+                    raw_properties=loc,
+                    cached=False,
+                    evidence=evidence_rec,
+                )
+                await geocoding_cache.set(cache_key, res)
+                return res
+
+        return None
