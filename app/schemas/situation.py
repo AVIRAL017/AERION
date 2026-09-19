@@ -307,4 +307,5 @@ class SituationReportResponse(BaseModel):
     artifacts: List[Dict[str, Any]] = Field(default_factory=list)
     annotated_image_base64: Optional[str] = None
     annotated_artifact: Optional[Dict[str, Any]] = None
+    annotated_video_artifact: Optional[Dict[str, Any]] = None
 

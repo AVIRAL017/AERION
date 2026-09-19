@@ -42,6 +42,16 @@ export const BorderPage: React.FC = () => {
   const [showDetectionIds, setShowDetectionIds] = useState<boolean>(false);
   const [showConfidence, setShowConfidence] = useState<boolean>(true);
   const [densityMode, setDensityMode] = useState<'normal' | 'dense'>('normal');
+  const [videoDecodeError, setVideoDecodeError] = useState<boolean>(false);
+
+  const getEvidenceUrl = (key: string, download = false) => {
+    const cleanKey = key.split('/').map(encodeURIComponent).join('/');
+    const token = localStorage.getItem('aerion_access_token');
+    const params = new URLSearchParams();
+    params.set('download', download ? 'true' : 'false');
+    if (token) params.set('token', token);
+    return `${API_BASE}/evidence/${cleanKey}?${params.toString()}`;
+  };
 
   useEffect(() => {
     const fetchSituationData = async () => {
@@ -86,8 +96,11 @@ export const BorderPage: React.FC = () => {
         if (resp.success && resp.data) {
           const data = resp.data;
           setActiveAnalysisResult(data);
+          setVideoDecodeError(false);
           if (data.annotated_image_base64) {
             setAnalyzedImageUrl(`data:image/jpeg;base64,${data.annotated_image_base64}`);
+            setViewMode('annotated');
+          } else if (data.annotated_video_artifact) {
             setViewMode('annotated');
           }
           if (data.location_context) {
@@ -211,7 +224,23 @@ export const BorderPage: React.FC = () => {
               )}
 
               {/* Display Controls Toolbar */}
-              {activeAnalysisResult && (activeAnalysisResult.detections?.length || activeAnalysisResult.annotated_image_base64) && (
+              {activeAnalysisResult && activeAnalysisResult.annotated_video_artifact ? (
+                <div
+                  className="flex items-center rounded bg-elevated/70 border border-white/[0.1] px-2.5 py-1 ml-1 gap-2 font-mono text-[9px] text-muted"
+                  title="Video annotations (bounding boxes, compact labels, confidence scores, track IDs) are pre-rendered into the MP4 stream during inference. Presentation is immutable for this artifact."
+                >
+                  <span className="text-accent font-semibold flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[13px]">videocam</span>
+                    VIDEO ANNOTATION: PRE-RENDERED
+                  </span>
+                  <span className="text-white/20">|</span>
+                  <span className="text-paper">BOXES: ON</span>
+                  <span className="text-paper">LABELS: ON</span>
+                  <span className="text-paper">CONFIDENCE: ON</span>
+                  <span className="text-paper">TRACK IDS: ON</span>
+                  <span className="px-1 py-0.2 rounded bg-accent/15 text-accent text-[8px] font-bold">LOCKED (IMMUTABLE ARTIFACT)</span>
+                </div>
+              ) : activeAnalysisResult && (activeAnalysisResult.detections?.length || activeAnalysisResult.annotated_image_base64) ? (
                 <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-1 gap-1 font-mono text-[9px]">
                   <button
                     onClick={() => setShowBoxes(!showBoxes)}
@@ -259,7 +288,7 @@ export const BorderPage: React.FC = () => {
                     {densityMode === 'dense' ? 'DENSE' : 'NORMAL'}
                   </button>
                 </div>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-center gap-2 font-mono text-[11px]">
@@ -463,15 +492,43 @@ export const BorderPage: React.FC = () => {
                     <div className="relative max-w-full max-h-full flex flex-col items-center justify-center p-2">
                       <div className="relative border border-white/[0.1] rounded overflow-hidden max-h-[72vh] flex items-center justify-center bg-black shadow-2xl">
                         {(viewMode === 'annotated' && activeAnalysisResult.annotated_video_artifact?.artifact_key) ? (
-                          <video
-                            key={`annotated-${activeAnalysisResult.annotated_video_artifact.artifact_key}`}
-                            src={`${API_BASE}/evidence/${encodeURIComponent(activeAnalysisResult.annotated_video_artifact.artifact_key)}${localStorage.getItem('aerion_access_token') ? `?token=${encodeURIComponent(localStorage.getItem('aerion_access_token') || '')}` : ''}`}
-                            controls
-                            autoPlay
-                            loop
-                            muted
-                            className="max-w-full max-h-[70vh] object-contain select-none transform-gpu will-change-transform"
-                          />
+                          videoDecodeError ? (
+                            <div className="p-8 text-center font-mono text-xs text-muted max-w-lg mx-auto flex flex-col items-center">
+                              <span className="material-symbols-outlined text-4xl text-status-warning block mb-2">warning</span>
+                              <span className="text-paper font-semibold text-sm block mb-1">Annotated artifact exists but could not be decoded inline</span>
+                              <span className="block text-[11px] text-faint mb-4 leading-relaxed">
+                                The annotated MP4 artifact is persisted in storage ({activeAnalysisResult.annotated_video_artifact.frame_count} frames, {activeAnalysisResult.annotated_video_artifact.fps} FPS). Your browser could not decode the video container inline. Download the MP4 file to inspect verified annotations in a media player.
+                              </span>
+                              <button
+                                onClick={async () => {
+                                  const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
+                                  if (!artKey) return;
+                                  const dlUrl = getEvidenceUrl(artKey, true);
+                                  const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
+                                  try {
+                                    await downloadAuthenticatedArtifact(dlUrl, filename);
+                                  } catch (e: any) {
+                                    alert(e.message || 'Download failed');
+                                  }
+                                }}
+                                className="px-3.5 py-2 rounded bg-accent text-graphite font-bold text-xs inline-flex items-center gap-1.5 shadow hover:bg-accent/90 cursor-pointer"
+                              >
+                                <span className="material-symbols-outlined text-[16px]">download</span>
+                                <span>DOWNLOAD ANNOTATED VIDEO (MP4)</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <video
+                              key={`annotated-${activeAnalysisResult.annotated_video_artifact.artifact_key}`}
+                              src={getEvidenceUrl(activeAnalysisResult.annotated_video_artifact.artifact_key, false)}
+                              controls
+                              autoPlay
+                              loop
+                              muted
+                              onError={() => setVideoDecodeError(true)}
+                              className="max-w-full max-h-[70vh] object-contain select-none transform-gpu will-change-transform"
+                            />
+                          )
                         ) : analyzedVideoUrl ? (
                           <video
                             key={`raw-${analyzedVideoUrl}`}
@@ -514,7 +571,7 @@ export const BorderPage: React.FC = () => {
                               <button
                                 onClick={async () => {
                                   const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
-                                  const dlUrl = artKey ? `${API_BASE}/evidence/${encodeURIComponent(artKey)}` : (analyzedVideoUrl || '');
+                                  const dlUrl = artKey ? getEvidenceUrl(artKey, true) : (analyzedVideoUrl || '');
                                   const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
                                   try {
                                     await downloadAuthenticatedArtifact(dlUrl, filename);
@@ -1216,8 +1273,11 @@ export const BorderPage: React.FC = () => {
               const resp = await analysisApi.getById(targetId);
               if (resp.success && resp.data) {
                 setActiveAnalysisResult(resp.data);
+                setVideoDecodeError(false);
                 if (resp.data.annotated_image_base64) {
                   setAnalyzedImageUrl(`data:image/jpeg;base64,${resp.data.annotated_image_base64}`);
+                  setViewMode('annotated');
+                } else if (resp.data.annotated_video_artifact) {
                   setViewMode('annotated');
                 }
               }

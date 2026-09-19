@@ -89,6 +89,7 @@ async def download_evidence_artifact(
         "Content-Disposition": f'{disposition}; filename="{filename}"',
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=3600",
+        "Accept-Ranges": "bytes",
     }
 
     logger.info(f"Serving evidence artifact {filename} ({media_type}) to user {payload.get('sub', 'unknown')}")

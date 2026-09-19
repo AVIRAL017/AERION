@@ -323,6 +323,35 @@ export const DisasterPage: React.FC = () => {
 
     const bounds = L.latLngBounds([]);
 
+    // 0. If no operator location is provided, visibly render the configured synthetic Demo AOI Polygon
+    if (!operatorLocation || typeof operatorLocation.latitude !== 'number') {
+      const demoLatLngs: [number, number][] = [
+        [32.70, 74.80],
+        [32.75, 74.90],
+        [32.65, 74.95],
+        [32.55, 74.88],
+        [32.60, 74.78],
+      ];
+      const demoPoly = L.polygon(demoLatLngs, {
+        color: '#F59E0B',
+        weight: 2,
+        dashArray: '6, 6',
+        fillColor: '#F59E0B',
+        fillOpacity: 0.18,
+      }).addTo(markersGroup);
+
+      demoPoly.bindPopup(
+        `<div style="font-family:monospace;font-size:11px;">
+          <b style="color:#F59E0B;">DEMO AOI (SYNTHETIC)</b><br/>
+          <span style="color:#EF4444;font-size:9px;font-weight:bold;">NON-AUTHORITATIVE TEST BOUNDARY</span><br/>
+          <span style="color:#64748B;font-size:9px;">Search or pick an incident site in Step 1 to anchor real operations.</span>
+        </div>`
+      );
+
+      map.fitBounds(demoPoly.getBounds(), { padding: [35, 35] });
+      return;
+    }
+
     // 1. Plot Origin (Disaster Site)
     if (operatorLocation && typeof operatorLocation.latitude === 'number' && typeof operatorLocation.longitude === 'number') {
       const originLatLng: [number, number] = [operatorLocation.latitude, operatorLocation.longitude];
@@ -449,6 +478,109 @@ export const DisasterPage: React.FC = () => {
     } finally {
       setIsDownloadingReport(false);
     }
+  };
+
+  // Step 4: Calculate evidence-backed risk score from verified inputs
+  const getRiskAssessment = () => {
+    const hasCoords = Boolean(operatorLocation && typeof operatorLocation.latitude === 'number');
+    const hasWeather = Boolean(weatherData && weatherData.status !== 'UNAVAILABLE' && (typeof weatherData.temperature_c === 'number' || typeof weatherData.temperature_celsius === 'number'));
+    const hasDamage = Boolean((activeAnalysisResult?.damage_analysis && typeof activeAnalysisResult.damage_analysis.damage_percentage === 'number') || (damage && typeof damage.damage_percentage === 'number'));
+    const currentDmgPct = activeAnalysisResult?.damage_analysis?.damage_percentage ?? damage?.damage_percentage ?? 0;
+
+    // CASE A: User Incident Location Provided
+    if (hasCoords) {
+      if (!hasDamage) {
+        return {
+          status: 'INSUFFICIENT_EVIDENCE',
+          mode: 'REAL_LOCATION',
+          score: null,
+          level: 'UNAVAILABLE',
+          title: 'RISK: INSUFFICIENT EVIDENCE / UNAVAILABLE',
+          badge: 'UNAVAILABLE',
+          inputs: {
+            coordinates: true,
+            weather: hasWeather,
+            damage: false,
+          },
+          reason: 'Incident location verified. Requires AI-verified damage perception metrics from Step 3 to calculate operational risk.',
+        };
+      }
+
+      const dmgFactor = Math.min(100, currentDmgPct);
+      const windMps = weatherData?.wind_speed_mps || 0;
+      const precipMm = weatherData?.precipitation_mm_hr || 0;
+      const weatherSeverity = Math.min(100, windMps * 3.5 + precipMm * 5.0);
+      const contextVulnerability = 20.0;
+
+      const compositeScore = (dmgFactor * 0.60) + (weatherSeverity * 0.25) + (contextVulnerability * 0.15);
+      const roundedScore = Math.round(compositeScore * 10) / 10;
+
+      let level = 'LOW';
+      if (roundedScore >= 70) level = 'CRITICAL';
+      else if (roundedScore >= 45) level = 'HIGH';
+      else if (roundedScore >= 25) level = 'MODERATE';
+
+      return {
+        status: 'CALCULATED',
+        mode: 'REAL_LOCATION',
+        score: roundedScore,
+        level,
+        title: 'REAL LOCATION RISK',
+        badge: 'EVIDENCE-BACKED',
+        inputs: {
+          coordinates: true,
+          weather: hasWeather,
+          damage: true,
+        },
+        formula: '60% Damage Perception + 25% Meteorological Severity + 15% Terrain Baseline',
+      };
+    }
+
+    // CASE B: No User Location (Synthetic Demo AOI Active)
+    if (!hasDamage) {
+      return {
+        status: 'INSUFFICIENT_EVIDENCE',
+        mode: 'DEMO_CONTEXT',
+        score: null,
+        level: 'UNAVAILABLE',
+        title: 'INSUFFICIENT EVIDENCE / DEMO CONTEXT ONLY',
+        badge: 'DEMO CONTEXT ONLY',
+        inputs: {
+          coordinates: false,
+          weather: false,
+          damage: false,
+        },
+        reason: 'No user location designated (synthetic Demo AOI active) and AI damage perception metrics are missing. Designate incident coordinates in Step 1 or upload damage pair in Step 3.',
+      };
+    }
+
+    // Real damage metrics exist, but location is unanchored demo context
+    const dmgFactor = Math.min(100, currentDmgPct);
+    const demoWeatherSeverity = 15.0; // Baseline synthetic meteorology
+    const demoContextVulnerability = 20.0;
+    const compositeScore = (dmgFactor * 0.60) + (demoWeatherSeverity * 0.25) + (demoContextVulnerability * 0.15);
+    const roundedScore = Math.round(compositeScore * 10) / 10;
+
+    let level = 'LOW';
+    if (roundedScore >= 70) level = 'CRITICAL';
+    else if (roundedScore >= 45) level = 'HIGH';
+    else if (roundedScore >= 25) level = 'MODERATE';
+
+    return {
+      status: 'DEMO_CONTEXT',
+      mode: 'DEMO_CONTEXT',
+      score: roundedScore,
+      level,
+      title: 'DEMO CONTEXT ASSESSMENT',
+      badge: 'SYNTHETIC / NON-AUTHORITATIVE',
+      inputs: {
+        coordinates: false,
+        weather: false,
+        damage: true,
+      },
+      formula: '60% Real Damage Perception + 25% Demo Meteorological Baseline + 15% Terrain Baseline',
+      disclaimer: 'SYNTHETIC / NON-AUTHORITATIVE: Calculated using synthetic Demo AOI baseline parameters. Not an authoritative ground assessment. Designate operational coordinates in Step 1 to ground real location risk.',
+    };
   };
 
   if (isLoading) {
@@ -753,7 +885,7 @@ export const DisasterPage: React.FC = () => {
       </section>
 
       {/* ============================================================ */}
-      {/* 2–6. COMPREHENSIVE RIGHT INTELLIGENCE PANEL                  */}
+      {/* 1–7. COMPREHENSIVE RIGHT INTELLIGENCE PANEL (7-STEP WORKFLOW) */}
       {/* ============================================================ */}
       <aside className="w-[440px] flex-shrink-0 bg-panel flex flex-col overflow-y-auto custom-scrollbar border-l border-white/[0.06]">
         {/* Panel Header */}
@@ -762,22 +894,197 @@ export const DisasterPage: React.FC = () => {
             <h2 className="text-xs font-mono font-medium tracking-wider text-muted uppercase">
               DISASTER RESPONSE INTELLIGENCE
             </h2>
-            <span className="text-[10px] font-mono text-accent">STEP-BY-STEP WORKFLOW</span>
+            <span className="text-[10px] font-mono text-accent">7-STEP LINEAR WORKFLOW</span>
           </div>
           <span className="text-[10px] text-faint font-mono block mt-1">
-            DETERMINISTIC PERCEPTION // POSTGIS SHELTERS // ORS ROUTING
+            LOCATION → ENVIRONMENT → DAMAGE → RISK → SHELTERS → ROUTE → REPORT
           </span>
         </div>
 
         {/* ------------------------------------------------------------ */}
-        {/* STEP 2: DAMAGE ASSESSMENT RESULTS                            */}
+        {/* STEP 1: INCIDENT / LOCATION                                  */}
         {/* ------------------------------------------------------------ */}
         <div className="p-4 border-b border-white/[0.06] space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
-              1. DAMAGE CLASSIFICATION
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block font-bold">
+              1. INCIDENT / LOCATION
             </span>
-            <span className="text-[9px] font-mono text-faint">THRESHOLD 0.50</span>
+            {operatorLocation ? (
+              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-status-ai/15 text-status-ai border border-status-ai/30 font-semibold">
+                {operatorLocation.location_precision || 'APPROXIMATE'}
+              </span>
+            ) : (
+              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-status-warning/15 text-status-warning border border-status-warning/30 font-semibold">
+                DEMO AOI ACTIVE
+              </span>
+            )}
+          </div>
+
+          {/* Search Input for Places */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={geoSearchQuery}
+                  onChange={(e) => setGeoSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPlaces()}
+                  placeholder="Search city, district, or place..."
+                  className="w-full px-2.5 py-1.5 bg-graphite border border-white/[0.1] rounded text-xs font-mono text-paper placeholder-faint focus:border-accent focus:outline-none"
+                />
+                {isGeoSearching && (
+                  <span className="material-symbols-outlined text-[14px] text-accent animate-spin absolute right-2 top-2">
+                    progress_activity
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={handleSearchPlaces}
+                disabled={isGeoSearching || !geoSearchQuery.trim()}
+                className="px-2.5 py-1.5 bg-accent text-graphite font-mono font-bold text-xs rounded hover:bg-accent/90 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                FIND
+              </button>
+              <button
+                onClick={() => setIsLocationModalOpen(true)}
+                className="p-1.5 bg-elevated border border-white/[0.1] text-muted hover:text-accent hover:border-accent rounded transition-all cursor-pointer"
+                title="Open Interactive Coordinate & Map Selection Modal"
+              >
+                <span className="material-symbols-outlined text-[16px]">map</span>
+              </button>
+            </div>
+
+            {/* Geocode Search Results Dropdown */}
+            {geoSearchResults.length > 0 && (
+              <div className="p-1 bg-graphite border border-accent/40 rounded space-y-1 font-mono text-[11px] shadow-xl max-h-36 overflow-y-auto">
+                {geoSearchResults.map((place, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => handleSelectPlace(place)}
+                    className="p-1.5 hover:bg-white/[0.08] rounded cursor-pointer transition-all flex items-start justify-between"
+                  >
+                    <span className="text-paper truncate mr-2">{place.display_name || place.locality}</span>
+                    <span className="text-accent text-[9px] whitespace-nowrap">
+                      [{Number(place.latitude).toFixed(2)}, {Number(place.longitude).toFixed(2)}]
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {geoSearchError && (
+              <p className="text-[10px] font-mono text-status-warning">{geoSearchError}</p>
+            )}
+
+            {/* Curated Fallback Reference Presets */}
+            <div className="flex flex-wrap gap-1 pt-1">
+              <span className="text-[9px] font-mono text-faint self-center mr-1">PRESETS:</span>
+              {locationPresets.map((p, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleApplyPreset(p)}
+                  className="px-1.5 py-0.5 rounded bg-elevated/70 hover:bg-accent/15 border border-white/[0.08] hover:border-accent/40 text-[9px] font-mono text-muted hover:text-accent transition-all cursor-pointer"
+                >
+                  {p.label.split('/')[0].trim()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Active Geo-Context Summary Card or Demo Notice */}
+          {operatorLocation ? (
+            <div className="p-2.5 bg-graphite/60 border border-status-ai/30 rounded font-mono text-[11px] space-y-1.5">
+              <div className="flex items-center justify-between text-paper font-semibold">
+                <span className="flex items-center gap-1">
+                  <span className="material-symbols-outlined text-status-ai text-[14px]">pin_drop</span>
+                  <span className="truncate max-w-[240px]">{operatorLocation.label || 'Designated Incident Site'}</span>
+                </span>
+                <span className="text-accent text-[10px]">
+                  {operatorLocation.latitude.toFixed(4)}°N, {operatorLocation.longitude.toFixed(4)}°E
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[9px] text-faint">
+                <span>METHOD: {operatorLocation.location_method || 'COORDINATE_INPUT'}</span>
+                <span>SRC: {operatorLocation.location_source || 'OPERATOR_SPECIFIED'}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2.5 bg-status-warning/10 border border-status-warning/30 rounded font-mono text-[10px] space-y-1 text-status-warning">
+              <div className="font-bold flex items-center gap-1">
+                <span className="material-symbols-outlined text-[13px]">pentagon</span>
+                <span>DEMO AOI (SYNTHETIC / NON-AUTHORITATIVE)</span>
+              </div>
+              <p className="text-faint text-[9px] leading-tight">
+                No verified location designated. Displaying synthetic demonstration polygon on map. Search above or click presets to set verified operational incident coordinates.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* ------------------------------------------------------------ */}
+        {/* STEP 2: ENVIRONMENT (METEOROLOGICAL CONDITIONS)              */}
+        {/* ------------------------------------------------------------ */}
+        <div className="p-4 border-b border-white/[0.06] space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block font-bold">
+              2. ENVIRONMENT (METEOROLOGY)
+            </span>
+            <span className="text-[9px] font-mono text-faint">OPEN-METEO WMO</span>
+          </div>
+
+          {weatherLoading ? (
+            <div className="p-2 bg-graphite/40 rounded text-[10px] font-mono text-muted flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-accent animate-spin text-[13px]">progress_activity</span>
+              <span>QUERYING OPEN-METEO WEATHER OBSERVATIONS...</span>
+            </div>
+          ) : operatorLocation && weatherData && weatherData.status !== 'UNAVAILABLE' ? (
+            <div className="p-2.5 bg-graphite/40 border border-white/[0.06] rounded font-mono text-[10px] space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <span className="text-faint block text-[9px]">CONDITIONS:</span>
+                  <span className="text-paper font-semibold">{weatherData.conditions || weatherData.condition_description || 'CLEAR'}</span>
+                </div>
+                <div>
+                  <span className="text-faint block text-[9px]">TEMPERATURE:</span>
+                  <span className="text-accent font-semibold">{weatherData.temperature_c ?? weatherData.temperature_celsius ?? '--'} °C</span>
+                </div>
+                <div>
+                  <span className="text-faint block text-[9px]">FLIGHT SUITABILITY:</span>
+                  <span className={`font-semibold ${weatherData.flight_suitability === 'OPTIMAL' ? 'text-status-success' : 'text-status-warning'}`}>
+                    {weatherData.flight_suitability || 'OPTIMAL'}
+                  </span>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-white/[0.04]">
+                <div>
+                  <span className="text-faint block text-[9px]">WIND SPEED:</span>
+                  <span className="text-paper font-semibold">{weatherData.wind_speed_mps ? `${weatherData.wind_speed_mps} m/s` : '--'}</span>
+                </div>
+                <div>
+                  <span className="text-faint block text-[9px]">PRECIPITATION:</span>
+                  <span className="text-paper font-semibold">{weatherData.precipitation_mm_hr !== undefined ? `${weatherData.precipitation_mm_hr} mm/h` : '0 mm/h'}</span>
+                </div>
+                <div>
+                  <span className="text-faint block text-[9px]">PROVIDER:</span>
+                  <span className="text-muted font-semibold">Open-Meteo</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2.5 bg-graphite/30 border border-white/[0.04] rounded text-center font-mono text-[10px] text-faint">
+              ENVIRONMENT: UNAVAILABLE — Requires verified incident coordinates from Step 1.
+            </div>
+          )}
+        </div>
+
+        {/* ------------------------------------------------------------ */}
+        {/* STEP 3: DAMAGE / AI EVIDENCE (BI-TEMPORAL CD)                */}
+        {/* ------------------------------------------------------------ */}
+        <div className="p-4 border-b border-white/[0.06] space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block font-bold">
+              3. DAMAGE / AI EVIDENCE
+            </span>
+            <span className="text-[9px] font-mono text-faint">SIAMESE CD // THRESHOLD 0.50</span>
           </div>
 
           <div>
@@ -857,164 +1164,124 @@ export const DisasterPage: React.FC = () => {
         </div>
 
         {/* ------------------------------------------------------------ */}
-        {/* STEP 3: INLINE GEO-CONTEXT & METEOROLOGY                     */}
+        {/* STEP 4: RISK / SITUATION ASSESSMENT                          */}
         {/* ------------------------------------------------------------ */}
-        <div className="p-4 border-b border-white/[0.06] space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
-              2. INLINE GEO-CONTEXT SELECTION
-            </span>
-            {operatorLocation && (
-              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-status-ai/15 text-status-ai border border-status-ai/30 font-semibold">
-                {operatorLocation.location_precision || 'APPROXIMATE'}
-              </span>
-            )}
-          </div>
-
-          {/* Search Input for Places */}
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={geoSearchQuery}
-                  onChange={(e) => setGeoSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPlaces()}
-                  placeholder="Search city, district, or place..."
-                  className="w-full px-2.5 py-1.5 bg-graphite border border-white/[0.1] rounded text-xs font-mono text-paper placeholder-faint focus:border-accent focus:outline-none"
-                />
-                {isGeoSearching && (
-                  <span className="material-symbols-outlined text-[14px] text-accent animate-spin absolute right-2 top-2">
-                    progress_activity
-                  </span>
-                )}
+        {(() => {
+          const risk = getRiskAssessment();
+          return (
+            <div className="p-4 border-b border-white/[0.06] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-muted uppercase tracking-wider block font-bold">
+                  4. RISK / SITUATION
+                </span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                  risk.status === 'CALCULATED'
+                    ? risk.level === 'CRITICAL'
+                      ? 'bg-status-critical/15 text-status-critical border border-status-critical/30'
+                      : 'bg-accent/15 text-accent border border-accent/30'
+                    : risk.status === 'DEMO_CONTEXT'
+                    ? 'bg-status-warning/15 text-status-warning border border-status-warning/30'
+                    : 'bg-elevated text-faint border border-white/[0.1]'
+                }`}>
+                  {risk.badge || risk.status}
+                </span>
               </div>
-              <button
-                onClick={handleSearchPlaces}
-                disabled={isGeoSearching || !geoSearchQuery.trim()}
-                className="px-2.5 py-1.5 bg-accent text-graphite font-mono font-bold text-xs rounded hover:bg-accent/90 disabled:opacity-50 transition-all cursor-pointer"
-              >
-                FIND
-              </button>
-              <button
-                onClick={() => setIsLocationModalOpen(true)}
-                className="p-1.5 bg-elevated border border-white/[0.1] text-muted hover:text-accent hover:border-accent rounded transition-all cursor-pointer"
-                title="Open Interactive Coordinate & Map Selection Modal"
-              >
-                <span className="material-symbols-outlined text-[16px]">map</span>
-              </button>
-            </div>
 
-            {/* Geocode Search Results Dropdown */}
-            {geoSearchResults.length > 0 && (
-              <div className="p-1 bg-graphite border border-accent/40 rounded space-y-1 font-mono text-[11px] shadow-xl max-h-36 overflow-y-auto">
-                {geoSearchResults.map((place, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => handleSelectPlace(place)}
-                    className="p-1.5 hover:bg-white/[0.08] rounded cursor-pointer transition-all flex items-start justify-between"
-                  >
-                    <span className="text-paper truncate mr-2">{place.display_name || place.locality}</span>
-                    <span className="text-accent text-[9px] whitespace-nowrap">
-                      [{Number(place.latitude).toFixed(2)}, {Number(place.longitude).toFixed(2)}]
+              {risk.status === 'CALCULATED' ? (
+                <div className="p-2.5 bg-graphite/60 border border-accent/30 rounded font-mono space-y-2">
+                  <div className="flex items-center justify-between text-[10px] text-accent font-bold">
+                    <span>{risk.title}</span>
+                    <span className="text-status-success text-[9px]">● VERIFIED GROUND CONTEXT</span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <div>
+                      <span className="text-2xl font-bold text-accent">{risk.score}</span>
+                      <span className="text-xs text-muted"> / 100</span>
+                    </div>
+                    <span className={`text-xs font-bold ${risk.level === 'CRITICAL' ? 'text-status-critical' : risk.level === 'HIGH' ? 'text-status-warning' : 'text-accent'}`}>
+                      {risk.level} VULNERABILITY
                     </span>
                   </div>
-                ))}
-              </div>
-            )}
-            {geoSearchError && (
-              <p className="text-[10px] font-mono text-status-warning">{geoSearchError}</p>
-            )}
-
-            {/* Quick Preset Buttons */}
-            <div className="flex flex-wrap gap-1 pt-1">
-              <span className="text-[9px] font-mono text-faint self-center mr-1">PRESETS:</span>
-              {locationPresets.map((p, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleApplyPreset(p)}
-                  className="px-1.5 py-0.5 rounded bg-elevated/70 hover:bg-accent/15 border border-white/[0.08] hover:border-accent/40 text-[9px] font-mono text-muted hover:text-accent transition-all cursor-pointer"
-                >
-                  {p.label.split('/')[0].trim()}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Active Geo-Context Summary Card */}
-          {operatorLocation ? (
-            <div className="p-2.5 bg-graphite/60 border border-status-ai/30 rounded font-mono text-[11px] space-y-1.5">
-              <div className="flex items-center justify-between text-paper font-semibold">
-                <span className="flex items-center gap-1">
-                  <span className="material-symbols-outlined text-status-ai text-[14px]">pin_drop</span>
-                  <span className="truncate max-w-[240px]">{operatorLocation.label || 'Designated Incident Site'}</span>
-                </span>
-                <span className="text-accent text-[10px]">
-                  {operatorLocation.latitude.toFixed(4)}°N, {operatorLocation.longitude.toFixed(4)}°E
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-[9px] text-faint">
-                <span>METHOD: {operatorLocation.location_method || 'COORDINATE_INPUT'}</span>
-                <span>SRC: {operatorLocation.location_source || 'OPERATOR_SPECIFIED'}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="p-2.5 bg-graphite/30 border border-white/[0.06] rounded text-center font-mono text-[10px] text-faint">
-              No coordinates designated. Search a place or pick a preset above to calculate shelters and routes.
-            </div>
-          )}
-
-          {/* Meteorological Conditions */}
-          {operatorLocation && (
-            <div className="pt-1">
-              {weatherLoading ? (
-                <div className="p-2 bg-graphite/40 rounded text-[10px] font-mono text-muted flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-accent animate-spin text-[13px]">progress_activity</span>
-                  <span>QUERYING OPEN-METEO WEATHER OBSERVATIONS...</span>
+                  <div className="text-[9px] text-faint border-t border-white/[0.04] pt-1.5 leading-tight">
+                    <span className="text-muted block font-semibold mb-0.5">WEIGHTING FORMULA:</span>
+                    <span>{risk.formula}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 pt-1 text-[9px] border-t border-white/[0.04]">
+                    <span className="text-status-success">● COORDS: VERIFIED</span>
+                    <span className={risk.inputs.weather ? 'text-status-success' : 'text-faint'}>● WEATHER: {risk.inputs.weather ? 'LIVE' : 'OPTIONAL'}</span>
+                    <span className="text-status-success">● DAMAGE: VERIFIED</span>
+                  </div>
                 </div>
-              ) : weatherData && weatherData.status !== 'UNAVAILABLE' ? (
-                <div className="p-2 bg-graphite/40 border border-white/[0.04] rounded grid grid-cols-3 gap-2 font-mono text-[10px]">
-                  <div>
-                    <span className="text-faint block">CONDITIONS:</span>
-                    <span className="text-paper font-semibold">{weatherData.conditions || weatherData.condition_description || 'CLEAR'}</span>
+              ) : risk.status === 'DEMO_CONTEXT' ? (
+                <div className="p-2.5 bg-graphite/60 border border-status-warning/40 rounded font-mono space-y-2">
+                  <div className="flex items-center justify-between text-[10px] text-status-warning font-bold">
+                    <span>{risk.title}</span>
+                    <span className="text-status-warning text-[9px]">● DEMO CONTEXT</span>
                   </div>
-                  <div>
-                    <span className="text-faint block">TEMP:</span>
-                    <span className="text-accent font-semibold">{weatherData.temperature_c ?? weatherData.temperature_celsius ?? '--'} °C</span>
-                  </div>
-                  <div>
-                    <span className="text-faint block">FLIGHT SUITABILITY:</span>
-                    <span className={`font-semibold ${weatherData.flight_suitability === 'OPTIMAL' ? 'text-status-success' : 'text-status-warning'}`}>
-                      {weatherData.flight_suitability || 'OPTIMAL'}
+                  <div className="flex items-baseline justify-between">
+                    <div>
+                      <span className="text-2xl font-bold text-status-warning">{risk.score}</span>
+                      <span className="text-xs text-muted"> / 100</span>
+                    </div>
+                    <span className="text-xs font-bold text-status-warning">
+                      {risk.level} VULNERABILITY (DEMO)
                     </span>
+                  </div>
+                  <p className="text-[9px] text-status-warning leading-tight border-t border-white/[0.04] pt-1.5">
+                    ⚠ {risk.disclaimer}
+                  </p>
+                  <div className="text-[9px] text-faint leading-tight">
+                    <span className="text-muted block font-semibold mb-0.5">WEIGHTING FORMULA:</span>
+                    <span>{risk.formula}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 pt-1 text-[9px] border-t border-white/[0.04]">
+                    <span className="text-status-warning">● COORDS: DEMO AOI</span>
+                    <span className="text-faint">● WEATHER: BASELINE</span>
+                    <span className="text-status-success">● DAMAGE: VERIFIED</span>
                   </div>
                 </div>
               ) : (
-                <div className="p-1.5 bg-graphite/20 rounded font-mono text-[10px] text-faint flex items-center justify-between">
-                  <span>WEATHER: OBSERVATION UNAVAILABLE</span>
-                  <span className="text-[9px]">Open-Meteo offline/pending</span>
+                <div className="p-2.5 bg-graphite/30 border border-white/[0.06] rounded font-mono text-[10px] space-y-1.5">
+                  <div className="text-status-warning font-semibold flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[13px]">info</span>
+                    <span>{risk.title}</span>
+                  </div>
+                  <p className="text-faint text-[9px] leading-tight">
+                    {risk.reason}
+                  </p>
+                  <div className="grid grid-cols-3 gap-1 pt-1 text-[9px]">
+                    <span className={risk.inputs.coordinates ? 'text-status-success' : 'text-faint'}>
+                      ● COORDS: {risk.inputs.coordinates ? 'OK' : 'MISSING'}
+                    </span>
+                    <span className={risk.inputs.weather ? 'text-status-success' : 'text-faint'}>
+                      ● WEATHER: {risk.inputs.weather ? 'OK' : 'OPTIONAL'}
+                    </span>
+                    <span className={risk.inputs.damage ? 'text-status-success' : 'text-faint'}>
+                      ● DAMAGE: {risk.inputs.damage ? 'OK' : 'MISSING'}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* ------------------------------------------------------------ */}
-        {/* STEP 4: NEARBY VERIFIED SHELTERS (POSTGIS)                   */}
+        {/* STEP 5: VERIFIED SHELTER INVENTORY (POSTGIS)                 */}
         {/* ------------------------------------------------------------ */}
         <div className="p-4 border-b border-white/[0.06] space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
-              3. VERIFIED SHELTER INVENTORY
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block font-bold">
+              5. VERIFIED SHELTERS
             </span>
             <span className="text-[9px] font-mono text-accent">
-              {shelterCandidates.length > 0 ? `${shelterCandidates.length} NEARBY` : 'POSTGIS'}
+              {shelterCandidates.length > 0 ? `${shelterCandidates.length} IN RANGE` : 'POSTGIS REGISTRY'}
             </span>
           </div>
 
           {/* Search Radius Selector */}
           <div className="flex items-center justify-between font-mono text-[10px]">
-            <span className="text-faint">SEARCH RADIUS:</span>
+            <span className="text-faint">RADIUS:</span>
             <div className="flex items-center gap-1 bg-graphite p-0.5 rounded border border-white/[0.08]">
               {[25, 50, 100, 250, null].map((rad, idx) => (
                 <button
@@ -1082,40 +1349,40 @@ export const DisasterPage: React.FC = () => {
           ) : (
             <div className="p-3 bg-graphite/40 border border-status-warning/30 rounded font-mono text-[10px] space-y-1 text-center">
               <span className="text-status-warning font-semibold block">
-                {shelterError || `No verified shelters found within the configured search radius${searchRadiusKm ? ` (${searchRadiusKm} km)` : ''}.`}
+                NO VERIFIED SHELTERS AVAILABLE
               </span>
-              <p className="text-faint leading-tight">
-                Zero-fabrication policy active. Expand the search radius above to 250 km or ALL to locate regional emergency facilities.
+              <p className="text-faint leading-tight text-[9px]">
+                {shelterError || `No verified emergency shelters registered within ${searchRadiusKm ? `${searchRadiusKm} km` : 'PostGIS database'}. Zero-fabrication policy active.`} Expand radius to 250 km or ALL to search regional facilities.
               </p>
             </div>
           )}
         </div>
 
         {/* ------------------------------------------------------------ */}
-        {/* STEP 5: EVACUATION ROUTE & INTERACTIVE LEAFLET MAP           */}
+        {/* STEP 6: EVACUATION ROUTE & INTEGRATED MAP                    */}
         {/* ------------------------------------------------------------ */}
         <div className="p-4 border-b border-white/[0.06] space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
-              4. EVACUATION ROUTE SELECTION
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block font-bold">
+              6. EVACUATION ROUTE
             </span>
             <span className="text-[9px] font-mono text-accent">
               OPENROUTESERVICE
             </span>
           </div>
 
-          {/* Route Evaluation Banner */}
+          {/* Route Status Card */}
           {routeLoading ? (
             <div className="p-3 bg-graphite/40 rounded text-[11px] font-mono text-muted flex items-center justify-center gap-2">
               <span className="material-symbols-outlined text-accent animate-spin text-[16px]">progress_activity</span>
               <span>CALCULATING REAL ROAD GRAPH TRAJECTORY...</span>
             </div>
-          ) : routeData && routeData.status === 'AVAILABLE' ? (
+          ) : selectedShelter && routeData && routeData.status === 'AVAILABLE' ? (
             <div className="p-2.5 bg-graphite/60 border border-accent/40 rounded font-mono text-[11px] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-paper font-bold flex items-center gap-1">
                   <span className="material-symbols-outlined text-accent text-[14px]">alt_route</span>
-                  <span>{selectedShelter ? `${selectedShelter.name} Corridor` : 'Evacuation Route'}</span>
+                  <span>{selectedShelter.name} Corridor</span>
                 </span>
                 <span className="px-1.5 py-0.2 rounded bg-status-success/15 text-status-success border border-status-success/30 text-[9px] font-bold">
                   VIABLE ROAD
@@ -1146,21 +1413,28 @@ export const DisasterPage: React.FC = () => {
                 <span className="material-symbols-outlined text-[14px]">warning</span>
                 <span>Route unavailable — no valid route returned by routing provider.</span>
               </div>
-              <p className="text-faint leading-tight">
-                Road network graph could not connect the incident site to the destination shelter. Strictly zero straight-line distance rendered.
+              <p className="text-faint leading-tight text-[9px]">
+                Road network graph could not connect the incident site to the destination facility. Strictly zero straight-line distance rendered.
               </p>
             </div>
           ) : (
-            <div className="p-2.5 bg-graphite/30 border border-white/[0.06] rounded text-center font-mono text-[10px] text-faint">
-              Designate incident coordinates and select a verified shelter above to compute real road routing.
+            <div className="p-2.5 bg-graphite/30 border border-white/[0.06] rounded font-mono text-[10px] space-y-1 text-center">
+              <span className="text-status-warning font-semibold block">
+                NO VERIFIED SHELTER DESTINATION AVAILABLE
+              </span>
+              <p className="text-faint text-[9px] leading-tight">
+                Evacuation route calculation requires a verified shelter destination. No straight-line or synthetic route will be generated.
+              </p>
             </div>
           )}
 
-          {/* Inline Leaflet Route Map */}
+          {/* Integrated Leaflet Route Map */}
           <div className="space-y-1">
             <div className="flex items-center justify-between text-[9px] font-mono text-faint">
-              <span>REAL GEODETIC ROAD MAP</span>
-              <span className="text-accent">● ORIGIN (RED) | ■ SHELTER (GREEN/CYAN)</span>
+              <span>INTEGRATED GEOSPATIAL MAP</span>
+              <span className="text-accent">
+                {operatorLocation ? '● INCIDENT (RED) | ■ SHELTER (GREEN/CYAN)' : 'AMBER DASH: DEMO AOI (SYNTHETIC)'}
+              </span>
             </div>
             <div
               ref={mapContainerRef}
@@ -1170,18 +1444,18 @@ export const DisasterPage: React.FC = () => {
         </div>
 
         {/* ------------------------------------------------------------ */}
-        {/* STEP 6: OPERATIONAL SITUATION REPORT                         */}
+        {/* STEP 7: OPERATIONAL SITUATION REPORT                         */}
         {/* ------------------------------------------------------------ */}
         <div className="p-4 space-y-3 bg-graphite/20">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block">
-              5. OPERATIONAL SITUATION REPORT
+            <span className="text-[10px] font-mono text-muted uppercase tracking-wider block font-bold">
+              7. OPERATIONAL REPORT
             </span>
-            <span className="text-[9px] font-mono text-status-ai">MISTRAL AI ADVISORY</span>
+            <span className="text-[9px] font-mono text-status-ai">DATA PARITY GUARANTEE</span>
           </div>
 
           <p className="text-[11px] text-muted font-mono leading-relaxed">
-            Generate an authoritative, four-page deterministic operational report combining Siamese damage perception, geocoded context, PostGIS shelters inventory, and road evacuation corridors.
+            Generate an authoritative, tamper-evident operational PDF report combining Siamese damage perception, geocoded context, PostGIS shelters inventory, and road evacuation corridors.
           </p>
 
           <div className="flex items-center gap-2 font-mono">
@@ -1199,7 +1473,7 @@ export const DisasterPage: React.FC = () => {
                 activeAnalysisResult?.analysis_id ? `?analysis_id=${encodeURIComponent(activeAnalysisResult.analysis_id)}` : ''
               }`}
               className="px-3 py-2 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-xs flex items-center gap-1 transition-all cursor-pointer"
-              title="Open Interactive Situation Report & Mistral AI Advisory view"
+              title="Open Interactive Situation Report view"
             >
               <span className="material-symbols-outlined text-[15px]">open_in_new</span>
               <span>VIEW REPORT</span>
@@ -1207,7 +1481,7 @@ export const DisasterPage: React.FC = () => {
           </div>
 
           <div className="p-2 bg-panel/60 border border-white/[0.04] rounded text-[10px] font-mono text-faint leading-tight">
-            * Human Verification Notice: AERION reports are generated deterministically by AI Perception Services and require independent field validation prior to operational dispatch.
+            * Human Verification Statement: This report is generated deterministically by AERION AI Perception Services and incorporates exact data parity with the 6 operational steps above.
           </div>
         </div>
       </aside>

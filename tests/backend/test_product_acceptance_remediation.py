@@ -154,12 +154,11 @@ class TestBugFSafeRouteFunctionality(unittest.TestCase):
         self.assertIn("https://api.heigit.org", geospatial_code)
 
     def test_evacuation_page_has_leaflet_map_and_shelters(self):
-        """Verify EvacuationPage.tsx includes Leaflet map and queries real shelters."""
-        evac_code = Path("frontend/src/pages/EvacuationPage.tsx").read_text(encoding="utf-8")
-        self.assertIn("import L from 'leaflet';", evac_code)
-        self.assertIn("sheltersApi.list", evac_code)
-        self.assertIn("externalApi.getRoute", evac_code)
-        self.assertIn("DISASTER LOCATION REQUIRED", evac_code)
+        """Verify DisasterPage.tsx includes Leaflet map and queries real shelters (unified evacuation routing)."""
+        disaster_code = Path("frontend/src/pages/DisasterPage.tsx").read_text(encoding="utf-8")
+        self.assertIn("import L from 'leaflet';", disaster_code)
+        self.assertIn("sheltersApi.list", disaster_code)
+        self.assertIn("externalApi.getRoute", disaster_code)
 
 
 class TestBugGEvidenceDownloads(unittest.TestCase):

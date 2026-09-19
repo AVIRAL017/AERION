@@ -113,6 +113,14 @@ def configure_cors(app: FastAPI, settings: AERIONSettings) -> None:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+        expose_headers=[
+            "X-Request-ID",
+            "X-RateLimit-Limit",
+            "X-RateLimit-Remaining",
+            "X-RateLimit-Reset",
+            "Content-Disposition",
+            "Content-Length",
+            "Accept-Ranges",
+        ],
         max_age=600,
     )

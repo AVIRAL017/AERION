@@ -11,8 +11,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: '/image', icon: 'image_search', label: 'Image Perception' },
   { to: '/border', icon: 'radar', label: 'Border Surveillance' },
-  { to: '/disaster', icon: 'layers', label: 'Damage Workspace' },
-  { to: '/disaster/evacuation', icon: 'alt_route', label: 'Evacuation & Shelters' },
+  { to: '/disaster', icon: 'layers', label: 'Disaster Workspace' },
   { to: '/usage', icon: 'data_usage', label: 'Usage & Metering' },
   { to: '/status', icon: 'monitor_heart', label: 'System Readiness' },
 ];

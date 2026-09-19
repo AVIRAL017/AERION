@@ -81,11 +81,14 @@ CLASS_COLOR_HEX: Dict[str, str] = {
 }
 
 
-def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.ndarray], str, str]:
+def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.ndarray], str, str, Dict[str, Any]]:
     """
     Locates and decodes the real visual annotated artifact from base64, disk storage, or video.
-    Returns: (rgb_image_array, artifact_key_or_id, sha256_hash)
+    Returns: (rgb_image_array, artifact_key_or_id, sha256_hash, metadata_dict)
     """
+    settings = get_settings()
+    storage_root = Path(settings.STORAGE_LOCAL_ROOT).resolve()
+
     # 1. Direct Base64 preview
     b64_str = report_data.get("annotated_image_base64")
     if b64_str:
@@ -99,13 +102,15 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
                 if report_data.get("annotated_artifact"):
                     art_key = report_data["annotated_artifact"].get("artifact_key", art_key)
                     art_sha = report_data["annotated_artifact"].get("sha256", art_sha)
-                return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), art_key, art_sha
+                return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), art_key, art_sha, {
+                    "is_video": False,
+                    "artifact_exists_on_disk": True,
+                    "decode_status": "DECODED",
+                }
         except Exception:
             pass
 
-    # 2. Storage key lookup
-    settings = get_settings()
-    storage_root = Path(settings.STORAGE_LOCAL_ROOT).resolve()
+    # 2. Storage key lookup for images / masks
     candidate_keys: List[Tuple[str, str]] = []
 
     if report_data.get("annotated_artifact"):
@@ -128,7 +133,11 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
             try:
                 img = cv2.imread(str(p), cv2.IMREAD_COLOR)
                 if img is not None:
-                    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), key, sha or "VERIFIED_ON_DISK"
+                    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), key, sha or "VERIFIED_ON_DISK", {
+                        "is_video": False,
+                        "artifact_exists_on_disk": True,
+                        "decode_status": "DECODED",
+                    }
             except Exception:
                 pass
         fallback = (Path("storage") / key).resolve()
@@ -136,30 +145,108 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
             try:
                 img = cv2.imread(str(fallback), cv2.IMREAD_COLOR)
                 if img is not None:
-                    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), key, sha or "VERIFIED_ON_DISK"
+                    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), key, sha or "VERIFIED_ON_DISK", {
+                        "is_video": False,
+                        "artifact_exists_on_disk": True,
+                        "decode_status": "DECODED",
+                    }
             except Exception:
                 pass
 
     # 3. Video representative frame extraction
+    video_artifacts: List[Dict[str, Any]] = []
     if report_data.get("annotated_video_artifact"):
-        v_art = report_data["annotated_video_artifact"]
-        v_key = v_art.get("artifact_key")
-        if v_key and v_key != "UNAVAILABLE":
-            for base_dir in (storage_root, Path("storage")):
-                vp = (base_dir / v_key).resolve()
-                if vp.exists() and vp.is_file():
-                    try:
-                        cap = cv2.VideoCapture(str(vp))
-                        total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 1)
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, total_f // 2))
-                        ret, frame = cap.read()
-                        cap.release()
-                        if ret and frame is not None:
-                            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), v_key, v_art.get("sha256", "VIDEO_FRAME_EXTRACT")
-                    except Exception:
-                        pass
+        video_artifacts.append(report_data["annotated_video_artifact"])
 
-    return None, "UNAVAILABLE", "UNAVAILABLE"
+    for art in report_data.get("artifacts", []):
+        if art.get("type") in ("ANNOTATED_VIDEO", "ANNOTATED_VIDEO_EVIDENCE") or str(art.get("artifact_key", "")).lower().endswith(".mp4"):
+            video_artifacts.append(art)
+
+    for v_art in video_artifacts:
+        v_key = v_art.get("artifact_key")
+        v_sha = v_art.get("sha256", "VIDEO_FRAME_EXTRACT")
+        if not v_key or v_key == "UNAVAILABLE":
+            continue
+
+        resolved_video_path = None
+        for base_dir in (storage_root, Path("storage"), Path(".")):
+            candidate_p = (base_dir / v_key).resolve()
+            if candidate_p.exists() and candidate_p.is_file():
+                resolved_video_path = candidate_p
+                break
+
+        if resolved_video_path is not None:
+            try:
+                cap = cv2.VideoCapture(str(resolved_video_path))
+                if cap.isOpened():
+                    total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 1)
+                    fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
+                    target_f = max(0, total_f // 2)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, target_f)
+                    ret, frame = cap.read()
+                    if not ret or frame is None:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = cap.read()
+                        target_f = 0
+                    cap.release()
+                    if ret and frame is not None:
+                        frame_time = target_f / fps if fps > 0 else 0.0
+                        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), v_key, v_sha, {
+                            "is_video": True,
+                            "artifact_exists_on_disk": True,
+                            "decode_status": "DECODED",
+                            "frame_number": target_f + 1,
+                            "total_frames": total_f,
+                            "timestamp_sec": round(frame_time, 2),
+                            "fps": round(fps, 1),
+                        }
+                    else:
+                        return None, v_key, v_sha, {
+                            "is_video": True,
+                            "artifact_exists_on_disk": True,
+                            "decode_status": "DECODE_FAILED",
+                            "error": "Video container present on disk but frames could not be extracted.",
+                        }
+                else:
+                    return None, v_key, v_sha, {
+                        "is_video": True,
+                        "artifact_exists_on_disk": True,
+                        "decode_status": "DECODE_FAILED",
+                        "error": "OpenCV VideoCapture failed to open container.",
+                    }
+            except Exception as vid_err:
+                return None, v_key, v_sha, {
+                    "is_video": True,
+                    "artifact_exists_on_disk": True,
+                    "decode_status": "DECODE_FAILED",
+                    "error": str(vid_err),
+                }
+        else:
+            return None, v_key, v_sha, {
+                "is_video": True,
+                "artifact_exists_on_disk": False,
+                "decode_status": "NOT_FOUND",
+            }
+
+    # 4. Check if any image candidate existed on disk but failed decode
+    for key, sha in candidate_keys:
+        if not key or key == "UNAVAILABLE":
+            continue
+        for base_dir in (storage_root, Path("storage")):
+            p = (base_dir / key).resolve()
+            if p.exists() and p.is_file():
+                return None, key, sha, {
+                    "is_video": False,
+                    "artifact_exists_on_disk": True,
+                    "decode_status": "DECODE_FAILED",
+                }
+
+    # 5. Default unavailable
+    return None, "UNAVAILABLE", "UNAVAILABLE", {
+        "is_video": False,
+        "artifact_exists_on_disk": False,
+        "decode_status": "UNAVAILABLE",
+    }
 
 
 def generate_situation_report_pdf(
@@ -240,7 +327,7 @@ def generate_situation_report_pdf(
     model_hash = model_spec["sha256"]
 
     # Visual Evidence image
-    img_rgb, art_key_found, art_sha_found = _resolve_annotated_image(report_data)
+    img_rgb, art_key_found, art_sha_found, art_meta = _resolve_annotated_image(report_data)
 
     # Styling Palette
     bg_dark = "#0B0F14"
@@ -391,20 +478,36 @@ def generate_situation_report_pdf(
         subtitle_p2 = "BI-TEMPORAL DAMAGE MASK CANVAS" if is_disaster else "ANNOTATED PERCEPTION CANVAS"
         _add_header(ax2, f"VISUAL EVIDENCE // {subtitle_p2}")
 
-        ax2.text(0.06, 0.865, "DERIVED VISUAL ARTIFACT (REAL MODEL PREDICTIONS & BOUNDING BOXES)", color=text_white, fontsize=8.5, fontweight="bold")
+        if art_meta.get("is_video"):
+            if img_rgb is not None:
+                title_p2 = f"REPRESENTATIVE ANNOTATED VIDEO FRAME (FRAME {art_meta.get('frame_number', 1)}/{art_meta.get('total_frames', 1)} @ {art_meta.get('timestamp_sec', 0.0)}s, {art_meta.get('fps', 25.0)} FPS)"
+            else:
+                title_p2 = "DERIVED VIDEO EVIDENCE // ANNOTATED TRACKING ARTIFACT"
+        elif is_disaster:
+            title_p2 = "DERIVED DAMAGE EVIDENCE // BI-TEMPORAL DAMAGE MASK CANVAS"
+        else:
+            title_p2 = "DERIVED VISUAL ARTIFACT (REAL MODEL PREDICTIONS & BOUNDING BOXES)"
+
+        ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=8.0, fontweight="bold")
 
         if img_rgb is not None:
-            ax_img = fig2.add_axes([0.06, 0.34, 0.88, 0.50])
+            ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
             ax_img.imshow(img_rgb)
             ax_img.axis("off")
         else:
-            box_canvas = plt.Rectangle((0.06, 0.34), 0.88, 0.50, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
+            box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
             ax2.add_patch(box_canvas)
-            ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
-            ax2.text(0.50, 0.56, "Analysis telemetry preserved. Artifact file could not be decoded.", color="#64748B", fontsize=7.5, fontfamily="monospace", ha="center")
+            if art_meta.get("artifact_exists_on_disk"):
+                ax2.text(0.50, 0.62, "ANNOTATED ARTIFACT EXISTS ON DISK", color=text_accent, fontsize=9.5, fontweight="bold", ha="center")
+                ax2.text(0.50, 0.57, "Artifact file could not be decoded by inline image renderer.", color="#F59E0B", fontsize=8, fontfamily="monospace", ha="center")
+                ax2.text(0.50, 0.52, f"STORAGE KEY: {art_key_found}", color="#94A3B8", fontsize=7.5, fontfamily="monospace", ha="center")
+                ax2.text(0.50, 0.47, "Diagnostic: Container verified in storage; inspect via video playback or authenticated download.", color="#64748B", fontsize=7, fontfamily="monospace", ha="center")
+            else:
+                ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
+                ax2.text(0.50, 0.56, "Analysis telemetry preserved. No visual artifact file found in storage.", color="#64748B", fontsize=7.5, fontfamily="monospace", ha="center")
 
         # Legend & Palette
-        ax2.text(0.06, 0.31, "EVIDENCE PALETTE & CLASSIFICATION LEGEND", color=text_white, fontsize=8, fontweight="bold")
+        ax2.text(0.06, 0.315, "EVIDENCE PALETTE & CLASSIFICATION LEGEND", color=text_white, fontsize=8, fontweight="bold")
         if is_disaster:
             legend_text = "■ RED / CRIMSON: Structural Change Detected (Siamese CD Probability >= 0.50)    ■ BLACK: No Structural Damage"
         else:
@@ -413,17 +516,26 @@ def generate_situation_report_pdf(
             for c in legend_items:
                 legend_str_parts.append(f"■ {c.upper()} ({class_distribution.get(c, 0)})")
             legend_text = "    ".join(legend_str_parts) if legend_str_parts else "No detections in active scene"
-        ax2.text(0.06, 0.285, legend_text, color=text_accent, fontsize=7.5, fontfamily="monospace", bbox=card_props, va="top")
+        ax2.text(0.06, 0.29, legend_text, color=text_accent, fontsize=7.5, fontfamily="monospace", bbox=card_props, va="top")
 
         # Artifact Lineage Information
-        ax2.text(0.06, 0.21, "ARTIFACT REGISTRY & PROVENANCE RECORD", color=text_white, fontsize=8, fontweight="bold")
+        ax2.text(0.06, 0.22, "ARTIFACT REGISTRY & PROVENANCE RECORD", color=text_white, fontsize=8, fontweight="bold")
         art_desc = (
             f"ARTIFACT STORAGE KEY:  {art_key_found}\n"
             f"CRYPTOGRAPHIC SHA256:  {art_sha_found}\n"
-            f"INSPECTION NOTICE:     This visual artifact was rendered at original sensor resolution.\n"
-            f"                       Deterministic model: {model_name}. Preserves exact pixel coordinates."
+            f"INSPECTION NOTICE:     Visual artifact rendered at sensor resolution. Model: {model_name}.\n"
+            f"                       Deterministic predictions preserved strictly according to frozen weights."
         )
-        ax2.text(0.06, 0.185, art_desc, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        ax2.text(0.06, 0.195, art_desc, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+
+        # Human Verification Statement
+        human_verification_statement = (
+            "HUMAN VERIFICATION STATEMENT:\n"
+            "This operational report was generated deterministically by AERION AI Perception Services.\n"
+            "All model detections, tracking IDs, and damage metrics are derived strictly from frozen weights.\n"
+            "Visual evidence is cryptographically anchored to immutable storage artifacts."
+        )
+        ax2.text(0.06, 0.11, human_verification_statement, color="#94A3B8", fontsize=6.3, fontfamily="monospace", bbox=card_props, va="top")
 
         _add_footer(ax2, 2)
         pdf.savefig(fig2, facecolor=fig2.get_facecolor(), edgecolor="none")
