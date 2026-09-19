@@ -64,6 +64,8 @@ class VideoAnnotationResult:
     duration_seconds: float
     unique_tracks_count: int
     total_detections_count: int
+    representative_frame_index: int = 1
+    representative_frame_timestamp: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -80,6 +82,8 @@ class VideoAnnotationResult:
             "duration_seconds": round(self.duration_seconds, 2),
             "unique_tracks_count": self.unique_tracks_count,
             "total_detections_count": self.total_detections_count,
+            "representative_frame_index": self.representative_frame_index,
+            "representative_frame_timestamp": round(self.representative_frame_timestamp, 2),
         }
 
 
@@ -108,6 +112,8 @@ class VideoAnnotationService:
         total_source_frames: int,
         zone_polygon: Optional[Sequence[Tuple[float, float]]] = None,
         tracker_history: Optional[Dict[int, List[Dict[str, float]]]] = None,
+        processed_frame_idx: Optional[int] = None,
+        total_processed_frames: Optional[int] = None,
     ) -> np.ndarray:
         """
         Annotates a single frame using actual perception results:
@@ -135,7 +141,8 @@ class VideoAnnotationService:
 
         # 3. Render Detections
         if is_zero_detection:
-            self._render_zero_detection_watermark(canvas, w, h, frame_idx, font_scale, font_thickness)
+            display_frame = (processed_frame_idx + 1) if processed_frame_idx is not None else (frame_idx + 1)
+            self._render_zero_detection_watermark(canvas, w, h, display_frame, font_scale, font_thickness)
         else:
             # Abbreviation mapping for compact high-density presentation
             abbrev_map = {
@@ -177,6 +184,8 @@ class VideoAnnotationService:
             len(analysis_result.tracks) if analysis_result.tracks else 0,
             font_scale,
             font_thickness,
+            processed_frame_idx=processed_frame_idx,
+            total_processed_frames=total_processed_frames,
         )
 
         return canvas
@@ -311,6 +320,8 @@ class VideoAnnotationService:
         active_tracks: int,
         font_scale: float,
         font_thickness: int,
+        processed_frame_idx: Optional[int] = None,
+        total_processed_frames: Optional[int] = None,
     ) -> None:
         """Renders top telemetry bar across canvas width."""
         bar_h = max(26, int(canvas.shape[0] * 0.04))
@@ -318,8 +329,16 @@ class VideoAnnotationService:
         cv2.rectangle(overlay, (0, 0), (w, bar_h), (7, 9, 12), -1)
         cv2.addWeighted(overlay, 0.85, canvas, 0.15, 0, canvas)
 
+        if processed_frame_idx is not None and total_processed_frames is not None:
+            if processed_frame_idx != frame_idx or total_processed_frames != total_frames:
+                frame_label = f"FRAME {processed_frame_idx + 1}/{total_processed_frames} (SRC: {frame_idx + 1}/{total_frames})"
+            else:
+                frame_label = f"FRAME {processed_frame_idx + 1}/{total_processed_frames}"
+        else:
+            frame_label = f"FRAME {frame_idx + 1}/{total_frames}"
+
         line_text = (
-            f"AERION BORDER SURVEILLANCE  |  FRAME {frame_idx + 1}/{total_frames}  |  "
+            f"AERION BORDER SURVEILLANCE  |  {frame_label}  |  "
             f"DETECTIONS: {detection_count}  |  ACTIVE TRACKS: {active_tracks}  |  "
             f"FROZEN YOLOv8 + BYTETRACK"
         )
@@ -376,7 +395,7 @@ class VideoAnnotationService:
     ) -> VideoAnnotationResult:
         """
         Stores the completed video into LocalArtifactStorage, computes SHA-256,
-        and returns immutable VideoAnnotationResult.
+        and returns immutable VideoAnnotationResult with canonical representative frame metadata.
         """
         if not temp_video_path.exists() or temp_video_path.stat().st_size == 0:
             raise ValidationError(
@@ -393,6 +412,9 @@ class VideoAnnotationService:
         )
 
         duration = (frame_count / fps) if fps > 0 else 0.0
+        # Representative frame index is mid-point of output video frames (1-indexed)
+        rep_frame_idx = max(1, (frame_count // 2) + 1) if frame_count > 1 else 1
+        rep_timestamp = ((rep_frame_idx - 1) / fps) if fps > 0 else 0.0
 
         return VideoAnnotationResult(
             artifact_key=storage_key,
@@ -408,4 +430,6 @@ class VideoAnnotationService:
             duration_seconds=duration,
             unique_tracks_count=unique_tracks,
             total_detections_count=total_detections,
+            representative_frame_index=rep_frame_idx,
+            representative_frame_timestamp=round(rep_timestamp, 2),
         )

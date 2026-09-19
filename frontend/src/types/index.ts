@@ -285,6 +285,12 @@ export interface AnnotatedVideoArtifact {
   duration_seconds: number;
   unique_tracks_count: number;
   total_detections_count: number;
+  storage_key?: string;
+  filename?: string;
+  byte_size?: number;
+  duration?: number;
+  representative_frame_index?: number;
+  representative_frame_timestamp?: number;
 }
 
 export interface LocationProvenance {

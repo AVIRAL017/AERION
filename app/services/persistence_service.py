@@ -14,6 +14,7 @@ Invariants:
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import logging
 import uuid
@@ -22,6 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
 
 from aerion_runtime_contracts import (
     AERIONAnalysisResult,
@@ -189,11 +192,57 @@ class AnalysisPersistenceService:
 
             # 3. Create AnalysisResult row with complete visual artifact linkage
             payload_to_store = dict(raw_payload_override) if raw_payload_override else (result.to_dict() if hasattr(result, "to_dict") else dict(result))
-            if annotated_artifact_key and "annotated_artifact" not in payload_to_store:
-                payload_to_store["annotated_artifact"] = {
-                    "artifact_key": annotated_artifact_key,
-                    "mime_type": "video/mp4" if annotated_artifact_key.endswith(".mp4") else "image/jpeg",
-                }
+
+            if annotated_artifact_key:
+                # Probe disk to guarantee authentic cryptographic SHA256 and byte size
+                settings = get_settings()
+                storage_root = Path(settings.STORAGE_LOCAL_ROOT).resolve()
+                disk_file = (storage_root / annotated_artifact_key).resolve()
+                if not disk_file.exists() or not disk_file.is_file():
+                    disk_file = (Path("storage") / annotated_artifact_key).resolve()
+
+                art_sha = "UNAVAILABLE"
+                art_size = 0
+                if disk_file.exists() and disk_file.is_file():
+                    art_sha = hashlib.sha256(disk_file.read_bytes()).hexdigest()
+                    art_size = disk_file.stat().st_size
+
+                is_vid = (result.source_type.lower() == "video" or annotated_artifact_key.endswith(".mp4"))
+
+                existing_art = payload_to_store.get("annotated_artifact")
+                if not existing_art or not isinstance(existing_art, dict):
+                    existing_art = {
+                        "artifact_key": annotated_artifact_key,
+                        "storage_key": annotated_artifact_key,
+                        "filename": Path(annotated_artifact_key).name,
+                        "mime_type": "video/mp4" if is_vid else "image/jpeg",
+                        "sha256": art_sha,
+                        "file_size_bytes": art_size,
+                        "byte_size": art_size,
+                    }
+                    payload_to_store["annotated_artifact"] = existing_art
+                else:
+                    if (existing_art.get("sha256") in (None, "", "UNAVAILABLE")) and art_sha != "UNAVAILABLE":
+                        existing_art["sha256"] = art_sha
+                    if not existing_art.get("file_size_bytes") and art_size > 0:
+                        existing_art["file_size_bytes"] = art_size
+                        existing_art["byte_size"] = art_size
+                    existing_art["storage_key"] = annotated_artifact_key
+                    existing_art["filename"] = Path(annotated_artifact_key).name
+
+                if is_vid:
+                    existing_vid = payload_to_store.get("annotated_video_artifact")
+                    if not existing_vid or not isinstance(existing_vid, dict):
+                        payload_to_store["annotated_video_artifact"] = dict(existing_art)
+                    else:
+                        if (existing_vid.get("sha256") in (None, "", "UNAVAILABLE")) and art_sha != "UNAVAILABLE":
+                            existing_vid["sha256"] = art_sha
+                        if not existing_vid.get("file_size_bytes") and art_size > 0:
+                            existing_vid["file_size_bytes"] = art_size
+                            existing_vid["byte_size"] = art_size
+                        existing_vid["storage_key"] = annotated_artifact_key
+                        existing_vid["filename"] = Path(annotated_artifact_key).name
+
             if source_asset_key and "source_artifact" not in payload_to_store:
                 payload_to_store["source_artifact"] = {
                     "artifact_key": source_asset_key,
@@ -311,6 +360,10 @@ class AnalysisPersistenceService:
                         "analysis_id": str(analysis_uuid),
                         "detection_count": len(result.detections),
                         "artifact_type": "annotated_video" if is_video else "annotated_image",
+                        "storage_key": annotated_artifact_key,
+                        "sha256": (payload_to_store.get("annotated_video_artifact") or payload_to_store.get("annotated_artifact") or {}).get("sha256"),
+                        "file_size_bytes": (payload_to_store.get("annotated_video_artifact") or payload_to_store.get("annotated_artifact") or {}).get("file_size_bytes", 0),
+                        "codec": (payload_to_store.get("annotated_video_artifact") or {}).get("codec", "mp4v" if is_video else None),
                     },
                     raw_payload_uri=annotated_artifact_key,
                 )

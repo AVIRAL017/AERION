@@ -211,6 +211,7 @@ class BorderVideoJobService:
         all_detections: List[Dict[str, Any]] = []
         all_tracks: List[Dict[str, Any]] = []
         last_runtime_result: Optional[AERIONAnalysisResult] = None
+        effective_total_frames = min(max_frames, (total_video_frames + frame_stride - 1) // frame_stride) if max_frames else max(1, (total_video_frames + frame_stride - 1) // frame_stride)
 
         try:
             while True:
@@ -263,6 +264,8 @@ class BorderVideoJobService:
                             total_source_frames=total_video_frames,
                             zone_polygon=zone_polygon,
                             tracker_history=tracker_history,
+                            processed_frame_idx=processed_count - 1,
+                            total_processed_frames=effective_total_frames,
                         )
                         video_writer.write(annotated_frame)
                         del annotated_frame
@@ -298,20 +301,37 @@ class BorderVideoJobService:
                     total_detections=total_detections,
                 )
                 annotated_video_artifact = artifact_res.to_dict()
+                # Populate canonical single-source aliases
+                annotated_video_artifact["storage_key"] = artifact_res.artifact_key
+                annotated_video_artifact["filename"] = Path(artifact_res.artifact_key).name
+                annotated_video_artifact["byte_size"] = artifact_res.file_size_bytes
+                annotated_video_artifact["duration"] = round(artifact_res.duration_seconds, 2)
         except Exception as exc:
             logger.error(f"Failed to finalize annotated video artifact: {exc}", exc_info=True)
         finally:
             if temp_annot_dir and temp_annot_dir.exists():
                 shutil.rmtree(temp_annot_dir, ignore_errors=True)
 
+        # Calculate confidence statistics across actual runtime detections
+        conf_list = [float(d.get("confidence", 0.0)) for d in all_detections]
+        min_conf = min(conf_list) if conf_list else 0.0
+        max_conf = max(conf_list) if conf_list else 0.0
+        mean_conf = (sum(conf_list) / len(conf_list)) if conf_list else 0.0
+
         return {
             "processed_frames": processed_count,
             "total_video_frames": total_video_frames,
             "report": report.model_dump(),
             "annotated_video_artifact": annotated_video_artifact,
+            "annotated_artifact": annotated_video_artifact,
             "last_analysis_result": last_runtime_result,
             "all_detections": all_detections,
             "tracks": all_tracks,
             "unique_tracks_count": len(unique_track_ids),
             "total_detections_count": total_detections,
+            "detection_confidence_stats": {
+                "min_confidence": round(min_conf, 4),
+                "max_confidence": round(max_conf, 4),
+                "mean_confidence": round(mean_conf, 4),
+            },
         }

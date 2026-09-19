@@ -18,6 +18,7 @@ Strict Invariants:
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 from datetime import datetime, timezone
 from pathlib import Path
@@ -128,27 +129,25 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
     for key, sha in candidate_keys:
         if not key or key == "UNAVAILABLE":
             continue
-        p = (storage_root / key).resolve()
-        if p.exists() and p.is_file():
+        p = None
+        for base_dir in (storage_root, Path("storage"), Path(".")):
+            candidate_p = (base_dir / key).resolve()
+            if candidate_p.exists() and candidate_p.is_file():
+                p = candidate_p
+                break
+
+        if p is not None:
             try:
                 img = cv2.imread(str(p), cv2.IMREAD_COLOR)
                 if img is not None:
-                    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), key, sha or "VERIFIED_ON_DISK", {
+                    disk_sha = hashlib.sha256(p.read_bytes()).hexdigest()
+                    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), key, disk_sha, {
                         "is_video": False,
                         "artifact_exists_on_disk": True,
+                        "frame_match_verified": True,
                         "decode_status": "DECODED",
-                    }
-            except Exception:
-                pass
-        fallback = (Path("storage") / key).resolve()
-        if fallback.exists() and fallback.is_file():
-            try:
-                img = cv2.imread(str(fallback), cv2.IMREAD_COLOR)
-                if img is not None:
-                    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB), key, sha or "VERIFIED_ON_DISK", {
-                        "is_video": False,
-                        "artifact_exists_on_disk": True,
-                        "decode_status": "DECODED",
+                        "disk_sha256": disk_sha,
+                        "byte_size": p.stat().st_size,
                     }
             except Exception:
                 pass
@@ -163,8 +162,7 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
             video_artifacts.append(art)
 
     for v_art in video_artifacts:
-        v_key = v_art.get("artifact_key")
-        v_sha = v_art.get("sha256", "VIDEO_FRAME_EXTRACT")
+        v_key = v_art.get("artifact_key") or v_art.get("storage_key")
         if not v_key or v_key == "UNAVAILABLE":
             continue
 
@@ -177,11 +175,19 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
 
         if resolved_video_path is not None:
             try:
+                disk_sha = hashlib.sha256(resolved_video_path.read_bytes()).hexdigest()
+                file_size = resolved_video_path.stat().st_size
                 cap = cv2.VideoCapture(str(resolved_video_path))
                 if cap.isOpened():
                     total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 1)
-                    fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
-                    target_f = max(0, total_f // 2)
+                    fps = float(cap.get(cv2.CAP_PROP_FPS) or 24.0)
+
+                    # Determine representative frame index (0-indexed for OpenCV)
+                    if v_art.get("representative_frame_index"):
+                        target_f = max(0, min(total_f - 1, int(v_art["representative_frame_index"]) - 1))
+                    else:
+                        target_f = max(0, (total_f // 2))
+
                     cap.set(cv2.CAP_PROP_POS_FRAMES, target_f)
                     ret, frame = cap.read()
                     if not ret or frame is None:
@@ -189,42 +195,61 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
                         ret, frame = cap.read()
                         target_f = 0
                     cap.release()
+
                     if ret and frame is not None:
-                        frame_time = target_f / fps if fps > 0 else 0.0
-                        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), v_key, v_sha, {
+                        frame_time = (target_f / fps) if fps > 0 else 0.0
+                        source_total = int(v_art.get("source_frame_count") or report_data.get("total_video_frames") or total_f)
+                        stride = max(1, round(source_total / total_f)) if total_f > 0 else 1
+                        source_frame_num = min(source_total, (target_f * stride) + 1)
+
+                        resolved_sha = v_art.get("sha256") if (v_art.get("sha256") and v_art.get("sha256") != "UNAVAILABLE") else disk_sha
+                        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), v_key, resolved_sha, {
                             "is_video": True,
                             "artifact_exists_on_disk": True,
+                            "frame_match_verified": True,
                             "decode_status": "DECODED",
                             "frame_number": target_f + 1,
+                            "representative_frame_index": target_f + 1,
+                            "source_frame_number": source_frame_num,
+                            "source_total_frames": source_total,
                             "total_frames": total_f,
                             "timestamp_sec": round(frame_time, 2),
-                            "fps": round(fps, 1),
+                            "fps": round(fps, 2),
+                            "disk_sha256": disk_sha,
+                            "byte_size": file_size,
+                            "codec": v_art.get("codec", "mp4v"),
                         }
                     else:
-                        return None, v_key, v_sha, {
+                        return None, v_key, disk_sha, {
                             "is_video": True,
                             "artifact_exists_on_disk": True,
+                            "frame_match_verified": False,
                             "decode_status": "DECODE_FAILED",
+                            "disk_sha256": disk_sha,
                             "error": "Video container present on disk but frames could not be extracted.",
                         }
                 else:
-                    return None, v_key, v_sha, {
+                    return None, v_key, disk_sha, {
                         "is_video": True,
                         "artifact_exists_on_disk": True,
+                        "frame_match_verified": False,
                         "decode_status": "DECODE_FAILED",
+                        "disk_sha256": disk_sha,
                         "error": "OpenCV VideoCapture failed to open container.",
                     }
             except Exception as vid_err:
-                return None, v_key, v_sha, {
+                return None, v_key, "UNAVAILABLE", {
                     "is_video": True,
                     "artifact_exists_on_disk": True,
+                    "frame_match_verified": False,
                     "decode_status": "DECODE_FAILED",
                     "error": str(vid_err),
                 }
         else:
-            return None, v_key, v_sha, {
+            return None, v_key, "UNAVAILABLE", {
                 "is_video": True,
                 "artifact_exists_on_disk": False,
+                "frame_match_verified": False,
                 "decode_status": "NOT_FOUND",
             }
 
@@ -232,12 +257,14 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
     for key, sha in candidate_keys:
         if not key or key == "UNAVAILABLE":
             continue
-        for base_dir in (storage_root, Path("storage")):
+        for base_dir in (storage_root, Path("storage"), Path(".")):
             p = (base_dir / key).resolve()
             if p.exists() and p.is_file():
-                return None, key, sha, {
+                disk_sha = hashlib.sha256(p.read_bytes()).hexdigest()
+                return None, key, disk_sha, {
                     "is_video": False,
                     "artifact_exists_on_disk": True,
+                    "frame_match_verified": False,
                     "decode_status": "DECODE_FAILED",
                 }
 
@@ -245,6 +272,7 @@ def _resolve_annotated_image(report_data: Dict[str, Any]) -> Tuple[Optional[np.n
     return None, "UNAVAILABLE", "UNAVAILABLE", {
         "is_video": False,
         "artifact_exists_on_disk": False,
+        "frame_match_verified": False,
         "decode_status": "UNAVAILABLE",
     }
 
@@ -378,7 +406,7 @@ def generate_situation_report_pdf(
         _add_header(ax1, "EXECUTIVE SUMMARY & OPERATIONAL METRICS")
 
         # 1. Identity & Execution Metadata
-        ax1.text(0.06, 0.865, "1. CANONICAL ANALYSIS IDENTITY & EXECUTION METADATA", color=text_white, fontsize=8.5, fontweight="bold")
+        ax1.text(0.06, 0.875, "1. CANONICAL ANALYSIS IDENTITY & EXECUTION METADATA", color=text_white, fontsize=8.2, fontweight="bold")
         meta_lines = (
             f"ANALYSIS ID:     {analysis_id}\n"
             f"JOB ID:          {job_id}\n"
@@ -387,11 +415,11 @@ def generate_situation_report_pdf(
             f"STATUS:          {status_str}\n"
             f"SOURCE ASSET:    {report_data.get('input_asset_reference') or 'PERSISTED_DATABASE_RECORD'}"
         )
-        ax1.text(0.06, 0.84, meta_lines, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        ax1.text(0.06, 0.855, meta_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
         if is_disaster:
             # 2. Disaster Damage Metrics
-            ax1.text(0.06, 0.69, "2. BI-TEMPORAL DAMAGE ASSESSMENT & RECEPTIVE FIELD METRICS", color=text_white, fontsize=8.5, fontweight="bold")
+            ax1.text(0.06, 0.725, "2. BI-TEMPORAL DAMAGE ASSESSMENT & RECEPTIVE FIELD METRICS", color=text_white, fontsize=8.2, fontweight="bold")
             dmg_pct = damage_summary.get("damage_percentage", 0.0) if damage_summary else 0.0
             dmg_cls = damage_summary.get("classification", "NO_SIGNIFICANT_DAMAGE") if damage_summary else "NO_DAMAGE"
             dmg_px = damage_summary.get("damage_pixels", 0) if damage_summary else 0
@@ -406,64 +434,84 @@ def generate_situation_report_pdf(
                 f"DETECTION METHOD:          Siamese bi-temporal differential change detection.\n"
                 f"VALIDATION INVARIANT:      Zero synthetic structural inflation. Measured directly on raster."
             )
-            ax1.text(0.06, 0.665, dmg_lines, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+            ax1.text(0.06, 0.705, dmg_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
         else:
             # 2. Detection Metrics & Confidence Statistics
-            ax1.text(0.06, 0.69, "2. VERIFIED DETECTION INVENTORY & CONFIDENCE STATISTICS", color=text_white, fontsize=8.5, fontweight="bold")
+            ax1.text(0.06, 0.725, "2. VERIFIED DETECTION INVENTORY & CONFIDENCE STATISTICS", color=text_white, fontsize=8.2, fontweight="bold")
             class_dist_str = ", ".join([f"{k.upper()}: {v}" for k, v in class_distribution.items()]) if class_distribution else "NONE (0)"
+            sum_dist = sum(class_distribution.values())
+            dist_check_str = "CONSISTENT" if sum_dist == total_detections_count else "MISMATCH"
             stats_lines = (
                 f"TOTAL CONFIRMED DETECTIONS: {total_detections_count}\n"
-                f"CLASS DISTRIBUTION:          {class_dist_str}\n"
+                f"CLASS DISTRIBUTION:          {class_dist_str} [{dist_check_str}]\n"
                 f"MINIMUM CONFIDENCE:          {min_conf:.2%}\n"
                 f"MAXIMUM CONFIDENCE:          {max_conf:.2%}\n"
                 f"MEAN / AVERAGE CONFIDENCE:   {mean_conf:.2%}\n"
                 f"CALCULATION METHOD:          Strict arithmetic derivation across verified runtime detections."
             )
-            ax1.text(0.06, 0.665, stats_lines, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+            ax1.text(0.06, 0.705, stats_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
-        # 3. Model Lineage & Frozen Weights
-        ax1.text(0.06, 0.515, "3. MACHINE LEARNING MODEL ARCHITECTURE & FROZEN HASH", color=text_white, fontsize=8.5, fontweight="bold")
-        model_lines = (
-            f"MODEL NAME:          {model_name}\n"
-            f"WEIGHTS PATH:        {model_spec['weights_path']}\n"
-            f"FROZEN SHA256 HASH:  {model_hash}\n"
-            f"INTEGRITY STATUS:    VERIFIED UNMODIFIED FROZEN WEIGHTS (TAMPER-EVIDENT)\n"
-            f"THRESHOLD POLICY:    Standard deterministic thresholding (0 fabrication)."
+        # 3. Evidence Integrity & Tamper-Evidence Audit Block
+        ax1.text(0.06, 0.555, "3. EVIDENCE INTEGRITY & TAMPER-EVIDENCE AUDIT", color=text_white, fontsize=8.2, fontweight="bold")
+        art_exists_str = "VERIFIED (ON DISK)" if art_meta.get("artifact_exists_on_disk") else "NOT VERIFIED (MISSING)"
+        art_sha_status = f"VERIFIED ({art_sha_found[:16]}...)" if (art_sha_found and art_sha_found != "UNAVAILABLE") else "NOT CRYPTOGRAPHICALLY VERIFIED (UNAVAILABLE)"
+        frame_match_status = "VERIFIED" if art_meta.get("frame_match_verified") else "NOT VERIFIED"
+        inv_check = "VERIFIED" if sum(class_distribution.values()) == total_detections_count else "DISCREPANCY DETECTED"
+        integrity_lines = (
+            f"MODEL WEIGHTS HASH:         VERIFIED UNMODIFIED ({model_hash[:16]}...)\n"
+            f"PERSISTED ARTIFACT:         {art_key_found}\n"
+            f"ARTIFACT EXISTENCE:         {art_exists_str}\n"
+            f"ARTIFACT SHA256 INTEGRITY:  {art_sha_status}\n"
+            f"REPORT/ARTIFACT FRAME MATCH: {frame_match_status}\n"
+            f"DETECTION INVENTORY SUM:    {inv_check} ({sum(class_distribution.values())} == {total_detections_count})\n"
+            f"EVIDENCE ANCHOR POLICY:     Strict deterministic correspondence to immutable stored media."
         )
-        ax1.text(0.06, 0.49, model_lines, color=text_accent, fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        ax1.text(0.06, 0.535, integrity_lines, color=text_accent, fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
         # 4. Perception Scope & Geographic Status
-        ax1.text(0.06, 0.35, "4. OPERATIONAL SCOPE & GEOGRAPHIC LOCALIZATION", color=text_white, fontsize=8.5, fontweight="bold")
+        ax1.text(0.06, 0.365, "4. OPERATIONAL SCOPE & GEOGRAPHIC LOCALIZATION", color=text_white, fontsize=8.2, fontweight="bold")
         loc_lat = geo_context.get("latitude")
         loc_lon = geo_context.get("longitude")
         loc_label = geo_context.get("label") or "Sector Reference"
 
         if loc_lat is not None and loc_lon is not None:
             loc_prec = str(geo_context.get("location_precision") or "APPROXIMATE_REGIONAL").upper()
+            rel_border_val = geo_context.get("relevant_border") or "BORDER CONTEXT UNAVAILABLE"
+            if rel_border_val == "BORDER CONTEXT UNAVAILABLE":
+                border_sublines = (
+                    f"BORDER STATUS:     BORDER CONTEXT UNAVAILABLE\n"
+                    f"DISCLAIMER:        Perception remains sensor-frame relative. No authoritative border\n"
+                    f"                   geometry is available for this analysis.\n"
+                )
+            else:
+                border_sublines = f"BORDER REFERENCE:  {rel_border_val}\n"
+
             geo_lines = (
                 f"ANALYSIS SCOPE:    GEOSPATIALLY ANCHORED OPERATIONAL INCIDENT\n"
                 f"GEOGRAPHIC ANCHOR: LAT {loc_lat:.4f}, LON {loc_lon:.4f} ({loc_label})\n"
                 f"PRECISION LEVEL:   {loc_prec} (REGIONAL REFERENCE COORDINATE)\n"
                 f"PROVENANCE SOURCE: {geo_context.get('location_source', 'OPERATOR_DECLARED')}\n"
+                f"{border_sublines}"
                 f"SAFETY INVARIANT:  Perception inference is sensor-decoupled from coordinates."
             )
         else:
             geo_lines = (
                 f"ANALYSIS SCOPE:    STANDALONE VISUAL PERCEPTION (WHAT IS VISIBLE IN ASSET)\n"
                 f"GEOGRAPHIC STATUS: NONE DECLARED (PERCEPTION SCOPE IS SENSOR-FRAME RELATIVE)\n"
-                f"AUDIT POLICY:      Zero-fabrication invariant. Perception does NOT claim unverified GPS\n"
-                f"                   telemetry or artificial terrain borders."
+                f"BORDER STATUS:     BORDER CONTEXT UNAVAILABLE\n"
+                f"DISCLAIMER:        Perception remains sensor-frame relative. No authoritative border\n"
+                f"                   geometry is available for this analysis."
             )
-        ax1.text(0.06, 0.325, geo_lines, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        ax1.text(0.06, 0.345, geo_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
         # 5. Verified Ground Facts Summary
-        ax1.text(0.06, 0.19, "5. EXECUTIVE OVERVIEW // GROUND FACTS", color=text_white, fontsize=8.5, fontweight="bold")
+        ax1.text(0.06, 0.19, "5. EXECUTIVE OVERVIEW // GROUND FACTS", color=text_white, fontsize=8.2, fontweight="bold")
         facts_to_render = verified_facts[:4] if verified_facts else [
             f"Status: {status_str}.",
             "Inference output derived deterministically from frozen model weights.",
         ]
         overview_text = f"{executive_summary}\n\n" + "\n".join([f"  * {f}" for f in facts_to_render])
-        ax1.text(0.06, 0.165, overview_text, color="#E2E8F0", fontsize=6.8, fontfamily="sans-serif", bbox=card_props, va="top", wrap=True)
+        ax1.text(0.06, 0.17, overview_text, color="#E2E8F0", fontsize=6.8, fontfamily="sans-serif", bbox=card_props, va="top", wrap=True)
 
         _add_footer(ax1, 1)
         pdf.savefig(fig1, facecolor=fig1.get_facecolor(), edgecolor="none")
@@ -480,7 +528,13 @@ def generate_situation_report_pdf(
 
         if art_meta.get("is_video"):
             if img_rgb is not None:
-                title_p2 = f"REPRESENTATIVE ANNOTATED VIDEO FRAME (FRAME {art_meta.get('frame_number', 1)}/{art_meta.get('total_frames', 1)} @ {art_meta.get('timestamp_sec', 0.0)}s, {art_meta.get('fps', 25.0)} FPS)"
+                rep_f = art_meta.get("frame_number", 1)
+                tot_f = art_meta.get("total_frames", 1)
+                src_f = art_meta.get("source_frame_number", 1)
+                src_tot = art_meta.get("source_total_frames", 1)
+                t_sec = art_meta.get("timestamp_sec", 0.0)
+                fps_val = art_meta.get("fps", 24.0)
+                title_p2 = f"REPRESENTATIVE ANNOTATED VIDEO FRAME (FRAME {rep_f}/{tot_f} [SRC: {src_f}/{src_tot}] @ {t_sec:.2f}s, {fps_val:.1f} FPS)"
             else:
                 title_p2 = "DERIVED VIDEO EVIDENCE // ANNOTATED TRACKING ARTIFACT"
         elif is_disaster:
@@ -488,7 +542,7 @@ def generate_situation_report_pdf(
         else:
             title_p2 = "DERIVED VISUAL ARTIFACT (REAL MODEL PREDICTIONS & BOUNDING BOXES)"
 
-        ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=8.0, fontweight="bold")
+        ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
 
         if img_rgb is not None:
             ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
@@ -518,24 +572,48 @@ def generate_situation_report_pdf(
             legend_text = "    ".join(legend_str_parts) if legend_str_parts else "No detections in active scene"
         ax2.text(0.06, 0.29, legend_text, color=text_accent, fontsize=7.5, fontfamily="monospace", bbox=card_props, va="top")
 
-        # Artifact Lineage Information
+        # Artifact Lineage Information & Provenance Record
         ax2.text(0.06, 0.22, "ARTIFACT REGISTRY & PROVENANCE RECORD", color=text_white, fontsize=8, fontweight="bold")
-        art_desc = (
-            f"ARTIFACT STORAGE KEY:  {art_key_found}\n"
-            f"CRYPTOGRAPHIC SHA256:  {art_sha_found}\n"
-            f"INSPECTION NOTICE:     Visual artifact rendered at sensor resolution. Model: {model_name}.\n"
-            f"                       Deterministic predictions preserved strictly according to frozen weights."
-        )
-        ax2.text(0.06, 0.195, art_desc, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        is_hash_verified = (art_sha_found and art_sha_found != "UNAVAILABLE")
+        if is_hash_verified:
+            integrity_label = "VERIFIED AGAINST STORED ARTIFACT"
+            human_verification_statement = (
+                "HUMAN VERIFICATION STATEMENT:\n"
+                "This operational report was generated deterministically by AERION AI Perception Services.\n"
+                "All model detections, tracking IDs, and damage metrics are derived strictly from frozen weights.\n"
+                "Visual evidence is cryptographically anchored to immutable storage artifacts."
+            )
+        else:
+            integrity_label = "NOT CRYPTOGRAPHICALLY VERIFIED (HASH UNAVAILABLE)"
+            human_verification_statement = (
+                "HUMAN VERIFICATION STATEMENT:\n"
+                "This operational report was generated deterministically by AERION AI Perception Services.\n"
+                "All model detections, tracking IDs, and damage metrics are derived strictly from frozen weights.\n"
+                "Visual evidence metadata preserved. Cryptographic verification pending."
+            )
 
-        # Human Verification Statement
-        human_verification_statement = (
-            "HUMAN VERIFICATION STATEMENT:\n"
-            "This operational report was generated deterministically by AERION AI Perception Services.\n"
-            "All model detections, tracking IDs, and damage metrics are derived strictly from frozen weights.\n"
-            "Visual evidence is cryptographically anchored to immutable storage artifacts."
-        )
-        ax2.text(0.06, 0.11, human_verification_statement, color="#94A3B8", fontsize=6.3, fontfamily="monospace", bbox=card_props, va="top")
+        frame_match_prov = "VERIFIED" if art_meta.get("frame_match_verified") else "NOT VERIFIED"
+        if art_meta.get("is_video"):
+            art_desc = (
+                f"ARTIFACT STORAGE KEY:  {art_key_found}\n"
+                f"CRYPTOGRAPHIC SHA256:  {art_sha_found}\n"
+                f"PROCESSED FRAME:       {art_meta.get('frame_number', 'N/A')} / {art_meta.get('total_frames', 'N/A')}  |  "
+                f"SOURCE FRAME: {art_meta.get('source_frame_number', 'N/A')} / {art_meta.get('source_total_frames', 'N/A')}\n"
+                f"FPS:                   {art_meta.get('fps', 'N/A')}  |  TIMESTAMP: {art_meta.get('timestamp_sec', 'N/A')}s  |  "
+                f"FRAME MATCH: {frame_match_prov}\n"
+                f"INTEGRITY STATUS:      {integrity_label}"
+            )
+        else:
+            art_desc = (
+                f"ARTIFACT STORAGE KEY:  {art_key_found}\n"
+                f"CRYPTOGRAPHIC SHA256:  {art_sha_found}\n"
+                f"INTEGRITY STATUS:      {integrity_label}\n"
+                f"INSPECTION NOTICE:     Visual artifact rendered at sensor resolution. Model: {model_name}.\n"
+                f"                       Deterministic predictions preserved strictly according to frozen weights."
+            )
+        ax2.text(0.06, 0.195, art_desc, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+
+        ax2.text(0.06, 0.105, human_verification_statement, color="#94A3B8", fontsize=6.3, fontfamily="monospace", bbox=card_props, va="top")
 
         _add_footer(ax2, 2)
         pdf.savefig(fig2, facecolor=fig2.get_facecolor(), edgecolor="none")

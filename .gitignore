@@ -117,6 +117,7 @@ border_test_videos/
 *.tmp
 *.cache
 tempCodeRunnerFile.py
+storage/
 
 # ------------------------------------------------------------
 # 10. IDE & OS Artifacts

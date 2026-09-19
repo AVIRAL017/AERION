@@ -22,6 +22,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const restoreSession = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryToken = urlParams.get('token');
+      if (queryToken) {
+        localStorage.setItem('aerion_access_token', queryToken);
+      }
       const token = localStorage.getItem('aerion_access_token');
       if (token) {
         try {

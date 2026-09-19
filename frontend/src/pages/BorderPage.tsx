@@ -85,34 +85,71 @@ export const BorderPage: React.FC = () => {
     fetchSituationData();
   }, []);
 
-  // Restore analysis from URL search parameter (e.g. ?analysis_id=UUID)
+  // Restore analysis, demo boundary, and location from URL search parameters
   useEffect(() => {
+    const urlToken = searchParams.get('token');
+    if (urlToken) {
+      localStorage.setItem('aerion_access_token', urlToken);
+    }
+
     const analysisIdParam = searchParams.get('analysis_id');
-    if (!analysisIdParam) return;
-
-    const restoreAnalysis = async () => {
-      try {
-        const resp = await analysisApi.getById(analysisIdParam);
-        if (resp.success && resp.data) {
-          const data = resp.data;
-          setActiveAnalysisResult(data);
-          setVideoDecodeError(false);
-          if (data.annotated_image_base64) {
-            setAnalyzedImageUrl(`data:image/jpeg;base64,${data.annotated_image_base64}`);
-            setViewMode('annotated');
-          } else if (data.annotated_video_artifact) {
-            setViewMode('annotated');
+    if (analysisIdParam) {
+      const restoreAnalysis = async () => {
+        try {
+          const resp = await analysisApi.getById(analysisIdParam);
+          if (resp.success && resp.data) {
+            const data = resp.data;
+            setActiveAnalysisResult(data);
+            setVideoDecodeError(false);
+            if (data.annotated_image_base64) {
+              setAnalyzedImageUrl(`data:image/jpeg;base64,${data.annotated_image_base64}`);
+              setViewMode('annotated');
+            } else if (data.annotated_video_artifact) {
+              setViewMode('annotated');
+            }
+            if (data.location_context) {
+              setOperatorLocation(data.location_context);
+            }
           }
-          if (data.location_context) {
-            setOperatorLocation(data.location_context);
-          }
+        } catch (err) {
+          console.warn(`Could not restore analysis ${analysisIdParam}:`, err);
         }
-      } catch (err) {
-        console.warn(`Could not restore analysis ${analysisIdParam}:`, err);
-      }
-    };
+      };
+      restoreAnalysis();
+    }
 
-    restoreAnalysis();
+    if (searchParams.get('demo_aoi') === 'true') {
+      const evaluateDemo = async () => {
+        try {
+          const res = await boundariesApi.evaluate('DEMO_VULNERABILITY_BOUNDARY', {
+            evidence_points: [{ latitude: 32.65, longitude: 74.85, weight: 1.0 }],
+          });
+          if (res.success && res.data) {
+            setDemoBoundaryResult(res.data);
+          }
+        } catch (e) {
+          console.warn('Auto demo boundary evaluation error:', e);
+        }
+      };
+      evaluateDemo();
+    }
+
+    const latParam = searchParams.get('lat');
+    const lonParam = searchParams.get('lon');
+    if (latParam && lonParam) {
+      const lat = parseFloat(latParam);
+      const lon = parseFloat(lonParam);
+      const enriched: LocationProvenance = {
+        latitude: lat,
+        longitude: lon,
+        label: searchParams.get('location_label') || `Bangalore Urban Sector [${lat.toFixed(4)}, ${lon.toFixed(4)}]`,
+        location_precision: 'APPROXIMATE',
+        location_source: 'OPERATOR_PROVIDED',
+        country: 'India',
+        relevant_border: 'BORDER CONTEXT UNAVAILABLE',
+      };
+      setOperatorLocation(enriched);
+    }
   }, [searchParams]);
 
   if (isLoading) {
@@ -490,32 +527,61 @@ export const BorderPage: React.FC = () => {
                   ) : analyzedVideoUrl || activeAnalysisResult.annotated_video_artifact ? (
                     /* Video Evidence Container */
                     <div className="relative max-w-full max-h-full flex flex-col items-center justify-center p-2">
-                      <div className="relative border border-white/[0.1] rounded overflow-hidden max-h-[72vh] flex items-center justify-center bg-black shadow-2xl">
+                      {/* Video Header & Status */}
+                      <div className="w-full flex items-center justify-between pb-2 mb-2 border-b border-white/[0.08] font-mono text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-accent/15 border border-accent/40 text-accent font-bold text-[10px]">
+                            [ANNOTATED VIDEO]
+                          </span>
+                          <span className="text-paper font-semibold text-[11px]">
+                            DERIVED BORDER SURVEILLANCE EVIDENCE
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-elevated/80 border border-white/[0.1] text-status-ai text-[10px] font-medium">
+                            PRE-RENDERED / IMMUTABLE ARTIFACT
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Video Player Box */}
+                      <div className="relative border border-white/[0.1] rounded overflow-hidden max-h-[65vh] w-full flex items-center justify-center bg-black shadow-2xl">
                         {(viewMode === 'annotated' && activeAnalysisResult.annotated_video_artifact?.artifact_key) ? (
                           videoDecodeError ? (
-                            <div className="p-8 text-center font-mono text-xs text-muted max-w-lg mx-auto flex flex-col items-center">
-                              <span className="material-symbols-outlined text-4xl text-status-warning block mb-2">warning</span>
-                              <span className="text-paper font-semibold text-sm block mb-1">Annotated artifact exists but could not be decoded inline</span>
-                              <span className="block text-[11px] text-faint mb-4 leading-relaxed">
-                                The annotated MP4 artifact is persisted in storage ({activeAnalysisResult.annotated_video_artifact.frame_count} frames, {activeAnalysisResult.annotated_video_artifact.fps} FPS). Your browser could not decode the video container inline. Download the MP4 file to inspect verified annotations in a media player.
+                            <div className="p-8 text-center font-mono text-xs text-muted max-w-xl mx-auto flex flex-col items-center">
+                              <span className="material-symbols-outlined text-4xl text-status-warning block mb-2">videocam_off</span>
+                              <span className="text-status-warning font-semibold text-sm block mb-1">
+                                Browser playback unavailable for this codec.
                               </span>
-                              <button
-                                onClick={async () => {
-                                  const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
-                                  if (!artKey) return;
-                                  const dlUrl = getEvidenceUrl(artKey, true);
-                                  const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
-                                  try {
-                                    await downloadAuthenticatedArtifact(dlUrl, filename);
-                                  } catch (e: any) {
-                                    alert(e.message || 'Download failed');
-                                  }
-                                }}
-                                className="px-3.5 py-2 rounded bg-accent text-graphite font-bold text-xs inline-flex items-center gap-1.5 shadow hover:bg-accent/90 cursor-pointer"
-                              >
-                                <span className="material-symbols-outlined text-[16px]">download</span>
-                                <span>DOWNLOAD ANNOTATED VIDEO (MP4)</span>
-                              </button>
+                              <span className="block text-[11px] text-faint mb-4 leading-relaxed">
+                                The video artifact was rendered with a standard surveillance codec ({activeAnalysisResult.annotated_video_artifact.codec || 'mp4v'}) that your current browser environment cannot play inline. Download the authenticated MP4 artifact to view all bounding boxes and tracking IDs in VLC or any media player.
+                              </span>
+                              <div className="flex items-center gap-3 flex-wrap justify-center">
+                                <button
+                                  onClick={async () => {
+                                    const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
+                                    if (!artKey) return;
+                                    const dlUrl = getEvidenceUrl(artKey, true);
+                                    const filename = `AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_annotated.mp4`;
+                                    try {
+                                      await downloadAuthenticatedArtifact(dlUrl, filename);
+                                    } catch (e: any) {
+                                      alert(e.message || 'Download failed');
+                                    }
+                                  }}
+                                  className="px-3.5 py-2 rounded bg-accent text-graphite font-bold text-xs inline-flex items-center gap-1.5 shadow hover:bg-accent/90 cursor-pointer"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">download</span>
+                                  <span>DOWNLOAD ANNOTATED VIDEO</span>
+                                </button>
+                                <Link
+                                  to={`/situations/${situation?.id || '00000000-0000-0000-0000-000000000001'}/report?analysis_id=${activeAnalysisResult.analysis_id}`}
+                                  className="px-3 py-2 rounded bg-elevated/80 border border-white/[0.1] text-paper hover:text-accent hover:border-accent/40 text-xs inline-flex items-center gap-1.5 transition-all"
+                                >
+                                  <span className="material-symbols-outlined text-[15px]">description</span>
+                                  <span>OPEN REPORT</span>
+                                </Link>
+                              </div>
                             </div>
                           ) : (
                             <video
@@ -526,7 +592,7 @@ export const BorderPage: React.FC = () => {
                               loop
                               muted
                               onError={() => setVideoDecodeError(true)}
-                              className="max-w-full max-h-[70vh] object-contain select-none transform-gpu will-change-transform"
+                              className="max-w-full max-h-[62vh] object-contain select-none transform-gpu will-change-transform"
                             />
                           )
                         ) : analyzedVideoUrl ? (
@@ -537,7 +603,7 @@ export const BorderPage: React.FC = () => {
                             autoPlay
                             loop
                             muted
-                            className="max-w-full max-h-[70vh] object-contain select-none transform-gpu will-change-transform"
+                            className="max-w-full max-h-[62vh] object-contain select-none transform-gpu will-change-transform"
                           />
                         ) : (
                           <div className="p-12 text-center font-mono text-xs text-muted">
@@ -558,15 +624,61 @@ export const BorderPage: React.FC = () => {
                             </span>
                           )}
                         </div>
+                      </div>
 
-                        {activeAnalysisResult.annotated_video_artifact && (
-                          <div className="absolute bottom-2 left-2 right-2 z-10 bg-graphite/90 border border-white/[0.1] rounded px-3 py-1.5 text-[10px] font-mono text-muted flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <span>FPS: {activeAnalysisResult.annotated_video_artifact.fps}</span>
-                              <span>FRAMES: {activeAnalysisResult.annotated_video_artifact.frame_count}/{activeAnalysisResult.annotated_video_artifact.source_frame_count}</span>
-                              <span>TRACKS: {activeAnalysisResult.annotated_video_artifact.unique_tracks_count}</span>
-                              <span>SHA: {activeAnalysisResult.annotated_video_artifact.sha256.substring(0, 10)}...</span>
+                      {/* Video Metadata Grid & Action Toolbar */}
+                      {activeAnalysisResult.annotated_video_artifact && (
+                        <div className="w-full mt-2 bg-graphite/90 border border-white/[0.1] rounded p-2.5 font-mono text-xs">
+                          {/* Metadata Grid */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 pb-2 mb-2 border-b border-white/[0.06] text-[10px]">
+                            <div className="p-1.5 bg-elevated/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px] uppercase">FPS</span>
+                              <span className="text-paper font-semibold">{activeAnalysisResult.annotated_video_artifact.fps}</span>
                             </div>
+                            <div className="p-1.5 bg-elevated/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px] uppercase">FRAME COUNT</span>
+                              <span className="text-paper font-semibold">
+                                {activeAnalysisResult.annotated_video_artifact.frame_count} / {activeAnalysisResult.annotated_video_artifact.source_frame_count}
+                              </span>
+                            </div>
+                            <div className="p-1.5 bg-elevated/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px] uppercase">DURATION</span>
+                              <span className="text-paper font-semibold">
+                                {activeAnalysisResult.annotated_video_artifact.duration_seconds !== undefined
+                                  ? `${Number(activeAnalysisResult.annotated_video_artifact.duration_seconds).toFixed(1)}s`
+                                  : (activeAnalysisResult.annotated_video_artifact.duration ? `${activeAnalysisResult.annotated_video_artifact.duration}s` : '--')}
+                              </span>
+                            </div>
+                            <div className="p-1.5 bg-elevated/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px] uppercase">DETECTIONS</span>
+                              <span className="text-accent font-semibold">
+                                {activeAnalysisResult.annotated_video_artifact.total_detections_count !== undefined
+                                  ? activeAnalysisResult.annotated_video_artifact.total_detections_count
+                                  : (activeAnalysisResult.detections?.length || 0)}
+                              </span>
+                            </div>
+                            <div className="p-1.5 bg-elevated/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px] uppercase">TRACKS</span>
+                              <span className="text-status-ai font-semibold">
+                                {activeAnalysisResult.annotated_video_artifact.unique_tracks_count !== undefined
+                                  ? activeAnalysisResult.annotated_video_artifact.unique_tracks_count
+                                  : (activeAnalysisResult.tracks?.length || 0)}
+                              </span>
+                            </div>
+                            <div className="p-1.5 bg-elevated/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px] uppercase">CODEC</span>
+                              <span className="text-paper font-semibold">{activeAnalysisResult.annotated_video_artifact.codec || 'mp4v'}</span>
+                            </div>
+                            <div className="p-1.5 bg-elevated/40 rounded border border-white/[0.04] col-span-2 md:col-span-1">
+                              <span className="text-faint block text-[8px] uppercase">ARTIFACT SHA256</span>
+                              <span className="text-accent font-semibold truncate block" title={activeAnalysisResult.annotated_video_artifact.sha256}>
+                                {activeAnalysisResult.annotated_video_artifact.sha256 ? `${activeAnalysisResult.annotated_video_artifact.sha256.substring(0, 10)}...` : 'PENDING'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Action Toolbar */}
+                          <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={async () => {
@@ -579,25 +691,36 @@ export const BorderPage: React.FC = () => {
                                     alert(e.message || 'Download failed');
                                   }
                                 }}
-                                className="px-2 py-0.5 rounded bg-accent text-graphite hover:bg-accent/90 text-[9px] font-mono font-bold flex items-center gap-1 shadow transition-all cursor-pointer"
+                                className="px-2.5 py-1 rounded bg-accent text-graphite hover:bg-accent/90 text-[10px] font-bold flex items-center gap-1 shadow transition-all cursor-pointer"
                               >
-                                <span className="material-symbols-outlined text-[12px]">download</span>
+                                <span className="material-symbols-outlined text-[13px]">download</span>
                                 <span>DOWNLOAD ANNOTATED VIDEO</span>
                               </button>
+
                               {analyzedVideoUrl && (
                                 <a
                                   href={analyzedVideoUrl}
                                   download={`AERION_${activeAnalysisResult.analysis_id.substring(0, 8)}_original.mp4`}
-                                  className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[9px] font-mono flex items-center gap-1 shadow transition-all cursor-pointer"
+                                  className="px-2.5 py-1 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] flex items-center gap-1 shadow transition-all cursor-pointer"
                                 >
-                                  <span className="material-symbols-outlined text-[12px]">download</span>
+                                  <span className="material-symbols-outlined text-[13px]">download</span>
                                   <span>DOWNLOAD ORIGINAL VIDEO</span>
                                 </a>
                               )}
                             </div>
+
+                            <div className="flex items-center gap-2">
+                              <Link
+                                to={`/situations/${situation?.id || '00000000-0000-0000-0000-000000000001'}/report?analysis_id=${activeAnalysisResult.analysis_id}`}
+                                className="px-2.5 py-1 rounded bg-status-ai/20 border border-status-ai/40 text-status-ai hover:bg-status-ai/30 text-[10px] font-semibold flex items-center gap-1 transition-all"
+                              >
+                                <span className="material-symbols-outlined text-[13px]">description</span>
+                                <span>OPEN REPORT</span>
+                              </Link>
+                            </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
 
                       {/* Structured Video Detections & Tracks Summary Table */}
                       {activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 && (
@@ -909,12 +1032,18 @@ export const BorderPage: React.FC = () => {
 
                 <div className="p-2 bg-graphite/40 rounded border border-white/[0.04] text-[10px]">
                   <span className="text-faint block text-[9px]">INTERNATIONAL BORDER REFERENCE</span>
-                  <span className={operatorLocation.relevant_border === 'BORDER CONTEXT UNAVAILABLE' ? 'text-status-warning' : 'text-paper'}>
+                  <span className={operatorLocation.relevant_border === 'BORDER CONTEXT UNAVAILABLE' ? 'text-status-warning font-bold' : 'text-paper'}>
                     {operatorLocation.relevant_border || 'BORDER CONTEXT UNAVAILABLE'}
                   </span>
-                  <span className="text-[8px] text-faint block mt-0.5">
-                    Official Survey of India demarcation only
-                  </span>
+                  {operatorLocation.relevant_border === 'BORDER CONTEXT UNAVAILABLE' ? (
+                    <p className="text-[8.5px] text-amber-300/90 mt-1 leading-tight font-mono">
+                      Perception remains sensor-frame relative. No authoritative border geometry is available for this analysis.
+                    </p>
+                  ) : (
+                    <span className="text-[8px] text-faint block mt-0.5">
+                      Official Survey of India demarcation only
+                    </span>
+                  )}
                 </div>
 
                 <div className="p-2 bg-graphite/40 rounded border border-white/[0.04] text-[10px]">
@@ -976,9 +1105,7 @@ export const BorderPage: React.FC = () => {
                       });
                     }
                     const res = await boundariesApi.evaluate('DEMO_VULNERABILITY_BOUNDARY', {
-                      evidence_points: points,
-                      sensor_coverage_ratio: 0.85,
-                      terrain_type: 'arid',
+                      evidence_points: points.length > 0 ? points : [{ latitude: 32.65, longitude: 74.85, weight: 1.0 }],
                     });
                     if (res.success && res.data) {
                       setDemoBoundaryResult(res.data);

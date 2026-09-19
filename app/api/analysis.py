@@ -527,6 +527,11 @@ async def analyze_border_video(
         last_result = report_data.pop("last_analysis_result", None)
 
         if last_result is not None and annotated_key is not None:
+            if annotated_artifact and isinstance(annotated_artifact, dict):
+                annotated_artifact["analysis_id"] = str(last_result.analysis_id)
+                annotated_artifact["artifact_id"] = str(uuid.uuid4())
+                annotated_artifact["job_id"] = req.situation_id or "direct-job"
+
             persist_info = await _safely_persist_result(
                 result=last_result,
                 project_id_str=req.project_id,
@@ -534,6 +539,14 @@ async def analyze_border_video(
                 annotated_artifact_key=annotated_key,
                 user_id_str=payload.get("sub"),
                 org_id_str=payload.get("org"),
+                raw_payload_override={
+                    **last_result.to_dict(),
+                    "annotated_artifact": annotated_artifact,
+                    "annotated_video_artifact": annotated_artifact,
+                    "processed_frames": report_data.get("processed_frames"),
+                    "total_video_frames": report_data.get("total_video_frames"),
+                    "detection_confidence_stats": report_data.get("detection_confidence_stats"),
+                },
             )
             report_data["persistence"] = persist_info
             if persist_info.get("analysis_id"):
@@ -1614,6 +1627,19 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
         await mgr.update_progress(job_id, stage=JobStatus.PERSISTING.value, progress_percent=92, status=JobStatus.PERSISTING)
         persist_info: Optional[Dict[str, Any]] = None
         if last_result is not None:
+            raw_override = None
+            if is_video and 'report_data' in locals() and isinstance(report_data, dict):
+                raw_override = {
+                    **last_result.to_dict(),
+                    "annotated_artifact": annotated_artifact_info,
+                    "annotated_video_artifact": annotated_artifact_info,
+                    "processed_frames": report_data.get("processed_frames"),
+                    "total_video_frames": report_data.get("total_video_frames"),
+                    "all_detections": report_data.get("all_detections", []),
+                    "tracks": report_data.get("tracks", []),
+                    "unique_tracks_count": report_data.get("unique_tracks_count", 0),
+                    "detection_confidence_stats": report_data.get("detection_confidence_stats"),
+                }
             persist_info = await _safely_persist_result(
                 result=last_result,
                 project_id_str=req.project_id,
@@ -1622,6 +1648,7 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                 existing_job_id_str=job_id,
                 user_id_str=user_id,
                 org_id_str=org_id,
+                raw_payload_override=raw_override,
             )
 
         final_status = JobStatus.COMPLETED_WITH_LIMITATIONS if limitations else JobStatus.COMPLETED
@@ -2053,14 +2080,27 @@ async def get_analysis_by_id(
                 for ev in ev_rows:
                     uri = ev.raw_payload_uri or ""
                     if "annotated" in uri.lower() or uri.endswith(".jpg") or uri.endswith(".png") or uri.endswith(".mp4"):
+                        is_vid = uri.endswith(".mp4")
                         payload_data["annotated_artifact"] = {
                             "artifact_key": uri,
-                            "mime_type": "video/mp4" if uri.endswith(".mp4") else "image/jpeg",
+                            "storage_key": uri,
+                            "filename": Path(uri).name,
+                            "mime_type": "video/mp4" if is_vid else "image/jpeg",
                             "sha256": (ev.sensor_metadata or {}).get("sha256") or "VERIFIED_RECORD",
+                            "file_size_bytes": (ev.sensor_metadata or {}).get("file_size_bytes", 0),
+                            "byte_size": (ev.sensor_metadata or {}).get("file_size_bytes", 0),
                         }
                         break
             except Exception as ev_lookup_exc:
                 logger.debug(f"Could not load fallback evidence artifact: {ev_lookup_exc}")
+
+        # Ensure single-source identity: if artifact is video, set annotated_video_artifact
+        art_entry = payload_data.get("annotated_video_artifact") or payload_data.get("annotated_artifact")
+        if art_entry and isinstance(art_entry, dict):
+            key = str(art_entry.get("artifact_key", "")).lower()
+            if key.endswith(".mp4") or art_entry.get("mime_type") == "video/mp4":
+                payload_data["annotated_artifact"] = art_entry
+                payload_data["annotated_video_artifact"] = art_entry
 
         meta = MetaBlock(
             timestamp=utc_now_iso(),

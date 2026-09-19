@@ -43,30 +43,36 @@ async def download_evidence_artifact(
     settings = get_settings()
     storage_root = Path(settings.STORAGE_LOCAL_ROOT).resolve()
 
-    # Reject path traversal attempts immediately
-    if ".." in artifact_path or artifact_path.startswith("/") or artifact_path.startswith("\\"):
+    # Strip leading path separators before path traversal check
+    sanitized_path_str = artifact_path.lstrip("/\\")
+    if ".." in sanitized_path_str:
         raise ValidationError(
             message="Invalid artifact path: path traversal sequences are prohibited.",
             details=[{"field": "artifact_path", "issue": "path_traversal", "provided": artifact_path}],
         )
 
-    clean_path = Path(artifact_path)
+    clean_path = Path(sanitized_path_str)
     file_path = (storage_root / clean_path).resolve()
 
-    # Verify that the resolved path is strictly within the allowed storage root
-    if not str(file_path).startswith(str(storage_root)):
-        raise ValidationError(
-            message="Access denied: artifact path resides outside designated evidence storage.",
-            details=[{"field": "artifact_path", "issue": "forbidden_scope", "provided": artifact_path}],
-        )
-
     if not file_path.exists() or not file_path.is_file():
-        # Also check under current working directory storage folder if configured differently
+        # Also check under relative storage folder or current working directory
         fallback_path = (Path("storage") / clean_path).resolve()
         if fallback_path.exists() and fallback_path.is_file():
             file_path = fallback_path
         else:
-            raise ResourceNotFoundError(f"Evidence artifact not found: {artifact_path}")
+            cwd_path = Path(clean_path).resolve()
+            if cwd_path.exists() and cwd_path.is_file() and str(cwd_path).startswith(str(Path.cwd().resolve())):
+                file_path = cwd_path
+            else:
+                raise ResourceNotFoundError(f"Evidence artifact not found: {artifact_path}")
+
+    # Verify that the resolved path is strictly within an allowed storage or workspace boundary
+    is_in_storage = str(file_path).startswith(str(storage_root)) or str(file_path).startswith(str(Path("storage").resolve())) or str(file_path).startswith(str(Path.cwd().resolve()))
+    if not is_in_storage:
+        raise ValidationError(
+            message="Access denied: artifact path resides outside designated evidence storage.",
+            details=[{"field": "artifact_path", "issue": "forbidden_scope", "provided": artifact_path}],
+        )
 
     # Determine MIME type based on extension
     suffix = file_path.suffix.lower()
@@ -84,15 +90,17 @@ async def download_evidence_artifact(
 
     filename = file_path.name
     disposition = "attachment" if download else "inline"
+    file_size = file_path.stat().st_size
 
     headers = {
         "Content-Disposition": f'{disposition}; filename="{filename}"',
+        "Content-Length": str(file_size),
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=3600",
         "Accept-Ranges": "bytes",
     }
 
-    logger.info(f"Serving evidence artifact {filename} ({media_type}) to user {payload.get('sub', 'unknown')}")
+    logger.info(f"Serving evidence artifact {filename} ({media_type}, {file_size} bytes) to user {payload.get('sub', 'unknown')}")
     return FileResponse(
         path=file_path,
         media_type=media_type,

@@ -7,9 +7,11 @@ Conforms strictly to AERION_API_CONTRACT.md Section 7 and frontend expectations.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -586,26 +588,60 @@ async def get_situation_report(
             "sha256": art.get("sha256", "UNAVAILABLE"),
             "size_bytes": art.get("size_bytes", 0),
         })
-    if raw_payload.get("annotated_artifact"):
-        art = raw_payload["annotated_artifact"]
+    # Canonical video and image artifact resolution
+    raw_annot = raw_payload.get("annotated_artifact")
+    raw_vid = raw_payload.get("annotated_video_artifact")
+    if not raw_vid and raw_annot and isinstance(raw_annot, dict):
+        if str(raw_annot.get("artifact_key", "")).endswith(".mp4") or raw_annot.get("mime_type") == "video/mp4":
+            raw_vid = raw_annot
+
+    if raw_vid and isinstance(raw_vid, dict):
+        v_key = raw_vid.get("artifact_key") or raw_vid.get("storage_key", "UNAVAILABLE")
+        v_sha = raw_vid.get("sha256")
+        if not v_sha or v_sha == "UNAVAILABLE":
+            storage_root = Path(settings.STORAGE_LOCAL_ROOT).resolve()
+            p = (storage_root / v_key).resolve()
+            if not p.exists() or not p.is_file():
+                p = (Path("storage") / v_key).resolve()
+            if p.exists() and p.is_file():
+                v_sha = hashlib.sha256(p.read_bytes()).hexdigest()
+            else:
+                v_sha = "UNAVAILABLE"
+
+        v_size = raw_vid.get("file_size_bytes") or raw_vid.get("byte_size", 0)
+        canonical_vid_record = {
+            "type": "ANNOTATED_VIDEO",
+            "artifact_key": v_key,
+            "storage_key": v_key,
+            "filename": Path(v_key).name,
+            "mime_type": raw_vid.get("mime_type", "video/mp4"),
+            "sha256": v_sha,
+            "size_bytes": v_size,
+            "byte_size": v_size,
+            "file_size_bytes": v_size,
+            "processed_frames": raw_vid.get("frame_count") or raw_payload.get("processed_frames", 0),
+            "frame_count": raw_vid.get("frame_count") or raw_payload.get("processed_frames", 0),
+            "source_frame_count": raw_vid.get("source_frame_count") or raw_payload.get("total_video_frames", 0),
+            "unique_tracks": raw_vid.get("unique_tracks_count", 0),
+            "unique_tracks_count": raw_vid.get("unique_tracks_count", 0),
+            "fps": raw_vid.get("fps"),
+            "duration": raw_vid.get("duration") or raw_vid.get("duration_seconds"),
+            "codec": raw_vid.get("codec", "mp4v"),
+            "representative_frame_index": raw_vid.get("representative_frame_index"),
+            "representative_frame_timestamp": raw_vid.get("representative_frame_timestamp"),
+        }
+        report_artifacts.append(canonical_vid_record)
+        raw_payload["annotated_video_artifact"] = canonical_vid_record
+        if not raw_payload.get("annotated_artifact"):
+            raw_payload["annotated_artifact"] = canonical_vid_record
+
+    elif raw_annot and isinstance(raw_annot, dict):
         report_artifacts.append({
             "type": "ANNOTATED_VISUAL_EVIDENCE",
-            "artifact_key": art.get("artifact_key", "UNAVAILABLE"),
-            "mime_type": art.get("mime_type", "image/jpeg"),
-            "sha256": art.get("sha256", "UNAVAILABLE"),
-            "size_bytes": art.get("size_bytes", 0),
-        })
-    if raw_payload.get("annotated_video_artifact"):
-        art = raw_payload["annotated_video_artifact"]
-        report_artifacts.append({
-            "type": "ANNOTATED_VIDEO",
-            "artifact_key": art.get("artifact_key", "UNAVAILABLE"),
-            "mime_type": art.get("mime_type", "video/mp4"),
-            "sha256": art.get("sha256", "UNAVAILABLE"),
-            "size_bytes": art.get("file_size_bytes", 0),
-            "processed_frames": art.get("frame_count", 0),
-            "source_frame_count": art.get("source_frame_count", 0),
-            "unique_tracks": art.get("unique_tracks_count", 0),
+            "artifact_key": raw_annot.get("artifact_key", "UNAVAILABLE"),
+            "mime_type": raw_annot.get("mime_type", "image/jpeg"),
+            "sha256": raw_annot.get("sha256", "UNAVAILABLE"),
+            "size_bytes": raw_annot.get("size_bytes", 0),
         })
 
     # 4. Evidence Lineage
