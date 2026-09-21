@@ -135,25 +135,34 @@ export const DisasterPage: React.FC = () => {
         if (resp.success && resp.data) {
           const data = resp.data;
           setActiveAnalysisResult(data);
-          if (data.location_context && !operatorLocation) {
-            setOperatorLocation(data.location_context);
-          }
-          if (data.damage_analysis) {
-            const dmg = data.damage_analysis;
-            const percentage = dmg.damage_percentage || (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
-            let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
-            if (percentage >= 50) classification = 'CATASTROPHIC';
-            else if (percentage >= 25) classification = 'SEVERE';
-            else if (percentage >= 10) classification = 'MODERATE';
-            else if (percentage > 0) classification = 'MINOR';
+          const isRejected = Boolean(
+            (data.pair_validation && data.pair_validation.is_compatible === false) ||
+            data.status === 'PAIR_MISMATCH' ||
+            data.overall_status === 'PAIR_VALIDATION_FAILED'
+          );
+          if (isRejected) {
+            setDamage(null);
+          } else {
+            if (data.location_context && !operatorLocation) {
+              setOperatorLocation(data.location_context);
+            }
+            if (data.damage_analysis) {
+              const dmg = data.damage_analysis;
+              const percentage = dmg.damage_percentage || (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
+              let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
+              if (percentage >= 50) classification = 'CATASTROPHIC';
+              else if (percentage >= 25) classification = 'SEVERE';
+              else if (percentage >= 10) classification = 'MODERATE';
+              else if (percentage > 0) classification = 'MINOR';
 
-            setDamage({
-              damage_percentage: percentage,
-              damaged_pixels: dmg.damage_pixels || 0,
-              total_pixels: dmg.total_pixels || 0,
-              mean_damage_probability: dmg.probability_mean || 0,
-              classification,
-            });
+              setDamage({
+                damage_percentage: percentage,
+                damaged_pixels: dmg.damage_pixels || 0,
+                total_pixels: dmg.total_pixels || 0,
+                mean_damage_probability: dmg.probability_mean || 0,
+                classification,
+              });
+            }
           }
         }
       } catch (err) {
@@ -480,12 +489,37 @@ export const DisasterPage: React.FC = () => {
     }
   };
 
+  // Safety invariant: Check if current bi-temporal pair was rejected by canonical validator
+  const isPairRejected = Boolean(
+    (activeAnalysisResult?.pair_validation && activeAnalysisResult.pair_validation.is_compatible === false) ||
+    activeAnalysisResult?.status === 'PAIR_MISMATCH' ||
+    activeAnalysisResult?.overall_status === 'PAIR_VALIDATION_FAILED'
+  );
+
   // Step 4: Calculate evidence-backed risk score from verified inputs
   const getRiskAssessment = () => {
     const hasCoords = Boolean(operatorLocation && typeof operatorLocation.latitude === 'number');
     const hasWeather = Boolean(weatherData && weatherData.status !== 'UNAVAILABLE' && (typeof weatherData.temperature_c === 'number' || typeof weatherData.temperature_celsius === 'number'));
     const hasDamage = Boolean((activeAnalysisResult?.damage_analysis && typeof activeAnalysisResult.damage_analysis.damage_percentage === 'number') || (damage && typeof damage.damage_percentage === 'number'));
     const currentDmgPct = activeAnalysisResult?.damage_analysis?.damage_percentage ?? damage?.damage_percentage ?? 0;
+
+    // Safety Invariant: Incompatible bi-temporal pairs NEVER generate operational risk
+    if (isPairRejected) {
+      return {
+        status: 'NOT_AVAILABLE',
+        mode: 'REJECTED_PAIR',
+        score: null,
+        level: 'UNAVAILABLE',
+        title: 'RISK: NOT AVAILABLE — DAMAGE PAIR INVALID',
+        badge: 'PAIR VALIDATION FAILED',
+        inputs: {
+          coordinates: hasCoords,
+          weather: hasWeather,
+          damage: false,
+        },
+        reason: 'Bi-temporal damage pair failed scene compatibility validation. Operational risk score cannot be calculated for an invalid pair.',
+      };
+    }
 
     // CASE A: User Incident Location Provided
     if (hasCoords) {
@@ -608,11 +642,13 @@ export const DisasterPage: React.FC = () => {
             <span className="text-muted uppercase">MODE:</span>
             <span className="text-paper font-medium">DISASTER RESPONSE</span>
             <span className={`px-2 py-0.5 rounded text-[10px] ${
-              activeAnalysisResult
-                ? 'bg-status-critical/15 text-status-critical border border-status-critical/30'
+              isPairRejected
+                ? 'bg-status-critical/15 text-status-critical border border-status-critical/30 font-bold'
+                : activeAnalysisResult
+                ? 'bg-status-success/15 text-status-success border border-status-success/30'
                 : 'bg-accent/10 text-accent border border-accent/20'
             }`}>
-              {activeAnalysisResult ? 'SIAMESE INFERENCE VERIFIED' : 'SIAMESE FUSED'}
+              {isPairRejected ? 'PAIR REJECTED // INFERENCE HALTED' : activeAnalysisResult ? 'SIAMESE INFERENCE VERIFIED' : 'SIAMESE FUSED'}
             </span>
 
             {/* History Drawer Trigger */}
@@ -675,7 +711,7 @@ export const DisasterPage: React.FC = () => {
               </div>
             )}
 
-            {activeAnalysisResult?.damage_mask_base64 && (displayMode === 'split' || displayMode === 'side-by-side' || displayMode === 'post') && (
+            {!isPairRejected && activeAnalysisResult?.damage_mask_base64 && (displayMode === 'split' || displayMode === 'side-by-side' || displayMode === 'post') && (
               <button
                 onClick={() => setShowDamageOverlay(!showDamageOverlay)}
                 className={`px-2.5 py-1 rounded border text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
@@ -724,7 +760,7 @@ export const DisasterPage: React.FC = () => {
                     alt="Post-Disaster Observation"
                     className="w-full h-full object-cover"
                   />
-                  {showDamageOverlay && activeAnalysisResult?.damage_mask_base64 && (
+                  {showDamageOverlay && !isPairRejected && activeAnalysisResult?.damage_mask_base64 && (
                     <img
                       src={`data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`}
                       alt="Translucent Damage Overlay"
@@ -763,7 +799,7 @@ export const DisasterPage: React.FC = () => {
                       alt="Post-Disaster Observation"
                       className="w-full h-full object-cover"
                     />
-                    {showDamageOverlay && activeAnalysisResult?.damage_mask_base64 && (
+                    {showDamageOverlay && !isPairRejected && activeAnalysisResult?.damage_mask_base64 && (
                       <img
                         src={`data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`}
                         alt="Translucent Damage Overlay"
@@ -782,7 +818,7 @@ export const DisasterPage: React.FC = () => {
                       alt="Post-Disaster Observation"
                       className="w-full h-full object-cover pointer-events-none"
                     />
-                    {showDamageOverlay && activeAnalysisResult?.damage_mask_base64 && (
+                    {showDamageOverlay && !isPairRejected && activeAnalysisResult?.damage_mask_base64 && (
                       <img
                         src={`data:image/jpeg;base64,${activeAnalysisResult.damage_mask_base64}`}
                         alt="Translucent Damage Overlay"
@@ -1088,7 +1124,57 @@ export const DisasterPage: React.FC = () => {
           </div>
 
           <div>
-            {activeAnalysisResult?.damage_analysis ? (
+            {isPairRejected ? (
+              <div className="p-3 bg-status-critical/10 border border-status-critical/40 rounded space-y-2 font-mono">
+                <div className="flex items-center gap-2 text-status-critical font-bold text-xs">
+                  <span className="material-symbols-outlined text-[16px]">gpp_bad</span>
+                  <span>BI-TEMPORAL PAIR REJECTED</span>
+                </div>
+                <p className="text-[11px] text-paper leading-tight">
+                  {activeAnalysisResult?.pair_validation?.rejection_reason || 'Imagery pair failed scene correspondence. Siamese change detection halted.'}
+                </p>
+                <div className="p-2 bg-graphite/60 rounded border border-white/[0.06] text-[10px] space-y-1">
+                  <div className="flex justify-between text-muted">
+                    <span>STATUS:</span>
+                    <span className="font-bold text-status-critical">{activeAnalysisResult?.pair_validation?.status || 'PAIR_MISMATCH'}</span>
+                  </div>
+                  <div className="flex justify-between text-muted">
+                    <span>INFERENCE GATE:</span>
+                    <span className="font-bold text-status-critical">HALTED (0 PIXELS EVALUATED)</span>
+                  </div>
+                  {activeAnalysisResult?.pair_validation?.metrics && (
+                    <>
+                      <div className="flex justify-between text-muted">
+                        <span>KEYPOINT INLIERS:</span>
+                        <span className="text-paper">{activeAnalysisResult.pair_validation.metrics.inliers ?? 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between text-muted">
+                        <span>PATCH CORRELATION (NCC):</span>
+                        <span className="text-paper">
+                          {typeof activeAnalysisResult.pair_validation.metrics.median_patch_corr === 'number'
+                            ? activeAnalysisResult.pair_validation.metrics.median_patch_corr.toFixed(3)
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-muted">
+                        <span>FOURIER PHASE SHIFT:</span>
+                        <span className="text-paper">
+                          {typeof activeAnalysisResult.pair_validation.metrics.phase_shift === 'number'
+                            ? `${activeAnalysisResult.pair_validation.metrics.phase_shift.toFixed(1)} px`
+                            : 'N/A'}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {typeof activeAnalysisResult?.pair_validation?.validation_latency_ms === 'number' && (
+                    <div className="flex justify-between text-muted">
+                      <span>VALIDATION LATENCY:</span>
+                      <span className="text-accent">{activeAnalysisResult.pair_validation.validation_latency_ms.toFixed(1)} ms</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : activeAnalysisResult?.damage_analysis ? (
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-mono font-bold text-status-critical">
                   {activeAnalysisResult.damage_analysis.damage_percentage.toFixed(1)}%
@@ -1123,7 +1209,7 @@ export const DisasterPage: React.FC = () => {
             )}
           </div>
 
-          {activeAnalysisResult?.damage_analysis && (
+          {!isPairRejected && activeAnalysisResult?.damage_analysis && (
             <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
               <div className="p-2 bg-graphite/40 rounded border border-white/[0.04]">
                 <span className="text-faint block">DAMAGED PIXELS:</span>
@@ -1144,15 +1230,11 @@ export const DisasterPage: React.FC = () => {
             </div>
           )}
 
-          {activeAnalysisResult?.pair_validation && (
+          {!isPairRejected && activeAnalysisResult?.pair_validation && (
             <div className="p-2.5 bg-graphite/50 border border-white/[0.06] rounded font-mono text-[10px] space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-faint">PAIR COMPATIBILITY:</span>
-                <span className={`px-1.5 py-0.2 rounded font-bold ${
-                  activeAnalysisResult.pair_validation.is_compatible
-                    ? 'bg-accent/15 text-accent border border-accent/30'
-                    : 'bg-status-critical/15 text-status-critical border border-status-critical/30'
-                }`}>
+                <span className="px-1.5 py-0.2 rounded font-bold bg-accent/15 text-accent border border-accent/30">
                   {activeAnalysisResult.pair_validation.status}
                 </span>
               </div>
@@ -1495,7 +1577,15 @@ export const DisasterPage: React.FC = () => {
           setActiveAnalysisResult(res);
           if (meta?.preUrl) setCustomPreUrl(meta.preUrl);
           if (meta?.postUrl) setCustomPostUrl(meta.postUrl);
-          if (res.damage_analysis) {
+          const isRejected = Boolean(
+            (res.pair_validation && res.pair_validation.is_compatible === false) ||
+            res.status === 'PAIR_MISMATCH' ||
+            res.overall_status === 'PAIR_VALIDATION_FAILED'
+          );
+          if (isRejected) {
+            // Stale State Clearing: Clear all previous damage metrics and reports on rejected pair
+            setDamage(null);
+          } else if (res.damage_analysis) {
             const dmg = res.damage_analysis;
             const percentage = dmg.damage_percentage !== undefined ? dmg.damage_percentage : (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
             let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
@@ -1531,25 +1621,34 @@ export const DisasterPage: React.FC = () => {
               const resp = await analysisApi.getById(targetId);
               if (resp.success && resp.data) {
                 setActiveAnalysisResult(resp.data);
-                if (resp.data.location_context && !operatorLocation) {
-                  setOperatorLocation(resp.data.location_context);
-                }
-                if (resp.data.damage_analysis) {
-                  const dmg = resp.data.damage_analysis;
-                  const percentage = dmg.damage_percentage || (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
-                  let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
-                  if (percentage >= 50) classification = 'CATASTROPHIC';
-                  else if (percentage >= 25) classification = 'SEVERE';
-                  else if (percentage >= 10) classification = 'MODERATE';
-                  else if (percentage > 0) classification = 'MINOR';
+                const isRejected = Boolean(
+                  (resp.data.pair_validation && resp.data.pair_validation.is_compatible === false) ||
+                  resp.data.status === 'PAIR_MISMATCH' ||
+                  resp.data.overall_status === 'PAIR_VALIDATION_FAILED'
+                );
+                if (isRejected) {
+                  setDamage(null);
+                } else {
+                  if (resp.data.location_context && !operatorLocation) {
+                    setOperatorLocation(resp.data.location_context);
+                  }
+                  if (resp.data.damage_analysis) {
+                    const dmg = resp.data.damage_analysis;
+                    const percentage = dmg.damage_percentage || (dmg.damage_ratio ? dmg.damage_ratio * 100 : 0);
+                    let classification: 'NO_DAMAGE' | 'MINOR' | 'MODERATE' | 'SEVERE' | 'CATASTROPHIC' = 'NO_DAMAGE';
+                    if (percentage >= 50) classification = 'CATASTROPHIC';
+                    else if (percentage >= 25) classification = 'SEVERE';
+                    else if (percentage >= 10) classification = 'MODERATE';
+                    else if (percentage > 0) classification = 'MINOR';
 
-                  setDamage({
-                    damage_percentage: percentage,
-                    damaged_pixels: dmg.damage_pixels || 0,
-                    total_pixels: dmg.total_pixels || 0,
-                    mean_damage_probability: dmg.probability_mean || 0,
-                    classification,
-                  });
+                    setDamage({
+                      damage_percentage: percentage,
+                      damaged_pixels: dmg.damage_pixels || 0,
+                      total_pixels: dmg.total_pixels || 0,
+                      mean_damage_probability: dmg.probability_mean || 0,
+                      classification,
+                    });
+                  }
                 }
               }
             } catch (err) {

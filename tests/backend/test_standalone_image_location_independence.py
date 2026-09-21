@@ -13,7 +13,7 @@ TEST 4 — EXIF GPS PRESENT: Image containing EXIF GPS metadata -> Inference suc
 TEST 5 — DIFFERENT EXIF GPS: Identical pixels with disparate EXIF GPS -> Exactly identical perception
 TEST 6 — INVALID/MISSING GEO-CONTEXT: Invalid/absent situation or project metadata -> Inference succeeds
 TEST 7 — GEO ENRICHMENT UNAVAILABLE: Downstream geo services unconfigured/offline -> Perception unaffected
-TEST 8 — DAMAGE PAIR: DamagePairValidator non-geographic checks enforced; EXIF GPS disparity does not alter ML compatibility
+TEST 8 — DAMAGE PAIR: DamagePairValidator non-geographic checks enforced; conflicting reliable GPS metadata rejects pair (CASE 5)
 TEST 9 — GEO FUNCTIONALITY ISOLATION: Independent geospatial functions operate correctly in isolation
 DIFFERENTIAL DETERMINISTIC TEST: Byte-for-byte perception comparison between unlocated and located runs
 """
@@ -318,21 +318,21 @@ class TestStandaloneImageLocationIndependence(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValidationError):
             DamagePairValidator.validate_pair(self.temp_dir / "missing.jpg", pre_wide)
 
-        # 4. EXIF GPS disparity check: Disjoint GPS (> 0.5 deg) must NOT reject pair
+        # 4. Reliable Embedded GPS Conflict check: Disjoint GPS (> 10 km limit) MUST reject pair (CASE 5)
         pre_gps_sf = self._create_image_with_exif_gps(
             "pre_sf.jpg", lat=37.7749, lon=-122.4194, source_image_path=pre_wide
         )
         post_gps_la = self._create_image_with_exif_gps(
             "post_la.jpg", lat=34.0522, lon=-118.2437, source_image_path=pre_wide
         )
-        # Coordinate diff is ~4.0 deg > 0.5 deg limit
+        # Geodesic distance between SF and LA is ~560 km > 10.0 km threshold
         res = DamagePairValidator.validate_pair(pre_gps_sf, post_gps_la)
-        self.assertTrue(res.is_compatible)
-        self.assertEqual(res.status, "STRUCTURALLY_COMPATIBLE")
+        self.assertFalse(res.is_compatible)
+        self.assertEqual(res.status, "CONFLICTING_GEOGRAPHIC_METADATA")
         self.assertEqual(res.geospatial_metadata_status, "DISJOINT")
-        self.assertTrue(any("disjoint geographic areas" in w.lower() or "geospatial disparity" in w.lower() for w in res.warnings))
+        self.assertIn("Conflicting reliable embedded GPS metadata", res.rejection_reason)
 
-        # 5. EXIF GPS matching check: Co-registered GPS (<= 0.5 deg)
+        # 5. Reliable Embedded GPS Matching check: Co-registered GPS (<= 10 km limit)
         post_gps_sf_near = self._create_image_with_exif_gps(
             "post_sf_near.jpg", lat=37.7750, lon=-122.4195, source_image_path=pre_wide
         )

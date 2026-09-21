@@ -17,7 +17,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
-from aerion_runtime_contracts import AERIONAnalysisResult
+from aerion_runtime_contracts import AERIONAnalysisResult, SceneSummary
 from app.core.config import get_settings
 from app.core.jobs import JobManager, default_job_manager
 from app.runtime.adapter import FROZEN_DAMAGE_THRESHOLD
@@ -112,6 +112,41 @@ class DamageAnalysisService:
         threshold: float = FROZEN_DAMAGE_THRESHOLD,
         run_intelligence: bool = True,
     ) -> AERIONAnalysisResult:
+        from app.services.damage_validator import DamagePairValidator
+        validation_res = DamagePairValidator.validate_pair(before_path, after_path)
+        if not validation_res.is_compatible:
+            rejection_reason = validation_res.rejection_reason or "Insufficient scene/spatial correspondence between T0 and T1."
+            return AERIONAnalysisResult(
+                project="AERION",
+                version="v1",
+                analysis_id=str(uuid.uuid4()),
+                mode="disaster",
+                source_type="damage_pair",
+                image_width=validation_res.after_dimensions[0],
+                image_height=validation_res.after_dimensions[1],
+                frame_number=None,
+                detections=[],
+                tracks=[],
+                border_analysis=[],
+                damage_analysis=None,
+                intelligence=[],
+                summary=SceneSummary(),
+                overall_status="PAIR_VALIDATION_FAILED",
+                metadata={
+                    "status": "PAIR_MISMATCH",
+                    "overall_status": "PAIR_VALIDATION_FAILED",
+                    "pair_validation": validation_res.to_dict(),
+                    "rejection_reason": rejection_reason,
+                    "damage_analysis": None,
+                    "risk_assessment": {
+                        "status": "NOT_AVAILABLE",
+                        "reason": "DAMAGE PAIR INVALID",
+                        "score": None,
+                        "level": "UNAVAILABLE",
+                    },
+                },
+            )
+
         return await self.runtime_manager.run_damage_inference(
             before_path=before_path,
             after_path=after_path,

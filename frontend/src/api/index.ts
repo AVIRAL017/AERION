@@ -173,6 +173,16 @@ export const analysisApi = {
     return apiClient.post('/analysis/damage', payload);
   },
 
+  validateDamagePair: async (payload: {
+    before_base64?: string;
+    after_base64?: string;
+    before_image_path?: string;
+    after_image_path?: string;
+    max_gps_distance_km?: number;
+  }): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/damage/validate', payload);
+  },
+
   analyzeBorderVideo: async (payload: {
     video_path?: string;
     video_base64?: string;

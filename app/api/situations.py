@@ -547,10 +547,35 @@ async def get_situation_report(
 
     # 2. Damage Assessment
     raw_damage = raw_payload.get("damage_analysis")
-    has_damage_data = raw_damage is not None
+    pair_val = raw_payload.get("pair_validation") or {}
+    is_pair_rejected = (
+        (pair_val.get("is_compatible") is False)
+        or (raw_payload.get("status") == "PAIR_MISMATCH")
+        or (raw_payload.get("overall_status") == "PAIR_VALIDATION_FAILED")
+    )
+    has_damage_data = (raw_damage is not None) and not is_pair_rejected
     damage_summary: Optional[Dict[str, Any]] = None
-    if has_damage_data and isinstance(raw_damage, dict):
-        pair_val = raw_payload.get("pair_validation") or {}
+
+    if is_pair_rejected:
+        rej_reason = pair_val.get("rejection_reason") or "Insufficient scene/spatial correspondence between T0 and T1."
+        damage_summary = {
+            "status": "PAIR_VALIDATION_FAILED",
+            "message": "Bi-temporal disaster pair rejected. Damage inference was not executed.",
+            "rejection_reason": rej_reason,
+            "damage_ratio": 0.0,
+            "damage_percentage": 0.0,
+            "damage_pixels": 0,
+            "total_pixels": 0,
+            "classification": "UNAVAILABLE",
+            "pair_validation": {
+                "is_compatible": False,
+                "status": pair_val.get("status", "PAIR_MISMATCH"),
+                "rejection_reason": rej_reason,
+                "warnings": pair_val.get("warnings", []),
+                "limitations": pair_val.get("limitations", []),
+            },
+        }
+    elif has_damage_data and isinstance(raw_damage, dict):
         damage_summary = {
             "damage_ratio": round(float(raw_damage.get("damage_ratio", 0.0)), 6),
             "damage_percentage": round(float(raw_damage.get("damage_percentage", 0.0)), 2),
@@ -698,7 +723,13 @@ async def get_situation_report(
         else:
             verified_facts.append("Detection data unavailable for this analysis.")
     else:
-        if has_damage_data and damage_summary:
+        if is_pair_rejected and damage_summary:
+            verified_facts.append("Bi-temporal damage assessment: NOT EXECUTED.")
+            pair_v = damage_summary.get("pair_validation", {})
+            verified_facts.append(f"Image pair validation: FAILED ({pair_v.get('status', 'PAIR_MISMATCH')}).")
+            if damage_summary.get("rejection_reason"):
+                verified_facts.append(f"Rejection reason: {damage_summary['rejection_reason']}")
+        elif has_damage_data and damage_summary:
             pct = damage_summary["damage_percentage"]
             px = damage_summary["damage_pixels"]
             tot = damage_summary["total_pixels"]
@@ -729,7 +760,9 @@ async def get_situation_report(
         else:
             exec_summary = "Operational border surveillance report. Analysis detection stream unavailable."
     else:
-        if has_damage_data and damage_summary:
+        if is_pair_rejected and damage_summary:
+            exec_summary = "Bi-temporal disaster pair rejected: imagery does not represent the same geographic area. Damage inference was not executed."
+        elif has_damage_data and damage_summary:
             exec_summary = f"Disaster damage analysis completed. Structural damage measured at {damage_summary['damage_percentage']}% ({damage_summary['classification']})."
         else:
             exec_summary = "Disaster damage assessment standby. Imagery input unavailable."

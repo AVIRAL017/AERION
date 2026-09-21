@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { analysisApi } from '../api';
 import { normalizeVideoAnalysisResponse } from '../api/videoResultAdapter';
 import { AERIONAnalysisResultData } from '../types';
@@ -30,6 +30,19 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [prePreview, setPrePreview] = useState<string | null>(null);
   const [postPreview, setPostPreview] = useState<string | null>(null);
 
+  // Pre-analysis pair validation state (non-authoritative UI advisory)
+  const [pairValidationStatus, setPairValidationStatus] = useState<{
+    isValidating: boolean;
+    isCompatible: boolean | null;
+    status: string | null;
+    reason: string | null;
+  }>({
+    isValidating: false,
+    isCompatible: null,
+    status: null,
+    reason: null,
+  });
+
   // Parameter options
   const [droneModel, setDroneModel] = useState<'visdrone_only' | 'unified'>('visdrone_only');
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.25);
@@ -42,6 +55,58 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+
+  // Pre-flight pair compatibility check whenever both T0 and T1 are selected
+  useEffect(() => {
+    if (mode !== 'damage_pair' || !preFile || !postFile) {
+      setPairValidationStatus({ isValidating: false, isCompatible: null, status: null, reason: null });
+      return;
+    }
+
+    let isMounted = true;
+    const runValidation = async () => {
+      setPairValidationStatus(prev => ({ ...prev, isValidating: true }));
+      try {
+        const [b64Pre, b64Post] = await Promise.all([
+          fileToBase64(preFile),
+          fileToBase64(postFile),
+        ]);
+        const res = await analysisApi.validateDamagePair({
+          before_base64: b64Pre,
+          after_base64: b64Post,
+        });
+        if (!isMounted) return;
+        if (res.success && res.data) {
+          setPairValidationStatus({
+            isValidating: false,
+            isCompatible: Boolean(res.data.is_compatible),
+            status: res.data.status,
+            reason: res.data.rejection_reason || null,
+          });
+        } else {
+          setPairValidationStatus({
+            isValidating: false,
+            isCompatible: false,
+            status: 'PAIR_MISMATCH',
+            reason: (res.error as any)?.message || 'Scene correspondence check failed.',
+          });
+        }
+      } catch (err: any) {
+        if (!isMounted) return;
+        setPairValidationStatus({
+          isValidating: false,
+          isCompatible: false,
+          status: 'VALIDATION_ERROR',
+          reason: err.message || 'Validation request failed.',
+        });
+      }
+    };
+
+    runValidation();
+    return () => {
+      isMounted = false;
+    };
+  }, [preFile, postFile, mode]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preInputRef = useRef<HTMLInputElement>(null);
@@ -200,7 +265,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         });
 
         if (resp.success && resp.data) {
-          setStatusMessage('DAMAGE MAP COMPUTED. RENDERING...');
+          if (resp.data.pair_validation && resp.data.pair_validation.is_compatible === false) {
+            setStatusMessage('BI-TEMPORAL PAIR REJECTED. DAMAGE INFERENCE HALTED.');
+          } else {
+            setStatusMessage('DAMAGE MAP COMPUTED. RENDERING...');
+          }
           onAnalysisSuccess(resp.data, {
             preUrl: prePreview || undefined,
             postUrl: postPreview || undefined,
@@ -389,61 +458,95 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
           {/* Upload Inputs Area */}
           {mode === 'damage_pair' ? (
-            <div className="grid grid-cols-2 gap-4">
-              {/* Pre-disaster box */}
-              <div className="flex flex-col gap-2">
-                <span className="text-[11px] text-muted uppercase">PRE-DISASTER BASELINE (T0)</span>
-                <input
-                  type="file"
-                  ref={preInputRef}
-                  onChange={handlePreFileChange}
-                  accept="image/*"
-                  className="hidden"
-                />
-                <div
-                  onClick={() => !isProcessing && preInputRef.current?.click()}
-                  className="h-36 border border-dashed border-white/[0.15] rounded flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent/60 bg-elevated/20 transition-all overflow-hidden relative"
-                >
-                  {prePreview ? (
-                    <img src={prePreview} alt="Pre-Disaster" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="flex flex-col items-center text-center gap-1 text-faint">
-                      <span className="material-symbols-outlined text-[24px]">image</span>
-                      <span className="text-[10px]">SELECT T0 IMAGE</span>
-                      <span className="text-[9px] text-muted">Max 15MB (JPG/PNG)</span>
-                    </div>
-                  )}
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                {/* Pre-disaster box */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-[11px] text-muted uppercase">PRE-DISASTER BASELINE (T0)</span>
+                  <input
+                    type="file"
+                    ref={preInputRef}
+                    onChange={handlePreFileChange}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <div
+                    onClick={() => !isProcessing && preInputRef.current?.click()}
+                    className="h-36 border border-dashed border-white/[0.15] rounded flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent/60 bg-elevated/20 transition-all overflow-hidden relative"
+                  >
+                    {prePreview ? (
+                      <img src={prePreview} alt="Pre-Disaster" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="flex flex-col items-center text-center gap-1 text-faint">
+                        <span className="material-symbols-outlined text-[24px]">image</span>
+                        <span className="text-[10px]">SELECT T0 IMAGE</span>
+                        <span className="text-[9px] text-muted">Max 15MB (JPG/PNG)</span>
+                      </div>
+                    )}
+                  </div>
+                  {preFile && <span className="text-[10px] text-paper truncate">{preFile.name}</span>}
                 </div>
-                {preFile && <span className="text-[10px] text-paper truncate">{preFile.name}</span>}
+
+                {/* Post-disaster box */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-[11px] text-muted uppercase">POST-DISASTER SCENE (T1)</span>
+                  <input
+                    type="file"
+                    ref={postInputRef}
+                    onChange={handlePostFileChange}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <div
+                    onClick={() => !isProcessing && postInputRef.current?.click()}
+                    className="h-36 border border-dashed border-white/[0.15] rounded flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent/60 bg-elevated/20 transition-all overflow-hidden relative"
+                  >
+                    {postPreview ? (
+                      <img src={postPreview} alt="Post-Disaster" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="flex flex-col items-center text-center gap-1 text-faint">
+                        <span className="material-symbols-outlined text-[24px]">image</span>
+                        <span className="text-[10px]">SELECT T1 IMAGE</span>
+                        <span className="text-[9px] text-muted">Max 15MB (JPG/PNG)</span>
+                      </div>
+                    )}
+                  </div>
+                  {postFile && <span className="text-[10px] text-paper truncate">{postFile.name}</span>}
+                </div>
               </div>
 
-              {/* Post-disaster box */}
-              <div className="flex flex-col gap-2">
-                <span className="text-[11px] text-muted uppercase">POST-DISASTER SCENE (T1)</span>
-                <input
-                  type="file"
-                  ref={postInputRef}
-                  onChange={handlePostFileChange}
-                  accept="image/*"
-                  className="hidden"
-                />
-                <div
-                  onClick={() => !isProcessing && postInputRef.current?.click()}
-                  className="h-36 border border-dashed border-white/[0.15] rounded flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent/60 bg-elevated/20 transition-all overflow-hidden relative"
-                >
-                  {postPreview ? (
-                    <img src={postPreview} alt="Post-Disaster" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="flex flex-col items-center text-center gap-1 text-faint">
-                      <span className="material-symbols-outlined text-[24px]">image</span>
-                      <span className="text-[10px]">SELECT T1 IMAGE</span>
-                      <span className="text-[9px] text-muted">Max 15MB (JPG/PNG)</span>
+              {/* Bi-Temporal Pair Preflight Validation Card */}
+              {preFile && postFile && (
+                <div className={`p-2.5 rounded border text-[11px] flex flex-col gap-1 transition-all ${
+                  pairValidationStatus.isValidating
+                    ? 'bg-elevated/40 border-white/[0.1] text-muted'
+                    : pairValidationStatus.isCompatible === true
+                    ? 'bg-status-success/10 border-status-success/30 text-status-success'
+                    : pairValidationStatus.isCompatible === false
+                    ? 'bg-status-critical/10 border-status-critical/30 text-status-critical'
+                    : 'bg-elevated/40 border-white/[0.1] text-muted'
+                }`}>
+                  <div className="flex items-center justify-between font-mono font-bold tracking-wider">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`material-symbols-outlined text-[16px] ${pairValidationStatus.isValidating ? 'animate-spin' : ''}`}>
+                        {pairValidationStatus.isValidating ? 'sync' : pairValidationStatus.isCompatible ? 'check_circle' : 'cancel'}
+                      </span>
+                      <span>PAIR VALIDATION: {pairValidationStatus.isValidating ? 'EVALUATING SCENE CORRESPONDENCE...' : pairValidationStatus.isCompatible ? 'STRUCTURALLY_COMPATIBLE' : (pairValidationStatus.status || 'PAIR_MISMATCH')}</span>
                     </div>
-                  )}
+                  </div>
+                  {pairValidationStatus.isValidating ? (
+                    <span className="text-[10px] text-muted">Analyzing geometric keypoint correspondence, phase correlation & reliable GPS...</span>
+                  ) : pairValidationStatus.isCompatible === true ? (
+                    <span className="text-[10px] text-status-success/80">✓ Same-scene evidence confirmed. Valid bi-temporal pair for change detection.</span>
+                  ) : pairValidationStatus.isCompatible === false ? (
+                    <div className="flex flex-col gap-0.5 text-[10px]">
+                      <span className="font-semibold text-status-critical">✕ Incompatible imagery pair: {pairValidationStatus.reason || 'Insufficient scene correspondence'}.</span>
+                      <span className="text-muted">Siamese change detection will be halted server-side to prevent false damage attribution.</span>
+                    </div>
+                  ) : null}
                 </div>
-                {postFile && <span className="text-[10px] text-paper truncate">{postFile.name}</span>}
-              </div>
-            </div>
+              )}
+            </>
           ) : (
             <div className="flex flex-col gap-2">
               <span className="text-[11px] text-muted uppercase">

@@ -333,8 +333,51 @@ class AERIONOrchestrator:
     ) -> AERIONAnalysisResult:
         """
         Process a bi-temporal disaster image pair through Siamese damage analysis.
+        Enforces canonical DamagePairValidator compatibility gate before model execution.
         """
         analysis_id = str(uuid.uuid4())
+
+        from app.services.damage_validator import DamagePairValidator
+        validation_res = DamagePairValidator.validate_pair(before_path, after_path)
+
+        if not validation_res.is_compatible:
+            rejection_reason = validation_res.rejection_reason or "Insufficient scene/spatial correspondence between T0 and T1."
+            metadata = {
+                "source_type": "change_detection",
+                "before_path": str(before_path),
+                "after_path": str(after_path),
+                "configured_terrain": self._terrain_metadata,
+                "status": "PAIR_MISMATCH",
+                "overall_status": "PAIR_VALIDATION_FAILED",
+                "pair_validation": validation_res.to_dict(),
+                "rejection_reason": rejection_reason,
+                "damage_analysis": None,
+                "risk_assessment": {
+                    "status": "NOT_AVAILABLE",
+                    "reason": "DAMAGE PAIR INVALID",
+                    "score": None,
+                    "level": "UNAVAILABLE",
+                },
+            }
+            return AERIONAnalysisResult(
+                project="AERION",
+                version="v1",
+                analysis_id=analysis_id,
+                mode="disaster",
+                source_type="change_detection",
+                image_width=validation_res.after_dimensions[0],
+                image_height=validation_res.after_dimensions[1],
+                frame_number=None,
+                detections=[],
+                tracks=[],
+                border_analysis=[],
+                damage_analysis=None,
+                intelligence=[],
+                summary=SceneSummary(),
+                overall_status="PAIR_VALIDATION_FAILED",
+                metadata=metadata,
+            )
+
         damage_analysis = self.analyze_damage(before_path, after_path, threshold=threshold)
 
         intel_items: List[IntelligenceItem] = []

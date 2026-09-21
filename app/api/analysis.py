@@ -199,6 +199,14 @@ class DamageAnalysisRequest(BaseModel):
     run_intelligence: bool = Field(default=True)
 
 
+class DamagePairValidationRequest(BaseModel):
+    before_image_path: Optional[str] = Field(default=None, description="Local file path to pre-disaster image")
+    after_image_path: Optional[str] = Field(default=None, description="Local file path to post-disaster image")
+    before_base64: Optional[str] = Field(default=None, description="Base64 pre-disaster image bytes")
+    after_base64: Optional[str] = Field(default=None, description="Base64 post-disaster image bytes")
+    max_gps_distance_km: Optional[float] = Field(default=10.0, description="Maximum allowable geodesic GPS distance in km")
+
+
 class BorderVideoAnalysisRequest(BaseModel):
     project_id: Optional[str] = Field(default="00000000-0000-0000-0000-000000000001")
     situation_id: Optional[str] = Field(default=None, description="Optional Situation ID to link evidence and events")
@@ -368,6 +376,60 @@ async def analyze_image(
 
 
 @router.post(
+    "/damage/validate",
+    response_model=ResponseEnvelope[Dict[str, Any]],
+    status_code=status.HTTP_200_OK,
+    summary="Preflight validation of bi-temporal disaster pair compatibility (non-authoritative advisory)",
+)
+async def validate_damage_pair(
+    req: DamagePairValidationRequest,
+    request: Request,
+    payload: dict = Depends(get_current_user_payload),
+) -> ResponseEnvelope[Dict[str, Any]]:
+    """
+    Non-authoritative preflight pair validation endpoint for UI guidance.
+    Note: The actual damage inference paths (/damage, /disaster/e2e, jobs)
+    independently enforce DamagePairValidator immediately prior to model execution.
+    """
+    settings = get_settings()
+    before_path: Optional[Path] = None
+    after_path: Optional[Path] = None
+    temp_dirs: List[Path] = []
+
+    if req.before_image_path and req.after_image_path:
+        bp = Path(req.before_image_path)
+        ap = Path(req.after_image_path)
+        if not bp.exists():
+            raise ResourceNotFoundError(f"Pre-disaster image path does not exist: {req.before_image_path}")
+        if not ap.exists():
+            raise ResourceNotFoundError(f"Post-disaster image path does not exist: {req.after_image_path}")
+        before_path = bp
+        after_path = ap
+    elif req.before_base64 and req.after_base64:
+        before_path = _write_temp_base64(req.before_base64, field_name="before_base64")
+        after_path = _write_temp_base64(req.after_base64, field_name="after_base64")
+        temp_dirs.extend([before_path.parent, after_path.parent])
+    else:
+        raise ValidationError(
+            message="Both before and after image sources must be provided (via file paths or base64).",
+            details=[{"field": "before_image_path", "issue": "missing_damage_pair", "provided": None}],
+        )
+
+    try:
+        max_dist = req.max_gps_distance_km or 10.0
+        validation_res = DamagePairValidator.validate_pair(str(before_path), str(after_path), max_gps_distance_km=max_dist)
+        meta = MetaBlock(
+            timestamp=utc_now_iso(),
+            request_id=_extract_request_id(request),
+            version=settings.API_VERSION,
+        )
+        return ResponseEnvelope(success=True, data=validation_res.to_dict(), meta=meta)
+    finally:
+        for td in temp_dirs:
+            shutil.rmtree(td, ignore_errors=True)
+
+
+@router.post(
     "/damage",
     response_model=ResponseEnvelope[Dict[str, Any]],
     status_code=status.HTTP_200_OK,
@@ -408,8 +470,62 @@ async def analyze_damage(
 
 
     try:
-        # Validate structural & geospatial compatibility of before/after pair (BUG-006)
+        # Validate structural & geospatial compatibility of before/after pair (BUG-006 / Rem-005)
         validation_res = DamagePairValidator.validate_pair(str(before_path), str(after_path))
+
+        if not validation_res.is_compatible:
+            # STOP DAMAGE INFERENCE UPSTREAM.
+            # Do NOT invoke Siamese model. Do NOT produce fake damage or operational risk.
+            analysis_uuid = uuid.uuid4()
+            rejection_reason = validation_res.rejection_reason or "Insufficient scene/spatial correspondence between T0 and T1."
+            res_obj = AERIONAnalysisResult(
+                analysis_id=str(analysis_uuid),
+                mode="disaster",
+                source_type="damage_pair",
+                image_width=validation_res.after_dimensions[0],
+                image_height=validation_res.after_dimensions[1],
+                damage_analysis=None,
+                overall_status="PAIR_VALIDATION_FAILED",
+            )
+            result_dict = res_obj.to_dict()
+            result_dict["status"] = "PAIR_MISMATCH"
+            result_dict["overall_status"] = "PAIR_VALIDATION_FAILED"
+            result_dict["pair_validation"] = validation_res.to_dict()
+            result_dict["damage_analysis"] = None
+            result_dict["damage_mask_base64"] = None
+            result_dict["damage_artifact"] = None
+            result_dict["rejection_reason"] = rejection_reason
+            result_dict["risk_assessment"] = {
+                "status": "NOT_AVAILABLE",
+                "reason": "DAMAGE PAIR INVALID",
+                "score": None,
+                "level": "UNAVAILABLE",
+            }
+            result_dict["advisory"] = {
+                "status": "PAIR_VALIDATION_FAILED",
+                "summary": f"Bi-temporal disaster pair rejected. {rejection_reason} Damage inference was not executed.",
+                "recommended_actions": [
+                    "Upload two images covering the same geographic area at different times.",
+                    "Verify image source coordinates and perspective coverage before retrying.",
+                ],
+            }
+            persist_info = await _safely_persist_result(
+                result=res_obj,
+                project_id_str=req.project_id,
+                situation_id_str=req.situation_id,
+                annotated_artifact_key=None,
+                user_id_str=payload.get("sub"),
+                org_id_str=payload.get("org"),
+                raw_payload_override=result_dict,
+            )
+            result_dict["persistence"] = persist_info
+
+            meta = MetaBlock(
+                timestamp=utc_now_iso(),
+                request_id=_extract_request_id(request),
+                version=settings.API_VERSION,
+            )
+            return ResponseEnvelope(success=True, data=result_dict, meta=meta)
 
         damage_service = DamageAnalysisService()
         result: AERIONAnalysisResult = await damage_service.analyze_damage_pair(
@@ -647,8 +763,77 @@ async def analyze_disaster_e2e(
         )
 
     try:
-        # Validate structural & geospatial compatibility of before/after pair (BUG-006)
+        # Validate structural & geospatial compatibility of before/after pair (BUG-006 / Rem-005)
         validation_res = DamagePairValidator.validate_pair(str(before_path), str(after_path))
+
+        if not validation_res.is_compatible:
+            # STOP DAMAGE INFERENCE UPSTREAM.
+            # Do NOT invoke Siamese model. Do NOT produce fake damage or operational risk.
+            analysis_uuid = uuid.uuid4()
+            rejection_reason = validation_res.rejection_reason or "Insufficient scene/spatial correspondence between T0 and T1."
+            res_obj = AERIONAnalysisResult(
+                analysis_id=str(analysis_uuid),
+                mode="disaster",
+                source_type="damage_pair",
+                image_width=validation_res.after_dimensions[0],
+                image_height=validation_res.after_dimensions[1],
+                damage_analysis=None,
+                overall_status="PAIR_VALIDATION_FAILED",
+            )
+            e2e_response = {
+                "analysis_id": str(analysis_uuid),
+                "mode": "DISASTER_RESPONSE",
+                "status": "PAIR_MISMATCH",
+                "overall_status": "PAIR_VALIDATION_FAILED",
+                "georeferencing_status": "UNAVAILABLE",
+                "pair_validation": validation_res.to_dict(),
+                "damage_mask_base64": None,
+                "damage_artifact": None,
+                "damage_analysis": None,
+                "rejection_reason": rejection_reason,
+                "risk_assessment": {
+                    "status": "NOT_AVAILABLE",
+                    "reason": "DAMAGE PAIR INVALID",
+                    "score": None,
+                    "level": "UNAVAILABLE",
+                },
+                "geospatial_context": {
+                    "administrative": None,
+                    "seismic_events": [],
+                    "shelters": [],
+                    "buildings_in_radius": 0,
+                    "critical_infrastructure_in_radius": 0,
+                },
+                "external_context": {
+                    "weather": None,
+                    "routing": None,
+                },
+                "advisory": {
+                    "status": "PAIR_VALIDATION_FAILED",
+                    "summary": f"Bi-temporal disaster pair rejected. {rejection_reason} Damage inference was not executed.",
+                    "recommended_actions": [
+                        "Upload two images covering the same geographic area at different times.",
+                    ],
+                },
+                "limitations": [f"Damage inference halted upstream: {rejection_reason}"],
+            }
+            persist_info = await _safely_persist_result(
+                result=res_obj,
+                project_id_str=req.project_id,
+                situation_id_str=req.situation_id,
+                annotated_artifact_key=None,
+                user_id_str=payload.get("sub"),
+                org_id_str=payload.get("org"),
+                raw_payload_override=e2e_response,
+            )
+            e2e_response["persistence"] = persist_info
+
+            meta = MetaBlock(
+                timestamp=utc_now_iso(),
+                request_id=_extract_request_id(request),
+                version=settings.API_VERSION,
+            )
+            return ResponseEnvelope(success=True, data=e2e_response, meta=meta)
 
         # 1. Run frozen damage detection model
         damage_service = DamageAnalysisService()
@@ -1241,8 +1426,63 @@ async def _run_disaster_job_pipeline(job_id: str, req: CreateDisasterJobRequest,
         else:
             raise ValidationError("Both before and after image sources are required for disaster job.")
 
-        # Validate pair structural compatibility (BUG-006)
+        # Validate pair structural compatibility (BUG-006 / Rem-005)
         validation_res = DamagePairValidator.validate_pair(str(before_path), str(after_path))
+
+        if not validation_res.is_compatible:
+            analysis_uuid = uuid.uuid4()
+            analysis_id = str(analysis_uuid)
+            rejection_reason = validation_res.rejection_reason or "Insufficient scene/spatial correspondence between T0 and T1."
+            res_obj = AERIONAnalysisResult(
+                analysis_id=analysis_id,
+                mode="disaster",
+                source_type="damage_pair",
+                image_width=validation_res.after_dimensions[0],
+                image_height=validation_res.after_dimensions[1],
+                damage_analysis=None,
+                overall_status="PAIR_VALIDATION_FAILED",
+            )
+            result_dict = res_obj.to_dict()
+            result_dict["status"] = "PAIR_MISMATCH"
+            result_dict["overall_status"] = "PAIR_VALIDATION_FAILED"
+            result_dict["pair_validation"] = validation_res.to_dict()
+            result_dict["damage_analysis"] = None
+            result_dict["damage_mask_base64"] = None
+            result_dict["damage_artifact"] = None
+            result_dict["rejection_reason"] = rejection_reason
+            result_dict["risk_assessment"] = {
+                "status": "NOT_AVAILABLE",
+                "reason": "DAMAGE PAIR INVALID",
+                "score": None,
+                "level": "UNAVAILABLE",
+            }
+            result_dict["advisory"] = {
+                "status": "PAIR_VALIDATION_FAILED",
+                "summary": f"Bi-temporal disaster pair rejected. {rejection_reason} Damage inference was not executed.",
+                "recommended_actions": [
+                    "Upload two images covering the same geographic area at different times.",
+                ],
+            }
+            persist_info = await _safely_persist_result(
+                result=res_obj,
+                project_id_str=req.project_id,
+                situation_id_str=req.situation_id,
+                annotated_artifact_key=None,
+                existing_job_id_str=job_id,
+                user_id_str=user_id,
+                org_id_str=org_id,
+                raw_payload_override=result_dict,
+            )
+            result_dict["persistence"] = persist_info
+            await mgr.update_progress(
+                job_id,
+                stage=JobStatus.COMPLETED.value,
+                progress_percent=100,
+                status=JobStatus.COMPLETED,
+                analysis_id=analysis_id,
+                result_payload=result_dict,
+            )
+            return result_dict
 
         # Stage 2: QUEUED
         await mgr.update_progress(job_id, stage=JobStatus.QUEUED.value, progress_percent=20, status=JobStatus.QUEUED)

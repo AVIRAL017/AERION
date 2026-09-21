@@ -309,7 +309,36 @@ export const SituationReportPage: React.FC = () => {
               </span>
             </div>
 
-            {report?.damage_summary && report.damage_summary.status !== 'UNAVAILABLE' ? (
+            {report?.damage_summary?.status === 'PAIR_VALIDATION_FAILED' || report?.damage_summary?.pair_validation?.is_compatible === false ? (
+              <div className="p-4 bg-status-critical/10 border border-status-critical/40 rounded space-y-2 font-mono text-xs">
+                <div className="flex items-center gap-2 text-status-critical font-bold">
+                  <span className="material-symbols-outlined text-[18px]">gpp_bad</span>
+                  <span>PAIR VALIDATION FAILED — INFERENCE HALTED</span>
+                </div>
+                <p className="text-paper text-[11px] leading-tight">
+                  {report?.damage_summary?.pair_validation?.rejection_reason ||
+                    'Bi-temporal imagery pair failed scene compatibility validation. Change detection was halted upstream to prevent false damage attribution.'}
+                </p>
+                <div className="p-2.5 bg-graphite/60 rounded border border-white/[0.06] text-[10px] space-y-1">
+                  <div className="flex justify-between text-muted">
+                    <span>PAIR STATUS:</span>
+                    <span className="font-bold text-status-critical">{report?.damage_summary?.pair_validation?.status || 'PAIR_MISMATCH'}</span>
+                  </div>
+                  <div className="flex justify-between text-muted">
+                    <span>EVALUATED PIXELS:</span>
+                    <span className="text-paper">0</span>
+                  </div>
+                  <div className="flex justify-between text-muted">
+                    <span>DAMAGE PERCENTAGE:</span>
+                    <span className="text-paper">0.00%</span>
+                  </div>
+                  <div className="flex justify-between text-muted">
+                    <span>SEVERITY CLASSIFICATION:</span>
+                    <span className="text-muted">NOT GENERATED (INFERENCE HALTED)</span>
+                  </div>
+                </div>
+              </div>
+            ) : report?.damage_summary && report.damage_summary.status !== 'UNAVAILABLE' ? (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
                 <div className="p-3 bg-graphite/40 rounded border border-white/[0.04]">
                   <span className="text-[10px] text-faint block">DAMAGE RATIO</span>

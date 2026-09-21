@@ -417,7 +417,32 @@ def generate_situation_report_pdf(
         )
         ax1.text(0.06, 0.855, meta_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
-        if is_disaster:
+        is_pair_validation_failed = (
+            (damage_summary is not None and damage_summary.get("status") == "PAIR_VALIDATION_FAILED")
+            or (status_str in ("PAIR_VALIDATION_FAILED", "PAIR_MISMATCH"))
+            or (damage_summary is not None and damage_summary.get("pair_validation", {}).get("is_compatible") is False)
+        )
+
+        if is_disaster and is_pair_validation_failed:
+            # 2. Disaster Damage Pair Validation Failure Audit
+            ax1.text(0.06, 0.725, "2. BI-TEMPORAL PAIR VALIDATION AUDIT (DAMAGE INFERENCE HALTED)", color="#EF4444", fontsize=8.2, fontweight="bold")
+            pair_v = (damage_summary.get("pair_validation") if damage_summary else {}) or {}
+            pair_status = pair_v.get("status", "FAILED")
+            rejection_reason = (
+                (damage_summary.get("rejection_reason") if damage_summary else None)
+                or pair_v.get("rejection_reason")
+                or "Insufficient scene/spatial correspondence between T0 and T1."
+            )
+            dmg_lines = (
+                f"STATUS:                     PAIR_VALIDATION_FAILED\n"
+                f"PAIR VALIDATION:            FAILED ({pair_status})\n"
+                f"REASON:                     {rejection_reason}\n"
+                f"DAMAGE INFERENCE:           NOT EXECUTED\n"
+                f"RISK ASSESSMENT:            NOT AVAILABLE — DAMAGE PAIR INVALID\n"
+                f"OPERATIONAL INVARIANT:      Zero synthetic structural inflation. Inference halted upstream."
+            )
+            ax1.text(0.06, 0.705, dmg_lines, color="#FCA5A5", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+        elif is_disaster:
             # 2. Disaster Damage Metrics
             ax1.text(0.06, 0.725, "2. BI-TEMPORAL DAMAGE ASSESSMENT & RECEPTIVE FIELD METRICS", color=text_white, fontsize=8.2, fontweight="bold")
             dmg_pct = damage_summary.get("damage_percentage", 0.0) if damage_summary else 0.0
@@ -526,7 +551,23 @@ def generate_situation_report_pdf(
         subtitle_p2 = "BI-TEMPORAL DAMAGE MASK CANVAS" if is_disaster else "ANNOTATED PERCEPTION CANVAS"
         _add_header(ax2, f"VISUAL EVIDENCE // {subtitle_p2}")
 
-        if art_meta.get("is_video"):
+        if is_disaster and is_pair_validation_failed:
+            pair_v = (damage_summary.get("pair_validation") if damage_summary else {}) or {}
+            rej_reason_disp = (
+                (damage_summary.get("rejection_reason") if damage_summary else None)
+                or pair_v.get("rejection_reason")
+                or "Insufficient scene/spatial correspondence between T0 and T1."
+            )
+            title_p2 = "DERIVED EVIDENCE // BI-TEMPORAL PAIR REJECTED (DAMAGE INFERENCE HALTED)"
+            ax2.text(0.06, 0.865, title_p2, color="#EF4444", fontsize=7.8, fontweight="bold")
+            box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor="#EF4444", linewidth=1.5)
+            ax2.add_patch(box_canvas)
+            ax2.text(0.50, 0.65, "BI-TEMPORAL PAIR REJECTED", color="#EF4444", fontsize=11, fontweight="bold", ha="center")
+            ax2.text(0.50, 0.58, "DAMAGE INFERENCE WAS NOT EXECUTED", color="#F87171", fontsize=8.5, fontfamily="monospace", ha="center")
+            ax2.text(0.50, 0.52, f"REASON: {rej_reason_disp}", color="#CBD5E1", fontsize=7.5, fontfamily="monospace", ha="center")
+            ax2.text(0.50, 0.46, "T0 and T1 images do not represent the same geographic scene or area.", color="#94A3B8", fontsize=7.5, fontfamily="monospace", ha="center")
+            ax2.text(0.50, 0.40, "No damage mask was generated. Zero synthetic damage metrics produced.", color="#64748B", fontsize=7, fontfamily="monospace", ha="center")
+        elif art_meta.get("is_video"):
             if img_rgb is not None:
                 rep_f = art_meta.get("frame_number", 1)
                 tot_f = art_meta.get("total_frames", 1)
@@ -537,32 +578,43 @@ def generate_situation_report_pdf(
                 title_p2 = f"REPRESENTATIVE ANNOTATED VIDEO FRAME (FRAME {rep_f}/{tot_f} [SRC: {src_f}/{src_tot}] @ {t_sec:.2f}s, {fps_val:.1f} FPS)"
             else:
                 title_p2 = "DERIVED VIDEO EVIDENCE // ANNOTATED TRACKING ARTIFACT"
+            ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
+            if img_rgb is not None:
+                ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
+                ax_img.imshow(img_rgb)
+                ax_img.axis("off")
+            else:
+                box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
+                ax2.add_patch(box_canvas)
+                ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
         elif is_disaster:
             title_p2 = "DERIVED DAMAGE EVIDENCE // BI-TEMPORAL DAMAGE MASK CANVAS"
+            ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
+            if img_rgb is not None:
+                ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
+                ax_img.imshow(img_rgb)
+                ax_img.axis("off")
+            else:
+                box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
+                ax2.add_patch(box_canvas)
+                ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
         else:
             title_p2 = "DERIVED VISUAL ARTIFACT (REAL MODEL PREDICTIONS & BOUNDING BOXES)"
-
-        ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
-
-        if img_rgb is not None:
-            ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
-            ax_img.imshow(img_rgb)
-            ax_img.axis("off")
-        else:
-            box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
-            ax2.add_patch(box_canvas)
-            if art_meta.get("artifact_exists_on_disk"):
-                ax2.text(0.50, 0.62, "ANNOTATED ARTIFACT EXISTS ON DISK", color=text_accent, fontsize=9.5, fontweight="bold", ha="center")
-                ax2.text(0.50, 0.57, "Artifact file could not be decoded by inline image renderer.", color="#F59E0B", fontsize=8, fontfamily="monospace", ha="center")
-                ax2.text(0.50, 0.52, f"STORAGE KEY: {art_key_found}", color="#94A3B8", fontsize=7.5, fontfamily="monospace", ha="center")
-                ax2.text(0.50, 0.47, "Diagnostic: Container verified in storage; inspect via video playback or authenticated download.", color="#64748B", fontsize=7, fontfamily="monospace", ha="center")
+            ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
+            if img_rgb is not None:
+                ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
+                ax_img.imshow(img_rgb)
+                ax_img.axis("off")
             else:
+                box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
+                ax2.add_patch(box_canvas)
                 ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
-                ax2.text(0.50, 0.56, "Analysis telemetry preserved. No visual artifact file found in storage.", color="#64748B", fontsize=7.5, fontfamily="monospace", ha="center")
 
         # Legend & Palette
         ax2.text(0.06, 0.315, "EVIDENCE PALETTE & CLASSIFICATION LEGEND", color=text_white, fontsize=8, fontweight="bold")
-        if is_disaster:
+        if is_disaster and is_pair_validation_failed:
+            legend_text = "■ PAIR REJECTED: Siamese change detection halted. Zero synthetic pixels produced."
+        elif is_disaster:
             legend_text = "■ RED / CRIMSON: Structural Change Detected (Siamese CD Probability >= 0.50)    ■ BLACK: No Structural Damage"
         else:
             legend_items = list(class_distribution.keys())[:8] if class_distribution else ["none"]

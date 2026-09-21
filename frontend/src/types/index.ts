@@ -164,6 +164,8 @@ export interface SituationReport {
     pair_validation?: {
       is_compatible: boolean;
       status: string;
+      rejection_reason?: string | null;
+      scene_correspondence_metrics?: Record<string, any>;
       warnings: string[];
       limitations: string[];
     };
@@ -383,9 +385,14 @@ export interface AERIONAnalysisResultData {
     sha256?: string;
     size_bytes?: number;
   } | null;
+  status?: string;
   pair_validation?: {
     is_compatible: boolean;
     status: string;
+    rejection_reason?: string | null;
+    scene_correspondence_metrics?: Record<string, any>;
+    metrics?: Record<string, any>;
+    validation_latency_ms?: number;
     warnings: string[];
     limitations: string[];
   } | null;
