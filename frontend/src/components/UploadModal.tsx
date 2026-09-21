@@ -203,6 +203,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         setFileError('Both pre-disaster and post-disaster images are required.');
         return;
       }
+      if (pairValidationStatus.isCompatible === false || pairValidationStatus.status === 'PAIR_MISMATCH') {
+        setFileError('Execution blocked: Bi-temporal imagery pair mismatch (PAIR_MISMATCH).');
+        return;
+      }
     } else {
       if (!selectedFile) {
         setFileError('Please select a file to analyze.');
@@ -698,8 +702,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
           <button
             onClick={handleExecute}
-            disabled={isProcessing}
-            className="px-5 py-1.5 rounded bg-accent text-graphite font-bold tracking-wider hover:bg-accent/90 transition-all flex items-center gap-2 disabled:opacity-50"
+            disabled={isProcessing || (mode === 'damage_pair' && (pairValidationStatus.isCompatible === false || pairValidationStatus.isValidating))}
+            className="px-5 py-1.5 rounded bg-accent text-graphite font-bold tracking-wider hover:bg-accent/90 transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              mode === 'damage_pair' && pairValidationStatus.isCompatible === false
+                ? 'Execution blocked: Bi-temporal imagery pair mismatch (PAIR_MISMATCH)'
+                : undefined
+            }
           >
             {isProcessing ? (
               <>

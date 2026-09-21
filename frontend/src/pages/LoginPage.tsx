@@ -10,6 +10,7 @@ const GOOGLE_CLIENT_ID =
 
 declare global {
   interface Window {
+    __aerion_gsi_initialized?: boolean;
     google?: {
       accounts: {
         id: {
@@ -44,42 +45,73 @@ export const LoginPage: React.FC = () => {
   const { login, loginWithGoogle, register, error } = useAuth();
   const navigate = useNavigate();
   const googleBtnRef = useRef<HTMLDivElement>(null);
+  const handleGsiCallbackRef = useRef<(response: { credential?: string }) => void>(() => {});
+  const handleGsiErrorRef = useRef<(err: any) => void>(() => {});
 
   useEffect(() => {
-    // Initialize Google Identity Services button
-    const initGsi = () => {
+    handleGsiCallbackRef.current = async (response: { credential?: string }) => {
+      if (response.credential) {
+        setGoogleLoading(true);
+        setGoogleConfigError(null);
+        try {
+          const ok = await loginWithGoogle(response.credential);
+          setGoogleLoading(false);
+          if (ok) {
+            navigate('/border');
+          }
+        } catch (err: any) {
+          setGoogleLoading(false);
+          setGoogleConfigError(err.message || 'Google authentication failed.');
+        }
+      }
+    };
+
+    handleGsiErrorRef.current = (err: any) => {
+      const isPopupClosed = err?.type === 'popup_closed' || err?.message?.includes('closed');
+      if (isPopupClosed) {
+        setGoogleConfigError('Google authentication was cancelled before completion.');
+        return;
+      }
+      const msg =
+        err?.type === 'origin_mismatch' || err?.message?.includes('origin_mismatch')
+          ? `GOOGLE SIGN-IN UNAVAILABLE: Application origin (${window.location.origin}) is not registered in Google Cloud Console.`
+          : 'GOOGLE SIGN-IN UNAVAILABLE: OAuth provider configuration mismatch.';
+      setGoogleConfigError(msg);
+    };
+  });
+
+  useEffect(() => {
+    // Initialize Google Identity Services once, then render button whenever authMode or container changes
+    const setupGsi = () => {
       try {
-        if (window.google?.accounts?.id && googleBtnRef.current) {
+        if (!window.google?.accounts?.id) return;
+
+        // Singleton initialization guard to prevent [GSI_LOGGER] multiple initialization warning (AER-BUG-003)
+        if (!window.__aerion_gsi_initialized) {
           window.google.accounts.id.initialize({
             client_id: GOOGLE_CLIENT_ID,
-            callback: async (response: { credential?: string }) => {
-              if (response.credential) {
-                setGoogleLoading(true);
-                setGoogleConfigError(null);
-                const ok = await loginWithGoogle(response.credential);
-                setGoogleLoading(false);
-                if (ok) {
-                  navigate('/border');
-                }
-              }
+            callback: (response: { credential?: string }) => {
+              handleGsiCallbackRef.current(response);
             },
             auto_select: false,
             error_callback: (err: any) => {
-              const msg = err?.type === 'origin_mismatch' || err?.message?.includes('origin_mismatch')
-                ? `GOOGLE SIGN-IN UNAVAILABLE: Application origin (${window.location.origin}) is not registered in Google Cloud Console.`
-                : 'GOOGLE SIGN-IN UNAVAILABLE: OAuth provider configuration mismatch.';
-              setGoogleConfigError(msg);
+              handleGsiErrorRef.current(err);
             },
           });
+          window.__aerion_gsi_initialized = true;
+        }
 
+        // Render button in current container
+        if (googleBtnRef.current) {
+          googleBtnRef.current.innerHTML = '';
           window.google.accounts.id.renderButton(googleBtnRef.current, {
             type: 'standard',
             theme: 'filled_black',
             size: 'large',
-            text: 'signin_with',
+            text: authMode === 'register' ? 'signup_with' : 'signin_with',
             shape: 'rectangular',
             logo_alignment: 'left',
-            width: googleBtnRef.current.clientWidth || 380,
+            width: Math.min(googleBtnRef.current.clientWidth || 380, 380),
           });
         }
       } catch (err: any) {
@@ -88,17 +120,17 @@ export const LoginPage: React.FC = () => {
     };
 
     if (window.google?.accounts?.id) {
-      initGsi();
+      setupGsi();
     } else {
       const interval = setInterval(() => {
         if (window.google?.accounts?.id) {
           clearInterval(interval);
-          initGsi();
+          setupGsi();
         }
-      }, 200);
+      }, 150);
       return () => clearInterval(interval);
     }
-  }, [loginWithGoogle, navigate]);
+  }, [authMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -221,48 +253,49 @@ export const LoginPage: React.FC = () => {
           </div>
         )}
 
-        {/* 1. Google Single Sign-On (Login Mode) */}
-        {authMode === 'login' && (
-          <div className="mb-5 space-y-2">
-            <label className="block text-[11px] font-mono uppercase tracking-wider text-muted mb-1.5">
-              Single Sign-On (Google Workspace)
-            </label>
-            <div
-              ref={googleBtnRef}
-              className="w-full min-h-[44px] flex items-center justify-center rounded overflow-hidden border border-white/[0.08] bg-[#131314]"
-            >
-              {googleLoading && (
-                <div className="flex items-center gap-2 text-xs font-mono text-muted py-2">
-                  <span className="animate-spin material-symbols-outlined text-[16px]">progress_activity</span>
-                  Verifying Google Credentials...
-                </div>
-              )}
-            </div>
-            {googleConfigError && (
-              <div className="p-2.5 bg-status-warning/10 border border-status-warning/30 rounded text-[11px] font-mono text-status-warning space-y-1">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <span className="material-symbols-outlined text-[14px]">warning</span>
-                  <span>{googleConfigError}</span>
-                </div>
-                <p className="text-[10px] text-faint leading-tight">
-                  Add <code className="bg-graphite px-1 rounded text-paper">{window.location.origin}</code> under Authorized JavaScript Origins in Google Cloud Console OAuth 2.0 Client credentials.
-                </p>
+        {/* 1. Google Authentication (Login & Register) */}
+        <div className="mb-5 space-y-2">
+          <label className="block text-[11px] font-mono uppercase tracking-wider text-muted mb-1.5">
+            {authMode === 'login' ? 'Single Sign-On (Google Workspace)' : 'Continue with Google / Gmail'}
+          </label>
+          <div
+            ref={googleBtnRef}
+            className="w-full min-h-[44px] flex items-center justify-center rounded overflow-hidden border border-white/[0.08] bg-[#131314]"
+          >
+            {googleLoading && (
+              <div className="flex items-center gap-2 text-xs font-mono text-muted py-2">
+                <span className="animate-spin material-symbols-outlined text-[16px]">progress_activity</span>
+                {authMode === 'register' ? 'Provisioning Google Operator Account...' : 'Verifying Google Credentials...'}
               </div>
             )}
           </div>
-        )}
+          <p className="text-[10px] text-faint font-mono">
+            {authMode === 'login'
+              ? 'Sign in to your operator account with verified Google credentials.'
+              : 'Sign up with your Google account. Automatically provisions operator access.'}
+          </p>
+          {googleConfigError && (
+            <div className="p-2.5 bg-status-warning/10 border border-status-warning/30 rounded text-[11px] font-mono text-status-warning space-y-1">
+              <div className="flex items-center gap-1.5 font-bold">
+                <span className="material-symbols-outlined text-[14px]">warning</span>
+                <span>{googleConfigError}</span>
+              </div>
+              <p className="text-[10px] text-faint leading-tight">
+                Add <code className="bg-graphite px-1 rounded text-paper">{window.location.origin}</code> under Authorized JavaScript Origins in Google Cloud Console OAuth 2.0 Client credentials.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Divider */}
-        {authMode === 'login' && (
-          <div className="relative my-6 flex items-center justify-center">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/[0.08]"></div>
-            </div>
-            <span className="relative bg-panel px-3 text-[10px] font-mono text-muted uppercase tracking-widest">
-              OR OPERATOR PASSCODE
-            </span>
+        <div className="relative my-6 flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-white/[0.08]"></div>
           </div>
-        )}
+          <span className="relative bg-panel px-3 text-[10px] font-mono text-muted uppercase tracking-widest">
+            {authMode === 'login' ? 'OR OPERATOR PASSCODE' : 'OR EMAIL REGISTRATION'}
+          </span>
+        </div>
 
         {/* 2. Standard Passcode Login / Register Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
