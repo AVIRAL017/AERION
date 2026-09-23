@@ -106,6 +106,9 @@ export const BorderPage: React.FC = () => {
               setViewMode('annotated');
             } else if (data.annotated_video_artifact) {
               setViewMode('annotated');
+              if (data.source_artifact?.artifact_key) {
+                setAnalyzedVideoUrl(getEvidenceUrl(data.source_artifact.artifact_key, false));
+              }
             }
             if (data.location_context) {
               setOperatorLocation(data.location_context);
@@ -179,10 +182,10 @@ export const BorderPage: React.FC = () => {
         {/* ============================================================ */}
         <section className="flex-1 relative flex flex-col border-r border-white/[0.06] overflow-hidden">
           {/* Top Bar with Status, Coordinates, and Ingest Triggers */}
-          <div className="h-11 px-5 flex items-center justify-between border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20">
-            <div className="flex items-center gap-3 font-mono text-[11px]">
-              <span className="text-muted uppercase tracking-wider">SECTOR:</span>
-              <span className="text-paper font-medium">
+          <div className="min-h-11 px-4 py-1.5 flex items-center justify-between gap-3 border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20 overflow-x-auto custom-scrollbar">
+            <div className="flex items-center gap-2.5 font-mono text-[11px] shrink-0">
+              <span className="text-muted uppercase tracking-wider text-[10px]">SECTOR:</span>
+              <span className="text-paper font-medium text-[11px]">
                 {activeAnalysisResult ? `INGESTED ASSET [${activeAnalysisResult.analysis_id ? activeAnalysisResult.analysis_id.substring(0, 8) : 'ACTIVE'}]` : (situation?.location_name || 'SECTOR DELTA-9 (MONITORED)')}
               </span>
               <span className={`px-2 py-0.5 rounded text-[10px] ${
@@ -234,12 +237,12 @@ export const BorderPage: React.FC = () => {
                 <span>HISTORY</span>
               </button>
 
-              {/* Roadmap Step 15 & 16: Annotated Evidence vs Raw Toggle */}
+              {/* Annotated Evidence vs Raw Toggle */}
               {activeAnalysisResult && (activeAnalysisResult.annotated_image_base64 || activeAnalysisResult.annotated_video_artifact) && (
                 <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-1">
                   <button
                     onClick={() => setViewMode('annotated')}
-                    className={`px-2 py-0.5 rounded text-[10px] transition-all ${
+                    className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
                       viewMode === 'annotated'
                         ? 'bg-accent text-graphite font-bold shadow'
                         : 'text-muted hover:text-paper'
@@ -249,7 +252,7 @@ export const BorderPage: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setViewMode('raw')}
-                    className={`px-2 py-0.5 rounded text-[10px] transition-all ${
+                    className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
                       viewMode === 'raw'
                         ? 'bg-accent text-graphite font-bold shadow'
                         : 'text-muted hover:text-paper'
@@ -263,19 +266,21 @@ export const BorderPage: React.FC = () => {
               {/* Display Controls Toolbar */}
               {activeAnalysisResult && activeAnalysisResult.annotated_video_artifact ? (
                 <div
-                  className="flex items-center rounded bg-elevated/70 border border-white/[0.1] px-2.5 py-1 ml-1 gap-2 font-mono text-[9px] text-muted"
-                  title="Video annotations (bounding boxes, compact labels, confidence scores, track IDs) are pre-rendered into the MP4 stream during inference. Presentation is immutable for this artifact."
+                  className="flex items-center rounded bg-elevated/70 border border-white/[0.1] px-2 py-0.5 ml-1 gap-1.5 font-mono text-[9px] text-muted shrink-0"
+                  title="VIDEO ANNOTATION: PRE-RENDERED | BOXES: ON | LABELS: ON | CONFIDENCE: ON | TRACK IDS: ON | IMMUTABLE ARTIFACT"
                 >
-                  <span className="text-accent font-semibold flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[13px]">videocam</span>
-                    VIDEO ANNOTATION: PRE-RENDERED
-                  </span>
-                  <span className="text-white/20">|</span>
-                  <span className="text-paper">BOXES: ON</span>
-                  <span className="text-paper">LABELS: ON</span>
-                  <span className="text-paper">CONFIDENCE: ON</span>
-                  <span className="text-paper">TRACK IDS: ON</span>
-                  <span className="px-1 py-0.2 rounded bg-accent/15 text-accent text-[8px] font-bold">LOCKED (IMMUTABLE ARTIFACT)</span>
+                  <span className="material-symbols-outlined text-[13px] text-accent">videocam</span>
+                  <span className="text-accent font-bold">VIDEO ANNOTATION: PRE-RENDERED</span>
+                  <span className="hidden xl:inline">|</span>
+                  <span className="text-paper hidden xl:inline">BOXES: ON</span>
+                  <span className="hidden xl:inline">|</span>
+                  <span className="text-paper hidden xl:inline">LABELS: ON</span>
+                  <span className="hidden xl:inline">|</span>
+                  <span className="text-paper hidden xl:inline">CONFIDENCE: ON</span>
+                  <span className="hidden xl:inline">|</span>
+                  <span className="text-paper hidden xl:inline">TRACK IDS: ON</span>
+                  <span>|</span>
+                  <span className="px-1 py-0.2 rounded bg-accent/15 text-accent text-[8px] font-bold">IMMUTABLE ARTIFACT</span>
                 </div>
               ) : activeAnalysisResult && (activeAnalysisResult.detections?.length || activeAnalysisResult.annotated_image_base64) ? (
                 <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 ml-1 gap-1 font-mono text-[9px]">
@@ -328,10 +333,10 @@ export const BorderPage: React.FC = () => {
               ) : null}
             </div>
 
-            <div className="flex items-center gap-2 font-mono text-[11px]">
+            <div className="flex items-center gap-2 font-mono text-[11px] shrink-0">
               <button
                 onClick={() => { setUploadMode('drone_image'); setIsUploadOpen(true); }}
-                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px]"
+                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px] cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[13px]">flight</span>
                 <span>INGEST DRONE</span>
@@ -339,7 +344,7 @@ export const BorderPage: React.FC = () => {
 
               <button
                 onClick={() => { setUploadMode('satellite_image'); setIsUploadOpen(true); }}
-                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px]"
+                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px] cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[13px]">satellite_alt</span>
                 <span>INGEST SATELLITE</span>
@@ -347,7 +352,7 @@ export const BorderPage: React.FC = () => {
 
               <button
                 onClick={() => { setUploadMode('border_video'); setIsUploadOpen(true); }}
-                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px]"
+                className="px-2 py-1 rounded bg-elevated/70 border border-white/[0.1] text-paper hover:border-accent hover:text-accent transition-all flex items-center gap-1 text-[10px] cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[13px]">videocam</span>
                 <span>INGEST VIDEO</span>
@@ -541,6 +546,14 @@ export const BorderPage: React.FC = () => {
                           <span className="px-2 py-0.5 rounded bg-elevated/80 border border-white/[0.1] text-status-ai text-[10px] font-medium">
                             PRE-RENDERED / IMMUTABLE ARTIFACT
                           </span>
+                          <button
+                            onClick={() => { setActiveAnalysisResult(null); setAnalyzedImageUrl(null); setAnalyzedVideoUrl(null); setSelectedRuntimeDetection(null); }}
+                            className="px-2 py-0.5 rounded bg-elevated/80 border border-white/[0.1] text-[10px] font-mono text-muted hover:text-paper hover:border-accent flex items-center gap-1 transition-all cursor-pointer"
+                            title="Clear active ingested analysis"
+                          >
+                            <span className="material-symbols-outlined text-[12px]">refresh</span>
+                            <span>CLEAR</span>
+                          </button>
                         </div>
                       </div>
 
@@ -554,9 +567,18 @@ export const BorderPage: React.FC = () => {
                                 Browser playback unavailable for this codec.
                               </span>
                               <span className="block text-[11px] text-faint mb-4 leading-relaxed">
-                                The video artifact was rendered with a standard surveillance codec ({activeAnalysisResult.annotated_video_artifact.codec || 'mp4v'}) that your current browser environment cannot play inline. Download the authenticated MP4 artifact to view all bounding boxes and tracking IDs in VLC or any media player.
+                                The video artifact was rendered with codec ({activeAnalysisResult.annotated_video_artifact.codec || 'mp4v'}). Download the authenticated MP4 artifact or view the source footage with detection overlay.
                               </span>
                               <div className="flex items-center gap-3 flex-wrap justify-center">
+                                {analyzedVideoUrl && (
+                                  <button
+                                    onClick={() => { setViewMode('raw'); setVideoDecodeError(false); }}
+                                    className="px-3.5 py-2 rounded bg-accent/20 border border-accent text-accent font-bold text-xs inline-flex items-center gap-1.5 shadow hover:bg-accent/30 cursor-pointer"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">play_circle</span>
+                                    <span>PLAY SOURCE WITH OVERLAY</span>
+                                  </button>
+                                )}
                                 <button
                                   onClick={async () => {
                                     const artKey = activeAnalysisResult.annotated_video_artifact?.artifact_key;
@@ -838,15 +860,6 @@ export const BorderPage: React.FC = () => {
                       </div>
                     </div>
                   )}
-
-                  {/* Clear Button */}
-                  <button
-                    onClick={() => { setActiveAnalysisResult(null); setAnalyzedImageUrl(null); setSelectedRuntimeDetection(null); }}
-                    className="absolute top-3 right-3 px-2 py-1 rounded bg-panel/90 border border-white/[0.1] text-[10px] font-mono text-muted hover:text-paper z-30 flex items-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-[13px]">refresh</span>
-                    <span>CLEAR INGESTED RESULT</span>
-                  </button>
                 </div>
               </div>
             ) : situation?.detections && situation.detections.length > 0 ? (
@@ -910,7 +923,7 @@ export const BorderPage: React.FC = () => {
         {/* ============================================================ */}
         {/* RIGHT INTELLIGENCE PANEL                                    */}
         {/* ============================================================ */}
-        <aside className="w-88 flex-shrink-0 bg-panel flex flex-col overflow-y-auto custom-scrollbar">
+        <aside className="w-80 xl:w-96 flex-shrink-0 bg-panel flex flex-col overflow-y-auto custom-scrollbar">
           {/* Dynamic Tactical Crossing Indicators */}
           <div className="p-4 border-b border-white/[0.06]">
             <h2 className="text-xs font-mono font-medium tracking-wider text-muted uppercase">
@@ -1406,6 +1419,9 @@ export const BorderPage: React.FC = () => {
                   setViewMode('annotated');
                 } else if (resp.data.annotated_video_artifact) {
                   setViewMode('annotated');
+                  if (resp.data.source_artifact?.artifact_key) {
+                    setAnalyzedVideoUrl(getEvidenceUrl(resp.data.source_artifact.artifact_key, false));
+                  }
                 }
               }
             } catch (err) {

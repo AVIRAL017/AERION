@@ -637,9 +637,9 @@ export const DisasterPage: React.FC = () => {
       {/* ============================================================ */}
       <section className="flex-1 relative flex flex-col border-r border-white/[0.06] overflow-hidden">
         {/* Workspace Toolbar */}
-        <div className="h-11 px-5 flex items-center justify-between border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20">
-          <div className="flex items-center gap-3 font-mono text-[11px]">
-            <span className="text-muted uppercase">MODE:</span>
+        <div className="min-h-11 px-4 py-1.5 flex items-center justify-between gap-3 border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20 overflow-x-auto custom-scrollbar">
+          <div className="flex items-center gap-2.5 font-mono text-[11px] shrink-0">
+            <span className="text-muted uppercase text-[10px]">MODE:</span>
             <span className="text-paper font-medium">DISASTER RESPONSE</span>
             <span className={`px-2 py-0.5 rounded text-[10px] ${
               isPairRejected
@@ -654,7 +654,7 @@ export const DisasterPage: React.FC = () => {
             {/* History Drawer Trigger */}
             <button
               onClick={() => setIsHistoryOpen(true)}
-              className="px-2.5 py-1 rounded bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40 text-[10px] font-mono flex items-center gap-1 transition-all"
+              className="px-2.5 py-1 rounded bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40 text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer"
               title="View past analysis history and reopen analyses"
             >
               <span className="material-symbols-outlined text-[13px]">history</span>
@@ -662,7 +662,7 @@ export const DisasterPage: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex items-center gap-3 font-mono text-[11px]">
+          <div className="flex items-center gap-2.5 font-mono text-[11px] shrink-0">
             {/* View Mode Switcher */}
             {preImgUrl && postImgUrl && (
               <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">

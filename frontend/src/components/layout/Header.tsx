@@ -42,9 +42,9 @@ export const Header: React.FC = () => {
 
   return (
     <>
-      <header className="flex items-center justify-between px-7 w-full h-15 flex-shrink-0 z-50 bg-[#0B0F14]/95 border-b border-white/[0.06] backdrop-blur-md">
+      <header className="flex items-center justify-between px-6 w-full h-14 min-h-[56px] flex-shrink-0 z-50 bg-[#0B0F14]/95 border-b border-white/[0.06] backdrop-blur-md">
         {/* Brand & Mode Switcher */}
-        <div className="flex items-center gap-7">
+        <div className="flex items-center gap-6 flex-shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-6 h-6 rounded flex items-center justify-center bg-accent/10 border border-accent/20">
               <span className="material-symbols-outlined text-accent text-[17px]">radar</span>
@@ -56,7 +56,7 @@ export const Header: React.FC = () => {
           </div>
 
           {/* Clean Mode Switcher */}
-          <nav className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-wider">
+          <nav className="flex items-center gap-5 font-mono text-[11px] uppercase tracking-wider whitespace-nowrap">
             <NavLink
               to="/border"
               className={({ isActive }) =>
@@ -108,7 +108,7 @@ export const Header: React.FC = () => {
         </div>
 
         {/* Center Search Input */}
-        <div className="hidden md:flex items-center bg-panel/70 border border-white/[0.06] rounded-md px-3 py-1.5 w-80 text-muted focus-within:border-accent/40 transition-colors">
+        <div className="hidden xl:flex items-center bg-panel/70 border border-white/[0.06] rounded-md px-3 py-1.5 w-72 max-w-xs text-muted focus-within:border-accent/40 transition-colors shrink min-w-0 mx-4">
           <span className="material-symbols-outlined text-[15px] mr-2 text-faint">search</span>
           <input
             className="bg-transparent text-[12px] text-paper placeholder:text-faint font-mono border-none p-0 focus:ring-0 w-full focus:outline-none"
@@ -119,7 +119,7 @@ export const Header: React.FC = () => {
         </div>
 
         {/* Right: Operational Status, UTC Clock, Profile */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-5 flex-shrink-0">
           <div className="flex items-center gap-2 text-[12px] text-muted font-sans">
             <span
               className={`w-1.5 h-1.5 rounded-full ${

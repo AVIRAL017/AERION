@@ -105,8 +105,8 @@ export const ImagePage: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-graphite">
       {/* Top Telemetry Header */}
-      <header className="h-12 border-b border-white/[0.06] bg-panel flex items-center justify-between px-6 flex-shrink-0 z-10">
-        <div className="flex items-center gap-3">
+      <header className="min-h-[48px] border-b border-white/[0.06] bg-panel flex items-center justify-between px-4 sm:px-6 py-1.5 flex-shrink-0 z-10 gap-3 overflow-x-auto custom-scrollbar">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-accent text-lg">image_search</span>
             <span className="font-mono text-xs font-bold text-paper uppercase tracking-wider">
@@ -118,7 +118,7 @@ export const ImagePage: React.FC = () => {
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 shrink-0">
           {activeResult && (
             <Link
               to={`/situations/00000000-0000-0000-0000-000000000001/report?analysis_id=${encodeURIComponent(activeResult.analysis_id)}`}
