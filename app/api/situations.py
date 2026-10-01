@@ -835,6 +835,30 @@ async def get_situation_report(
         annotated_image_base64=raw_payload.get("annotated_image_base64"),
         ai_advisory=ai_advisory,
         evidence_lineage=lineage_entries,
+        threat_timeline=raw_payload.get("threat_timeline") or [],
+        vehicle_summary=raw_payload.get("vehicle_summary") or {
+            "status": "UNAVAILABLE",
+            "reason": "Vehicle tracking summary unavailable for this analysis type." if not is_border_mode else "No video tracking data recorded.",
+        },
+        demo_zone_activity=raw_payload.get("demo_zone_activity") or {
+            "status": "NO_DEMO_ZONE_CONFIGURED",
+            "zone_configured": False,
+            "message": "BORDER CONTEXT NOT SET. No demo zone configured.",
+        },
+        threat_level_changes=raw_payload.get("threat_level_changes") or [],
+        evidence_frames=raw_payload.get("evidence_frames") or [],
+        spatial_context=raw_payload.get("spatial_context") or {
+            "status": "UNAVAILABLE",
+            "reason": "Geospatial coordinates not provided; operations restricted to sensor pixel-space.",
+        },
+        routing_summary=raw_payload.get("routing_summary") or {
+            "status": "UNAVAILABLE",
+            "reason": "Evacuation route not requested or route network trajectory unavailable.",
+        },
+        shelter_summary=raw_payload.get("shelter_summary") or {
+            "status": "UNAVAILABLE",
+            "reason": "Emergency shelter registry not queried for this mission context.",
+        },
     )
 
     meta = MetaBlock(

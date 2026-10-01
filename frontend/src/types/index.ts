@@ -8,8 +8,12 @@ export interface APIEnvelope<T> {
 export interface User {
   id: string;
   email: string;
+  organization_id?: string;
+  organization_name?: string;
   full_name?: string;
   display_name?: string;
+  avatar_url?: string | null;
+  preferences?: Record<string, any> | null;
   auth_provider?: string;
   role: 'admin' | 'analyst' | 'operator' | 'viewer';
   tier?: 'free' | 'pro' | 'enterprise';
@@ -183,6 +187,7 @@ export interface SituationReport {
     generated_at: string;
     disclaimer: string;
     status?: string;
+    summary?: string;
     key_findings?: string[];
     recommended_actions?: string[];
   };
@@ -194,6 +199,69 @@ export interface SituationReport {
     confidence?: number;
     timestamp?: string;
   }[];
+  threat_timeline?: Array<{
+    timestamp: string;
+    timestamp_seconds: number;
+    frame_number: number;
+    track_id: number;
+    object_class: string;
+    zone_state: string;
+    event: string;
+    threat_level: string;
+    threat_trend?: string;
+    confidence: number;
+    movement_state?: string;
+    position?: [number, number] | null;
+    evidence_id?: string;
+  }>;
+  vehicle_summary?: {
+    total_vehicles_observed?: number;
+    class_distribution?: Record<string, number>;
+    approaching_count?: number;
+    entered_count?: number;
+    left_count?: number;
+    currently_inside_count?: number;
+    status?: string;
+    reason?: string;
+  } | Array<any>;
+  demo_zone_activity?: {
+    zone_configured: boolean;
+    status: string;
+    sector_name?: string;
+    zone_geometry?: Array<[number, number] | number[]>;
+    total_entries?: number;
+    total_exits?: number;
+    active_in_zone?: number;
+    message?: string;
+  };
+  threat_level_changes?: Array<{
+    timestamp: string;
+    timestamp_seconds: number;
+    frame_number: number;
+    track_id: number;
+    object_class: string;
+    previous_threat_level: string;
+    current_threat_level: string;
+    zone_state?: string;
+  }>;
+  evidence_frames?: Array<{
+    evidence_id: string;
+    frame_number: number;
+    timestamp: string;
+    timestamp_seconds: number;
+    track_id: number;
+    object_class: string;
+    event_description: string;
+    threat_level: string;
+    confidence?: number;
+    artifact_key?: string;
+    sha256?: string;
+    bounding_box?: [number, number, number, number] | null;
+    provenance?: string;
+  }>;
+  spatial_context?: Record<string, any>;
+  routing_summary?: Record<string, any>;
+  shelter_summary?: Record<string, any>;
 }
 
 export interface UsageSummary {
@@ -396,6 +464,11 @@ export interface AERIONAnalysisResultData {
     warnings: string[];
     limitations: string[];
   } | null;
+  threat_timeline?: Array<Record<string, any>> | null;
+  vehicle_summary?: any | null;
+  demo_zone_activity?: any | null;
+  threat_level_changes?: Array<Record<string, any>> | null;
+  evidence_frames?: Array<Record<string, any>> | null;
 }
 
 
@@ -431,10 +504,13 @@ export interface NormalizedExternalRoute {
   origin: { latitude: number; longitude: number };
   destination: { latitude: number; longitude: number };
   profile: 'driving-car' | 'emergency';
+  criterion?: 'fastest' | 'shortest';
   total_distance_meters?: number | null;
   total_duration_seconds?: number | null;
   elevation_ascent_meters?: number | null;
   geometry_geojson?: Record<string, any> | null;
+  alternative_routes_count?: number;
+  alternatives_comparison?: Array<Record<string, any>> | null;
   steps: Array<{
     step_index: number;
     instruction: string;

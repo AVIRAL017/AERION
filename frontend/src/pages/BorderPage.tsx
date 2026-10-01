@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Situation, SituationEvent, WeatherData, DetectionTarget, AERIONAnalysisResultData, RuntimeDetection, LocationProvenance } from '../types';
 import { situationsApi, geospatialApi, analysisApi, boundariesApi } from '../api';
@@ -7,6 +7,81 @@ import { OperatorLocationModal } from '../components/OperatorLocationModal';
 import { AnalysisHistoryModal } from '../components/AnalysisHistoryModal';
 import { downloadAuthenticatedArtifact } from '../utils/download';
 import { API_BASE } from '../api/client';
+
+export interface VideoErrorInfo {
+  type: 'codec' | 'network' | 'auth' | 'not_found' | 'decode' | 'aborted' | 'unknown';
+  title: string;
+  message: string;
+  canRetry?: boolean;
+}
+
+export function classifyVideoError(
+  mediaErr: MediaError | null,
+  httpStatus?: number,
+  codec?: string
+): VideoErrorInfo {
+  if (mediaErr) {
+    if (mediaErr.code === 1) {
+      return {
+        type: 'aborted',
+        title: 'Playback Aborted',
+        message: 'The video playback was aborted by the client.',
+        canRetry: true,
+      };
+    }
+    if (mediaErr.code === 2) {
+      return {
+        type: 'network',
+        title: 'Network Transfer Error',
+        message: 'A network error occurred while downloading the video stream.',
+        canRetry: true,
+      };
+    }
+    if (mediaErr.code === 3) {
+      return {
+        type: 'decode',
+        title: 'Video Decode Error',
+        message: 'An error occurred while decoding the video stream (corrupted frames or unsupported profile).',
+        canRetry: true,
+      };
+    }
+  }
+
+  if (httpStatus === 401 || httpStatus === 403) {
+    return {
+      type: 'auth',
+      title: 'Authentication / Authorization Failure',
+      message: httpStatus === 401
+        ? 'Session expired or invalid credentials. Please log in again to view this evidence.'
+        : 'Access denied: You do not have permission to view this evidence artifact.',
+      canRetry: true,
+    };
+  }
+  if (httpStatus === 404) {
+    return {
+      type: 'not_found',
+      title: 'Evidence Artifact Not Found',
+      message: 'The requested video artifact does not exist on the storage server.',
+      canRetry: false,
+    };
+  }
+  if (httpStatus && httpStatus >= 500) {
+    return {
+      type: 'network',
+      title: 'Server Error',
+      message: `The evidence storage server returned HTTP ${httpStatus}.`,
+      canRetry: true,
+    };
+  }
+
+  const reportedCodec = codec || 'unknown';
+  return {
+    type: 'codec',
+    title: 'Unsupported Video Codec',
+    message: `Browser playback unavailable for codec (${reportedCodec}). Download the authenticated MP4 artifact or view source footage.`,
+    canRetry: false,
+  };
+}
 
 export const BorderPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -42,7 +117,21 @@ export const BorderPage: React.FC = () => {
   const [showDetectionIds, setShowDetectionIds] = useState<boolean>(false);
   const [showConfidence, setShowConfidence] = useState<boolean>(true);
   const [densityMode, setDensityMode] = useState<'normal' | 'dense'>('normal');
-  const [videoDecodeError, setVideoDecodeError] = useState<boolean>(false);
+  const [videoError, setVideoError] = useState<VideoErrorInfo | null>(null);
+
+  // Mobile / Tablet Responsive Tab State (<lg)
+  const [mobileTab, setMobileTab] = useState<'feed' | 'timeline' | 'intelligence'>('feed');
+  const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
+  const [activeTimelineIndex, setActiveTimelineIndex] = useState<number | null>(null);
+  const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
+
+  // Explicit Border Zone Configuration State (neutral "BORDER CONTEXT NOT SET" unless user configures)
+  const [isZoneConfigOpen, setIsZoneConfigOpen] = useState<boolean>(false);
+  const [activeConfiguredZone, setActiveConfiguredZone] = useState<Array<[number, number]> | null>(null);
+  const [activeSectorName, setActiveSectorName] = useState<string>('');
+
+  // Selected Evidence Frame Modal
+  const [selectedEvidenceFrame, setSelectedEvidenceFrame] = useState<any | null>(null);
 
   const getEvidenceUrl = (key: string, download = false) => {
     const cleanKey = key.split('/').map(encodeURIComponent).join('/');
@@ -100,7 +189,7 @@ export const BorderPage: React.FC = () => {
           if (resp.success && resp.data) {
             const data = resp.data;
             setActiveAnalysisResult(data);
-            setVideoDecodeError(false);
+            setVideoError(null);
             if (data.annotated_image_base64) {
               setAnalyzedImageUrl(`data:image/jpeg;base64,${data.annotated_image_base64}`);
               setViewMode('annotated');
@@ -173,28 +262,126 @@ export const BorderPage: React.FC = () => {
     );
   }
 
+  const threatTimeline: any[] = activeAnalysisResult?.threat_timeline || activeAnalysisResult?.report?.threat_timeline || [];
+  const vehicleSummary: any = activeAnalysisResult?.vehicle_summary || activeAnalysisResult?.report?.vehicle_summary || null;
+  const demoZoneActivity: any = activeAnalysisResult?.demo_zone_activity || activeAnalysisResult?.report?.demo_zone_activity || null;
+  const threatLevelChanges: any[] = activeAnalysisResult?.threat_level_changes || activeAnalysisResult?.report?.threat_level_changes || [];
+  const evidenceFrames: any[] = activeAnalysisResult?.evidence_frames || activeAnalysisResult?.report?.evidence_frames || [];
+
+  const handleVideoTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const t = e.currentTarget.currentTime;
+    setCurrentVideoTime(t);
+    if (threatTimeline.length > 0) {
+      const idx = threatTimeline.findIndex((ev: any, i: number) => {
+        const evTime = ev.time_offset_seconds ?? ev.timestamp_seconds ?? (ev.frame_number ? ev.frame_number / 15 : 0);
+        const nextEv = threatTimeline[i + 1];
+        const nextTime = nextEv ? (nextEv.time_offset_seconds ?? nextEv.timestamp_seconds ?? (nextEv.frame_number ? nextEv.frame_number / 15 : Infinity)) : Infinity;
+        return t >= evTime && t < nextTime;
+      });
+      if (idx !== -1 && idx !== activeTimelineIndex) {
+        setActiveTimelineIndex(idx);
+      }
+    }
+  };
+
+  const handleSeekToTimelineEvent = (ev: any, index: number) => {
+    const evTime = ev.time_offset_seconds ?? ev.timestamp_seconds ?? (ev.frame_number ? ev.frame_number / 15 : 0);
+    if (videoPlayerRef.current) {
+      videoPlayerRef.current.currentTime = evTime;
+      videoPlayerRef.current.play().catch(() => {});
+    }
+    setActiveTimelineIndex(index);
+  };
+
+  const handleVideoError = async (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const videoEl = e.currentTarget;
+    const mediaErr = videoEl.error;
+    const src = videoEl.currentSrc || videoEl.src;
+
+    if (mediaErr && (mediaErr.code === 1 || mediaErr.code === 2 || mediaErr.code === 3)) {
+      setVideoError(classifyVideoError(mediaErr, undefined, activeAnalysisResult?.annotated_video_artifact?.codec));
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('aerion_access_token');
+      const headers: Record<string, string> = { Range: 'bytes=0-0' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(src, { method: 'GET', headers });
+      setVideoError(classifyVideoError(mediaErr, res.status, activeAnalysisResult?.annotated_video_artifact?.codec));
+    } catch {
+      setVideoError(classifyVideoError(mediaErr, 503, activeAnalysisResult?.annotated_video_artifact?.codec));
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full w-full overflow-hidden bg-graphite">
+      {/* Mobile / Tablet Responsive Tab Switcher (<lg) */}
+      <div className="lg:hidden flex items-center justify-between border-b border-white/[0.08] bg-panel px-3 py-1.5 shrink-0 z-30">
+        <div className="flex rounded bg-elevated/80 border border-white/[0.08] p-0.5">
+          <button
+            onClick={() => setMobileTab('feed')}
+            className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-all ${
+              mobileTab === 'feed' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+            }`}
+          >
+            SURVEILLANCE FEED
+          </button>
+          <button
+            onClick={() => setMobileTab('timeline')}
+            className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-all ${
+              mobileTab === 'timeline' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+            }`}
+          >
+            THREAT TIMELINE {threatTimeline.length > 0 ? `(${threatTimeline.length})` : ''}
+          </button>
+          <button
+            onClick={() => setMobileTab('intelligence')}
+            className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-all ${
+              mobileTab === 'intelligence' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+            }`}
+          >
+            INTELLIGENCE
+          </button>
+        </div>
+        <span className="text-[10px] font-mono text-muted uppercase hidden sm:inline">BORDER RECON</span>
+      </div>
+
       {/* Upper Main Section: Canvas (Left/Center) + Intelligence Panel (Right) */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* ============================================================ */}
-        {/* CENTRAL SURVEILLANCE CANVAS                                 */}
+        {/* CENTRAL SURVEILLANCE CANVAS & REAL-TIME TIMELINE             */}
         {/* ============================================================ */}
-        <section className="flex-1 relative flex flex-col border-r border-white/[0.06] overflow-hidden">
+        <section className={`${mobileTab === 'feed' || mobileTab === 'timeline' ? 'flex' : 'hidden lg:flex'} flex-1 relative flex-col border-r border-white/[0.06] overflow-y-auto custom-scrollbar`}>
           {/* Top Bar with Status, Coordinates, and Ingest Triggers */}
-          <div className="min-h-11 px-4 py-1.5 flex items-center justify-between gap-3 border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20 overflow-x-auto custom-scrollbar">
+          <div className="min-h-11 px-4 py-1.5 flex items-center justify-between gap-3 border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20 overflow-x-auto custom-scrollbar shrink-0">
             <div className="flex items-center gap-2.5 font-mono text-[11px] shrink-0">
               <span className="text-muted uppercase tracking-wider text-[10px]">SECTOR:</span>
               <span className="text-paper font-medium text-[11px]">
-                {activeAnalysisResult ? `INGESTED ASSET [${activeAnalysisResult.analysis_id ? activeAnalysisResult.analysis_id.substring(0, 8) : 'ACTIVE'}]` : (situation?.location_name || 'SECTOR DELTA-9 (MONITORED)')}
+                {activeSectorName || (activeConfiguredZone ? 'CUSTOM BORDER ZONE' : 'BORDER CONTEXT NOT SET')}
               </span>
-              <span className={`px-2 py-0.5 rounded text-[10px] ${
-                activeAnalysisResult
-                  ? 'bg-accent/15 text-accent border border-accent/30'
-                  : 'bg-status-ai/10 text-status-ai border border-status-ai/20'
+              <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                activeConfiguredZone
+                  ? 'bg-status-success/15 text-status-success border border-status-success/30 font-bold'
+                  : 'bg-elevated text-muted border border-white/[0.08]'
               }`}>
-                {activeAnalysisResult ? `${(activeAnalysisResult.source_type || 'RECORDED_FOOTAGE').toUpperCase()} VERIFIED` : 'RECORDED'}
+                {activeConfiguredZone ? 'ZONE ACTIVE' : 'NO DEMO ZONE CONFIGURED'}
               </span>
+
+              {/* Zone Configuration Trigger */}
+              <button
+                onClick={() => setIsZoneConfigOpen(true)}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
+                  activeConfiguredZone
+                    ? 'bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25'
+                    : 'bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40'
+                }`}
+                title="Configure or clear operational border zone boundary"
+              >
+                <span className="material-symbols-outlined text-[12px]">polyline</span>
+                <span>{activeConfiguredZone ? 'EDIT ZONE' : 'CONFIGURE DEMO ZONE'}</span>
+              </button>
 
               {/* Location Provenance Badge */}
               {operatorLocation ? (
@@ -361,11 +548,11 @@ export const BorderPage: React.FC = () => {
           </div>
 
           {/* Surveillance Visual Canvas */}
-          <div className="flex-1 relative bg-[#07090C] telemetry-grid flex items-center justify-center overflow-hidden">
+          <div className="flex-1 relative bg-canvas telemetry-grid flex items-center justify-center overflow-hidden">
             {activeAnalysisResult ? (
               <div className="relative w-full h-full p-4 flex flex-col items-center justify-center">
                 {/* Real Ingested Visual Container */}
-                <div className="relative border border-white/[0.12] rounded-lg bg-panel/40 w-full h-full max-h-[85vh] overflow-hidden flex items-center justify-center">
+                <div className="relative border border-slate-200 rounded-xl bg-white shadow-card w-full h-full max-h-[85vh] overflow-hidden flex items-center justify-center">
                   {analyzedImageUrl ? (
                     <div className="relative max-w-full max-h-full flex items-center justify-center">
                       {/* If viewMode is 'annotated' and backend generated annotated_image_base64 exists, display the authoritative annotated visual artifact */}
@@ -560,19 +747,36 @@ export const BorderPage: React.FC = () => {
                       {/* Video Player Box */}
                       <div className="relative border border-white/[0.1] rounded overflow-hidden max-h-[65vh] w-full flex items-center justify-center bg-black shadow-2xl">
                         {(viewMode === 'annotated' && activeAnalysisResult.annotated_video_artifact?.artifact_key) ? (
-                          videoDecodeError ? (
+                          videoError ? (
                             <div className="p-8 text-center font-mono text-xs text-muted max-w-xl mx-auto flex flex-col items-center">
-                              <span className="material-symbols-outlined text-4xl text-status-warning block mb-2">videocam_off</span>
+                              <span className="material-symbols-outlined text-4xl text-status-warning block mb-2">
+                                {videoError.type === 'auth' ? 'lock' : videoError.type === 'not_found' ? 'search_off' : videoError.type === 'network' ? 'cloud_off' : 'videocam_off'}
+                              </span>
                               <span className="text-status-warning font-semibold text-sm block mb-1">
-                                Browser playback unavailable for this codec.
+                                {videoError.title}
                               </span>
                               <span className="block text-[11px] text-faint mb-4 leading-relaxed">
-                                The video artifact was rendered with codec ({activeAnalysisResult.annotated_video_artifact.codec || 'mp4v'}). Download the authenticated MP4 artifact or view the source footage with detection overlay.
+                                {videoError.message}
                               </span>
                               <div className="flex items-center gap-3 flex-wrap justify-center">
+                                {videoError.canRetry && (
+                                  <button
+                                    onClick={() => {
+                                      setVideoError(null);
+                                      if (videoPlayerRef.current) {
+                                        videoPlayerRef.current.load();
+                                        videoPlayerRef.current.play().catch(() => {});
+                                      }
+                                    }}
+                                    className="px-3.5 py-2 rounded bg-elevated border border-white/[0.2] text-paper font-bold text-xs inline-flex items-center gap-1.5 shadow hover:bg-elevated/80 cursor-pointer"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">refresh</span>
+                                    <span>RETRY PLAYBACK</span>
+                                  </button>
+                                )}
                                 {analyzedVideoUrl && (
                                   <button
-                                    onClick={() => { setViewMode('raw'); setVideoDecodeError(false); }}
+                                    onClick={() => { setViewMode('raw'); setVideoError(null); }}
                                     className="px-3.5 py-2 rounded bg-accent/20 border border-accent text-accent font-bold text-xs inline-flex items-center gap-1.5 shadow hover:bg-accent/30 cursor-pointer"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">play_circle</span>
@@ -607,24 +811,29 @@ export const BorderPage: React.FC = () => {
                             </div>
                           ) : (
                             <video
+                              ref={videoPlayerRef}
                               key={`annotated-${activeAnalysisResult.annotated_video_artifact.artifact_key}`}
                               src={getEvidenceUrl(activeAnalysisResult.annotated_video_artifact.artifact_key, false)}
                               controls
                               autoPlay
                               loop
                               muted
-                              onError={() => setVideoDecodeError(true)}
+                              onTimeUpdate={handleVideoTimeUpdate}
+                              onError={handleVideoError}
                               className="max-w-full max-h-[62vh] object-contain select-none transform-gpu will-change-transform"
                             />
                           )
                         ) : analyzedVideoUrl ? (
                           <video
+                            ref={videoPlayerRef}
                             key={`raw-${analyzedVideoUrl}`}
                             src={analyzedVideoUrl}
                             controls
                             autoPlay
                             loop
                             muted
+                            onTimeUpdate={handleVideoTimeUpdate}
+                            onError={handleVideoError}
                             className="max-w-full max-h-[62vh] object-contain select-none transform-gpu will-change-transform"
                           />
                         ) : (
@@ -744,38 +953,286 @@ export const BorderPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Structured Video Detections & Tracks Summary Table */}
-                      {activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 && (
-                        <div className="w-full max-h-44 mt-2 overflow-y-auto custom-scrollbar bg-graphite/60 border border-white/[0.08] rounded p-2 text-xs font-mono">
-                          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/[0.06] text-[10px] text-muted">
-                            <span className="font-bold text-accent">RECORDED VIDEO STRUCTURED DETECTIONS ({activeAnalysisResult.detections.length})</span>
-                            <span>TRACKS: {activeAnalysisResult.tracks ? activeAnalysisResult.tracks.length : activeAnalysisResult.annotated_video_artifact?.unique_tracks_count || 0}</span>
+                      {/* Dynamic Threat Level Transitions Alerts */}
+                      {threatLevelChanges.length > 0 && (
+                        <div className="w-full mt-2 p-2 bg-panel/90 border border-status-warning/30 rounded font-mono text-[11px] space-y-1">
+                          <div className="flex items-center gap-1.5 text-status-warning font-semibold text-[10px]">
+                            <span className="material-symbols-outlined text-[14px]">notifications_active</span>
+                            <span>DYNAMIC THREAT LEVEL TRANSITIONS DETECTED ({threatLevelChanges.length})</span>
                           </div>
-                          <div className="grid grid-cols-5 gap-2 text-[9px] text-faint uppercase font-semibold pb-1 border-b border-white/[0.04]">
-                            <span>FRAME</span>
-                            <span>TRACK ID</span>
-                            <span>CLASS</span>
-                            <span>CONF</span>
-                            <span>BBOX [X1, Y1, X2, Y2]</span>
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {threatLevelChanges.map((ch: any, idx: number) => (
+                              <div key={idx} className="px-2 py-0.5 rounded bg-graphite/80 border border-white/[0.08] text-[10px] flex items-center gap-1">
+                                <span className="text-paper font-bold">TRK-{ch.track_id}</span>
+                                <span className="text-muted">{ch.previous_level}</span>
+                                <span className="text-accent">→</span>
+                                <span className={`font-bold ${
+                                  ch.new_level === 'CRITICAL' ? 'text-status-critical' : ch.new_level === 'HIGH' ? 'text-status-warning' : 'text-status-success'
+                                }`}>
+                                  {ch.new_level}
+                                </span>
+                                <span className="text-faint text-[9px]">@{Number(ch.time_offset_seconds).toFixed(1)}s</span>
+                                {ch.reason && <span className="text-faint text-[8px] truncate max-w-[120px]">({ch.reason})</span>}
+                              </div>
+                            ))}
                           </div>
-                          <div className="space-y-1 mt-1">
-                            {activeAnalysisResult.detections.slice(0, 50).map((d, idx) => (
+                        </div>
+                      )}
+
+                      {/* Overview Grid: Vehicle Summary + Demo Zone Activity */}
+                      <div className="w-full mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {/* Vehicle / Track Summary */}
+                        <div className="p-2.5 bg-panel/80 border border-white/[0.06] rounded font-mono text-xs space-y-1">
+                          <div className="flex items-center justify-between text-[10px] text-muted">
+                            <span className="font-bold text-accent uppercase">VEHICLE INVENTORY & TRACKS</span>
+                            <span>TOTAL: {vehicleSummary?.total_vehicles_observed ?? (activeAnalysisResult.tracks?.length || 0)}</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-[10px] pt-1">
+                            <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px]">ACTIVE TRACKS</span>
+                              <span className="text-paper font-bold">{vehicleSummary?.active_tracks_count ?? activeAnalysisResult.tracks?.length ?? 0}</span>
+                            </div>
+                            <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px]">MAX THREAT</span>
+                              <span className={`font-bold ${
+                                vehicleSummary?.max_threat_level === 'CRITICAL' ? 'text-status-critical' : vehicleSummary?.max_threat_level === 'HIGH' ? 'text-status-warning' : 'text-accent'
+                              }`}>
+                                {vehicleSummary?.max_threat_level ?? 'MONITORED'}
+                              </span>
+                            </div>
+                            <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
+                              <span className="text-faint block text-[8px]">CATEGORIES</span>
+                              <span className="text-paper font-semibold truncate block">
+                                {vehicleSummary?.vehicle_categories ? Object.entries(vehicleSummary.vehicle_categories).map(([k, v]) => `${k}:${v}`).join(', ') : 'VEHICLES'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Demo Zone Activity */}
+                        <div className="p-2.5 bg-panel/80 border border-white/[0.06] rounded font-mono text-xs space-y-1">
+                          <div className="flex items-center justify-between text-[10px] text-muted">
+                            <span className="font-bold text-accent uppercase">DEMO ZONE SURVEILLANCE</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] ${
+                              demoZoneActivity?.zone_configured || activeConfiguredZone
+                                ? 'bg-status-success/15 text-status-success'
+                                : 'bg-elevated text-faint'
+                            }`}>
+                              {demoZoneActivity?.zone_configured || activeConfiguredZone ? 'ZONE ACTIVE' : 'NO DEMO ZONE CONFIGURED'}
+                            </span>
+                          </div>
+                          {demoZoneActivity?.zone_configured || activeConfiguredZone ? (
+                            <div className="grid grid-cols-3 gap-2 text-[10px] pt-1">
+                              <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
+                                <span className="text-faint block text-[8px]">ENTRIES</span>
+                                <span className="text-status-warning font-bold">{demoZoneActivity?.zone_entries_count || 0}</span>
+                              </div>
+                              <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
+                                <span className="text-faint block text-[8px]">EXITS</span>
+                                <span className="text-paper font-bold">{demoZoneActivity?.zone_exits_count || 0}</span>
+                              </div>
+                              <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
+                                <span className="text-faint block text-[8px]">ACTIVE INSIDE</span>
+                                <span className="text-status-critical font-bold">{demoZoneActivity?.active_vehicles_inside || 0}</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-2 bg-graphite/40 rounded border border-white/[0.04] text-[10px] text-faint flex items-center justify-between">
+                              <span>BORDER CONTEXT NOT SET — Threat levels evaluated without containment.</span>
+                              <button
+                                onClick={() => setIsZoneConfigOpen(true)}
+                                className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-accent text-[9px] hover:bg-elevated/80 cursor-pointer"
+                              >
+                                CONFIGURE ZONE
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Synchronized Real-Time Vehicle Threat Timeline Table */}
+                      <div className="w-full mt-2 bg-graphite/80 border border-white/[0.08] rounded p-2.5 text-xs font-mono">
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/[0.06] text-[10px]">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-accent uppercase">REAL-TIME VEHICLE THREAT TIMELINE</span>
+                            <span className="px-1.5 py-0.2 rounded bg-elevated text-paper text-[9px]">
+                              PLAYHEAD: {currentVideoTime.toFixed(1)}s
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[9px] text-faint">
+                            <span className="hidden sm:inline">CLICK ROW TO SEEK VIDEO</span>
+                            <span>EVENTS: {threatTimeline.length > 0 ? threatTimeline.length : (activeAnalysisResult.detections?.length || 0)}</span>
+                          </div>
+                        </div>
+
+                        {threatTimeline.length > 0 ? (
+                          <div className="overflow-x-auto max-h-56 custom-scrollbar">
+                            <table className="w-full text-left font-mono text-[10px] border-collapse">
+                              <thead>
+                                <tr className="border-b border-white/[0.06] text-faint text-[9px] uppercase">
+                                  <th className="py-1 px-1.5">TIME</th>
+                                  <th className="py-1 px-1.5">TRACK</th>
+                                  <th className="py-1 px-1.5">OBJECT</th>
+                                  <th className="py-1 px-1.5">ZONE STATE</th>
+                                  <th className="py-1 px-1.5">THREAT LEVEL</th>
+                                  <th className="py-1 px-1.5">TREND</th>
+                                  <th className="py-1 px-1.5">CONF</th>
+                                  <th className="py-1 px-1.5 text-right">EVIDENCE</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/[0.03]">
+                                {threatTimeline.map((ev: any, idx: number) => {
+                                  const evTime = ev.time_offset_seconds ?? ev.timestamp_seconds ?? (ev.frame_number ? ev.frame_number / 15 : 0);
+                                  const isActive = activeTimelineIndex === idx;
+                                  return (
+                                    <tr
+                                      key={idx}
+                                      onClick={() => handleSeekToTimelineEvent(ev, idx)}
+                                      className={`cursor-pointer transition-colors ${
+                                        isActive
+                                          ? 'bg-accent/20 border-l-2 border-accent text-accent font-semibold'
+                                          : 'hover:bg-white/[0.03] text-paper'
+                                      }`}
+                                    >
+                                      <td className="py-1 px-1.5 font-mono text-faint">{Number(evTime).toFixed(1)}s</td>
+                                      <td className="py-1 px-1.5 text-status-ai font-bold">TRK-{ev.track_id}</td>
+                                      <td className="py-1 px-1.5 uppercase font-medium">{ev.object_class || ev.class_name}</td>
+                                      <td className="py-1 px-1.5">
+                                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                                          ev.zone_state === 'INSIDE'
+                                            ? 'bg-status-critical/20 text-status-critical border border-status-critical/30'
+                                            : ev.zone_state === 'APPROACHING'
+                                            ? 'bg-status-warning/20 text-status-warning border border-status-warning/30'
+                                            : ev.zone_state === 'EXITED'
+                                            ? 'bg-status-ai/20 text-status-ai border border-status-ai/30'
+                                            : 'bg-elevated text-faint'
+                                        }`}>
+                                          {ev.zone_state || 'OUTSIDE'}
+                                        </span>
+                                      </td>
+                                      <td className="py-1 px-1.5">
+                                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                                          ev.threat_level === 'CRITICAL'
+                                            ? 'bg-status-critical text-graphite font-black'
+                                            : ev.threat_level === 'HIGH'
+                                            ? 'bg-status-warning/20 text-status-warning'
+                                            : ev.threat_level === 'MEDIUM'
+                                            ? 'bg-status-warning/15 text-status-warning/80'
+                                            : ev.threat_level === 'LOW'
+                                            ? 'bg-status-success/15 text-status-success'
+                                            : 'bg-elevated text-faint'
+                                        }`}>
+                                          {ev.threat_level || 'UNAVAILABLE'}
+                                        </span>
+                                      </td>
+                                      <td className="py-1 px-1.5">
+                                        <span className="flex items-center gap-0.5 text-[9px]">
+                                          <span className="material-symbols-outlined text-[11px]">
+                                            {ev.threat_trend === 'ESCALATING' ? 'trending_up' : ev.threat_trend === 'DE_ESCALATING' ? 'trending_down' : 'trending_flat'}
+                                          </span>
+                                          <span className="text-[8px]">{ev.threat_trend || 'STABLE'}</span>
+                                        </span>
+                                      </td>
+                                      <td className="py-1 px-1.5 text-faint">{ev.confidence ? `${Math.round(ev.confidence * 100)}%` : '--'}</td>
+                                      <td className="py-1 px-1.5 text-right">
+                                        {ev.evidence_frame_key ? (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedEvidenceFrame({
+                                                artifact_key: ev.evidence_frame_key,
+                                                sha256: ev.evidence_frame_sha256,
+                                                frame_number: ev.frame_number,
+                                                track_id: ev.track_id,
+                                                timestamp_seconds: evTime,
+                                                threat_level: ev.threat_level,
+                                              });
+                                            }}
+                                            className="px-1.5 py-0.5 rounded bg-accent/15 border border-accent/30 text-accent text-[8px] hover:bg-accent/25 cursor-pointer"
+                                          >
+                                            VIEW
+                                          </button>
+                                        ) : (
+                                          <span className="text-faint text-[8px]">--</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 ? (
+                          <div className="overflow-x-auto max-h-56 custom-scrollbar">
+                            <table className="w-full text-left font-mono text-[10px] border-collapse">
+                              <thead>
+                                <tr className="border-b border-white/[0.06] text-faint text-[9px] uppercase">
+                                  <th className="py-1 px-1.5">FRAME</th>
+                                  <th className="py-1 px-1.5">TRACK</th>
+                                  <th className="py-1 px-1.5">CLASS</th>
+                                  <th className="py-1 px-1.5">CONF</th>
+                                  <th className="py-1 px-1.5">BBOX</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/[0.03]">
+                                {activeAnalysisResult.detections.slice(0, 50).map((d: any, idx: number) => (
+                                  <tr
+                                    key={idx}
+                                    onClick={() => setSelectedRuntimeDetection(d)}
+                                    className={`cursor-pointer transition-colors ${
+                                      selectedRuntimeDetection === d
+                                        ? 'bg-accent/20 border-l-2 border-accent text-accent font-semibold'
+                                        : 'hover:bg-white/[0.03] text-paper'
+                                    }`}
+                                  >
+                                    <td className="py-1 px-1.5 font-mono text-faint">#{d.frame_number ?? '--'}</td>
+                                    <td className="py-1 px-1.5 text-status-ai font-bold">TRK-{d.track_id ?? '--'}</td>
+                                    <td className="py-1 px-1.5 uppercase font-medium">{d.class_name}</td>
+                                    <td className="py-1 px-1.5 text-accent">{Math.round((d.confidence ?? 1) * 100)}%</td>
+                                    <td className="py-1 px-1.5 text-faint text-[9px] truncate">
+                                      {d.bbox ? `[${Math.round(d.bbox.x1)}, ${Math.round(d.bbox.y1)}, ${Math.round(d.bbox.x2)}, ${Math.round(d.bbox.y2)}]` : '--'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-graphite/40 rounded border border-white/[0.04] text-[10px] text-muted text-center">
+                            No detections or timeline events recorded.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Authenticated Evidence Frames Gallery */}
+                      {evidenceFrames.length > 0 && (
+                        <div className="w-full mt-2 bg-graphite/80 border border-white/[0.08] rounded p-2.5 text-xs font-mono">
+                          <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-white/[0.06] text-[10px]">
+                            <span className="font-bold text-accent uppercase">AUTHENTICATED EVIDENCE FRAMES ({evidenceFrames.length})</span>
+                            <span className="text-faint text-[9px]">SHA-256 INTEGRITY VERIFIED</span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                            {evidenceFrames.map((frame: any, idx: number) => (
                               <div
                                 key={idx}
-                                onClick={() => setSelectedRuntimeDetection(d)}
-                                className={`grid grid-cols-5 gap-2 text-[10px] py-1 px-1.5 rounded cursor-pointer transition-all ${
-                                  selectedRuntimeDetection === d
-                                    ? 'bg-accent/20 border border-accent/40 text-accent'
-                                    : 'hover:bg-elevated/60 text-paper'
-                                }`}
+                                onClick={() => setSelectedEvidenceFrame(frame)}
+                                className="group relative bg-panel/90 border border-white/[0.08] rounded overflow-hidden cursor-pointer hover:border-accent transition-all"
                               >
-                                <span>{d.frame_number !== null && d.frame_number !== undefined ? `#${d.frame_number}` : '--'}</span>
-                                <span className="font-bold text-status-ai">{d.track_id !== null && d.track_id !== undefined ? `ID:${d.track_id}` : '--'}</span>
-                                <span className="uppercase font-semibold">{d.class_name}</span>
-                                <span className="text-accent">{Math.round(d.confidence * 100)}%</span>
-                                <span className="text-faint truncate">
-                                  {d.bbox ? `[${Math.round(d.bbox.x1)}, ${Math.round(d.bbox.y1)}, ${Math.round(d.bbox.x2)}, ${Math.round(d.bbox.y2)}]` : '--'}
-                                </span>
+                                <img
+                                  src={getEvidenceUrl(frame.artifact_key, false)}
+                                  alt={`Evidence Frame #${frame.frame_number}`}
+                                  className="w-full h-16 object-cover bg-black"
+                                />
+                                <div className="p-1 bg-graphite/90 text-[8px] space-y-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-paper font-bold">#{frame.frame_number}</span>
+                                    <span className="text-accent">{Number(frame.timestamp_seconds).toFixed(1)}s</span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-faint">
+                                    <span>TRK-{frame.track_id}</span>
+                                    <span className="text-status-warning">{frame.threat_level}</span>
+                                  </div>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -923,7 +1380,7 @@ export const BorderPage: React.FC = () => {
         {/* ============================================================ */}
         {/* RIGHT INTELLIGENCE PANEL                                    */}
         {/* ============================================================ */}
-        <aside className="w-80 xl:w-96 flex-shrink-0 bg-panel flex flex-col overflow-y-auto custom-scrollbar">
+        <aside className={`${mobileTab === 'intelligence' ? 'flex' : 'hidden lg:flex'} w-full lg:w-80 xl:w-96 flex-shrink-0 bg-panel flex-col overflow-y-auto custom-scrollbar border-l border-white/[0.06]`}>
           {/* Dynamic Tactical Crossing Indicators */}
           <div className="p-4 border-b border-white/[0.06]">
             <h2 className="text-xs font-mono font-medium tracking-wider text-muted uppercase">
@@ -996,7 +1453,7 @@ export const BorderPage: React.FC = () => {
           </div>
 
           {/* Dedicated Section 12 Geo Context UI */}
-          <div className="p-4 border-b border-white/[0.06] bg-[#0E131A]/60">
+          <div className="p-4 border-b border-border bg-slate-50/70">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] font-mono text-muted uppercase tracking-wider block">
                 GEOREFERENCE & JURISDICTION
@@ -1183,10 +1640,19 @@ export const BorderPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="p-3 bg-graphite/60 border border-white/[0.04] rounded text-center">
-                <span className="text-[11px] font-mono text-faint">
-                  INSUFFICIENT EVIDENCE
+              <div className="p-3 bg-graphite/60 border border-white/[0.04] rounded text-center space-y-1">
+                <span className="text-[11px] font-mono text-faint block font-semibold">
+                  BORDER CONTEXT NOT SET
                 </span>
+                <span className="text-[9px] font-mono text-muted/60 block">
+                  NO DEMO ZONE CONFIGURED — Spatial boundary intersection requires an active zone definition.
+                </span>
+                <button
+                  onClick={() => setIsZoneConfigOpen(true)}
+                  className="mt-1 px-2.5 py-0.5 rounded bg-elevated border border-white/[0.1] text-accent text-[9px] font-mono hover:bg-elevated/80 transition-all cursor-pointer"
+                >
+                  CONFIGURE DEMO ZONE
+                </button>
               </div>
             )}
           </div>
@@ -1339,8 +1805,8 @@ export const BorderPage: React.FC = () => {
       {/* ============================================================ */}
       {/* BOTTOM EVENT TIMELINE                                       */}
       {/* ============================================================ */}
-      <footer className="h-28 bg-[#090C10] border-t border-white/[0.06] p-4 flex flex-col justify-between flex-shrink-0 z-30">
-        <div className="flex items-center justify-between font-mono text-[10px] text-muted uppercase tracking-wider mb-2">
+      <footer className="h-28 bg-white border-t border-border p-4 flex flex-col justify-between flex-shrink-0 z-30 shadow-xs">
+        <div className="flex items-center justify-between font-mono text-[10px] text-slate-500 uppercase tracking-wider mb-2">
           <span>OPERATIONAL EVENT LOG (CHRONOLOGICAL)</span>
           <span>{events.length} EVENTS RECORDED</span>
         </div>
@@ -1350,12 +1816,12 @@ export const BorderPage: React.FC = () => {
             events.map((ev) => (
               <div
                 key={ev.id}
-                className="flex-shrink-0 w-64 p-2 rounded bg-panel border border-white/[0.06] text-xs font-mono flex flex-col justify-between"
+                className="flex-shrink-0 w-64 p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono flex flex-col justify-between shadow-2xs"
               >
-                <div className="flex items-center justify-between text-[10px] text-faint">
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
                   <span>{new Date(ev.created_at).toISOString().substring(11, 19)} UTC</span>
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] ${
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
                       ev.severity === 'CRITICAL'
                         ? 'bg-status-critical/10 text-status-critical'
                         : 'bg-status-warning/10 text-status-warning'
@@ -1364,13 +1830,13 @@ export const BorderPage: React.FC = () => {
                     {ev.severity}
                   </span>
                 </div>
-                <div className="text-paper text-[11px] font-medium truncate mt-1">
+                <div className="text-slate-800 text-[11px] font-semibold truncate mt-1">
                   {ev.title}
                 </div>
               </div>
             ))
           ) : (
-            <div className="w-full text-center text-[11px] font-mono text-faint">
+            <div className="w-full text-center text-[11px] font-mono text-slate-400">
               NO SITUATION EVENTS LOGGED
             </div>
           )}
@@ -1413,7 +1879,7 @@ export const BorderPage: React.FC = () => {
               const resp = await analysisApi.getById(targetId);
               if (resp.success && resp.data) {
                 setActiveAnalysisResult(resp.data);
-                setVideoDecodeError(false);
+                setVideoError(null);
                 if (resp.data.annotated_image_base64) {
                   setAnalyzedImageUrl(`data:image/jpeg;base64,${resp.data.annotated_image_base64}`);
                   setViewMode('annotated');
@@ -1438,7 +1904,6 @@ export const BorderPage: React.FC = () => {
         existingLocation={operatorLocation}
         onConfirmLocation={async (loc: LocationProvenance) => {
           setOperatorLocation(loc);
-          // Resolve geospatial context (country, state, border reference) and weather in parallel
           if (loc) {
             setWeatherLoading(true);
             try {
@@ -1452,7 +1917,6 @@ export const BorderPage: React.FC = () => {
                 setWeather(weatherRes.data);
               }
 
-              // Update enriched location metadata with resolved administrative boundaries
               const enriched: LocationProvenance = { ...loc };
               if (adminRes && adminRes.success && adminRes.data) {
                 enriched.state = adminRes.data.state || undefined;
@@ -1472,6 +1936,148 @@ export const BorderPage: React.FC = () => {
           }
         }}
       />
+
+      {/* Explicit Border Zone Configuration Modal */}
+      {isZoneConfigOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-panel border border-white/[0.1] rounded-xl max-w-lg w-full p-5 space-y-4 shadow-2xl font-mono text-xs">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
+              <div className="flex items-center gap-2 text-accent">
+                <span className="material-symbols-outlined text-[18px]">polyline</span>
+                <span className="font-bold uppercase text-sm">Configure Operational Border Zone</span>
+              </div>
+              <button
+                onClick={() => setIsZoneConfigOpen(false)}
+                className="text-muted hover:text-paper"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <p className="text-muted text-[11px] leading-relaxed">
+              Define the authoritative border zone polygon for real-time vehicle containment, entry/exit detection, and threat assessment. Leaving this unconfigured maintains truthful &ldquo;BORDER CONTEXT NOT SET&rdquo; mode with zero synthetic sector assumptions.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-[10px] text-faint block uppercase">ZONE PRESETS:</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setActiveConfiguredZone([
+                      [32.65, 74.85],
+                      [32.68, 74.87],
+                      [32.67, 74.92],
+                      [32.63, 74.90],
+                      [32.62, 74.86],
+                    ]);
+                    setActiveSectorName('DEMO BORDER PERIMETER');
+                    setIsZoneConfigOpen(false);
+                  }}
+                  className="px-3 py-1.5 rounded bg-accent/15 border border-accent/30 text-accent text-[11px] hover:bg-accent/25 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[14px]">pentagon</span>
+                  <span>LOAD DEMO PERIMETER</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveConfiguredZone(null);
+                    setActiveSectorName('');
+                    setIsZoneConfigOpen(false);
+                  }}
+                  className="px-3 py-1.5 rounded bg-elevated border border-white/[0.08] text-status-warning hover:bg-elevated/80 text-[11px] transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[14px]">clear</span>
+                  <span>CLEAR (UNSET CONTEXT)</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px] text-faint">
+              <span>CURRENT STATUS: <span className="text-paper">{activeConfiguredZone ? activeSectorName || 'ZONE ACTIVE' : 'NO DEMO ZONE CONFIGURED'}</span></span>
+              <button
+                onClick={() => setIsZoneConfigOpen(false)}
+                className="px-3 py-1.5 rounded bg-elevated hover:bg-elevated/80 text-paper cursor-pointer"
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Selected Evidence Frame Inspection Modal */}
+      {selectedEvidenceFrame && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-panel border border-white/[0.1] rounded-xl max-w-2xl w-full p-5 space-y-4 shadow-2xl font-mono text-xs">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-accent text-[18px]">verified</span>
+                <span className="font-bold uppercase text-paper">
+                  Evidence Frame #{selectedEvidenceFrame.frame_number} // TRK-{selectedEvidenceFrame.track_id}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedEvidenceFrame(null)}
+                className="text-muted hover:text-paper cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="relative border border-white/[0.08] rounded overflow-hidden bg-black flex items-center justify-center max-h-[60vh]">
+              <img
+                src={getEvidenceUrl(selectedEvidenceFrame.artifact_key, false)}
+                alt={`Evidence Frame #${selectedEvidenceFrame.frame_number}`}
+                className="max-w-full max-h-[55vh] object-contain"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] p-2.5 bg-graphite/70 rounded border border-white/[0.04]">
+              <div>
+                <span className="text-faint block">TIMESTAMP:</span>
+                <span className="text-paper font-bold">{Number(selectedEvidenceFrame.timestamp_seconds).toFixed(1)}s</span>
+              </div>
+              <div>
+                <span className="text-faint block">TRACK ID:</span>
+                <span className="text-status-ai font-bold">TRK-{selectedEvidenceFrame.track_id}</span>
+              </div>
+              <div>
+                <span className="text-faint block">THREAT LEVEL:</span>
+                <span className={`font-bold ${
+                  selectedEvidenceFrame.threat_level === 'CRITICAL' ? 'text-status-critical' : selectedEvidenceFrame.threat_level === 'HIGH' ? 'text-status-warning' : 'text-status-success'
+                }`}>
+                  {selectedEvidenceFrame.threat_level}
+                </span>
+              </div>
+              <div>
+                <span className="text-faint block">SHA-256:</span>
+                <span className="text-accent truncate block" title={selectedEvidenceFrame.sha256}>
+                  {selectedEvidenceFrame.sha256 ? `${selectedEvidenceFrame.sha256.substring(0, 10)}...` : 'VERIFIED'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={async () => {
+                  const dlUrl = getEvidenceUrl(selectedEvidenceFrame.artifact_key, true);
+                  const filename = `AERION_evidence_frame_${selectedEvidenceFrame.frame_number}_trk${selectedEvidenceFrame.track_id}.jpg`;
+                  try {
+                    await downloadAuthenticatedArtifact(dlUrl, filename);
+                  } catch (e: any) {
+                    alert(e.message || 'Download failed');
+                  }
+                }}
+                className="px-3 py-1.5 rounded bg-accent text-graphite font-bold text-xs hover:bg-accent/90 flex items-center gap-1 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[14px]">download</span>
+                <span>DOWNLOAD EVIDENCE JPEG</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

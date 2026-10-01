@@ -21,6 +21,7 @@ import hashlib
 import logging
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -43,6 +44,64 @@ logger = logging.getLogger("aerion.services.video_annotation")
 MAX_VIDEO_FILE_SIZE = 150 * 1024 * 1024  # 150 MB hard ceiling
 MAX_FRAME_DIMENSION = 8192               # Maximum width or height
 DEFAULT_HISTORY_TAIL_MAX = 30            # Max points in trajectory tail
+
+
+def get_ffmpeg_executable() -> Optional[str]:
+    """
+    Locates a working FFmpeg binary:
+    1. System PATH ('ffmpeg')
+    2. imageio-ffmpeg bundled binary
+    """
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        return system_ffmpeg
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    return None
+
+
+def transcode_to_browser_h264(
+    input_path: Path,
+    output_path: Path,
+    fps: float,
+    crf: int = 23,
+    preset: str = "fast",
+) -> bool:
+    """
+    Encodes an intermediate video to browser-compatible H.264 (avc1) in an MP4 container:
+    - Codec: H.264 / libx264
+    - Pixel format: yuv420p (broadest browser support)
+    - Profile: baseline / level 3.1
+    - Container flag: +faststart (places moov atom BEFORE mdat for instant streaming)
+    """
+    ffmpeg_exe = get_ffmpeg_executable()
+    if not ffmpeg_exe:
+        logger.warning("FFmpeg executable not found. Web H.264 faststart transcode unavailable.")
+        return False
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ffmpeg_exe,
+        "-y",
+        "-i", str(input_path),
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-profile:v", "baseline",
+        "-level", "3.1",
+        "-preset", preset,
+        "-crf", str(crf),
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    try:
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return output_path.exists() and output_path.stat().st_size > 0
+    except Exception as exc:
+        logger.error(f"FFmpeg H.264 faststart transcoding failed: {exc}")
+        return False
 
 
 @dataclass
@@ -403,13 +462,37 @@ class VideoAnnotationService:
                 details=[{"field": "annotated_video", "issue": "empty_output"}],
             )
 
-        codec, _ = self.get_supported_codec()
-        storage_key, sha256_hex, file_size = self.storage.store_file(
-            source_path=temp_video_path,
-            asset_type="annotated_video",
-            project_id=project_id,
-            suffix=".mp4",
+        # Transcode intermediate video to browser-compatible H.264 (avc1, yuv420p, baseline, faststart)
+        browser_mp4_path = temp_video_path.parent / f"{temp_video_path.stem}_browser.mp4"
+        transcode_ok = transcode_to_browser_h264(
+            input_path=temp_video_path,
+            output_path=browser_mp4_path,
+            fps=fps,
         )
+
+        if transcode_ok and browser_mp4_path.exists() and browser_mp4_path.stat().st_size > 0:
+            final_source_path = browser_mp4_path
+            final_codec = "avc1"
+        else:
+            logger.warning(
+                "Browser H.264 transcode unavailable or failed; falling back to intermediate video artifact."
+            )
+            final_source_path = temp_video_path
+            final_codec = "mp4v"
+
+        try:
+            storage_key, sha256_hex, file_size = self.storage.store_file(
+                source_path=final_source_path,
+                asset_type="annotated_video",
+                project_id=project_id,
+                suffix=".mp4",
+            )
+        finally:
+            if browser_mp4_path.exists():
+                try:
+                    browser_mp4_path.unlink()
+                except OSError:
+                    pass
 
         duration = (frame_count / fps) if fps > 0 else 0.0
         # Representative frame index is mid-point of output video frames (1-indexed)
@@ -426,7 +509,7 @@ class VideoAnnotationService:
             fps=fps,
             frame_count=frame_count,
             source_frame_count=source_frame_count,
-            codec=codec,
+            codec=final_codec,
             duration_seconds=duration,
             unique_tracks_count=unique_tracks,
             total_detections_count=total_detections,

@@ -59,6 +59,30 @@ export const authApi = {
   resetPassword: async (payload: { token: string; new_password: string }): Promise<APIEnvelope<{ message: string }>> => {
     return apiClient.post('/auth/reset-password', payload);
   },
+
+  updateProfile: async (data: { display_name?: string }): Promise<APIEnvelope<User>> => {
+    return apiClient.patch<User>('/auth/profile', data);
+  },
+
+  uploadAvatar: async (avatarBase64: string): Promise<APIEnvelope<User>> => {
+    return apiClient.post<User>('/auth/avatar', { avatar_base64: avatarBase64 });
+  },
+
+  deleteAvatar: async (): Promise<APIEnvelope<User>> => {
+    return apiClient.delete<User>('/auth/avatar');
+  },
+
+  changePassword: async (data: { current_password: string; new_password: string }): Promise<APIEnvelope<{ message: string }>> => {
+    return apiClient.patch<{ message: string }>('/auth/password', data);
+  },
+
+  getPreferences: async (): Promise<APIEnvelope<Record<string, any>>> => {
+    return apiClient.get<Record<string, any>>('/auth/preferences');
+  },
+
+  updatePreferences: async (preferences: Record<string, any>): Promise<APIEnvelope<User>> => {
+    return apiClient.patch<User>('/auth/preferences', { preferences });
+  },
 };
 
 
@@ -158,8 +182,8 @@ export const analysisApi = {
     iou_threshold?: number;
     terrain_context?: string;
     run_intelligence?: boolean;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/image', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/image', payload, options);
   },
 
   analyzeDamage: async (payload: {
@@ -169,8 +193,8 @@ export const analysisApi = {
     after_image_path?: string;
     threshold?: number;
     run_intelligence?: boolean;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/damage', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/damage', payload, options);
   },
 
   validateDamagePair: async (payload: {
@@ -179,8 +203,8 @@ export const analysisApi = {
     before_image_path?: string;
     after_image_path?: string;
     max_gps_distance_km?: number;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/damage/validate', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/damage/validate', payload, options);
   },
 
   analyzeBorderVideo: async (payload: {
@@ -190,8 +214,8 @@ export const analysisApi = {
     max_frames?: number;
     frame_stride?: number;
     terrain_context?: string;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/border/video', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/border/video', payload, options);
   },
 
   analyzeDisasterE2E: async (payload: {
@@ -206,8 +230,8 @@ export const analysisApi = {
     evacuation_dest_lon?: number;
     radius_km?: number;
     run_intelligence?: boolean;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/disaster/e2e', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/disaster/e2e', payload, options);
   },
 
   analyzeBorderE2E: async (payload: {
@@ -222,8 +246,8 @@ export const analysisApi = {
     longitude?: number;
     generate_annotated_video?: boolean;
     run_intelligence?: boolean;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/border/e2e', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/border/e2e', payload, options);
   },
 
   getHistory: async (params?: {
@@ -231,18 +255,18 @@ export const analysisApi = {
     status?: string;
     limit?: number;
     offset?: number;
-  }): Promise<APIEnvelope<AnalysisHistoryItem[]>> => {
+  }, options?: RequestInit): Promise<APIEnvelope<AnalysisHistoryItem[]>> => {
     const query = new URLSearchParams();
     if (params?.mode) query.append('mode', params.mode);
     if (params?.status) query.append('status', params.status);
     if (params?.limit) query.append('limit', params.limit.toString());
     if (params?.offset) query.append('offset', params.offset.toString());
     const qs = query.toString();
-    return apiClient.get<AnalysisHistoryItem[]>(`/analysis/history${qs ? `?${qs}` : ''}`);
+    return apiClient.get<AnalysisHistoryItem[]>(`/analysis/history${qs ? `?${qs}` : ''}`, options);
   },
 
-  getById: async (analysisId: string): Promise<APIEnvelope<AERIONAnalysisResultData>> => {
-    return apiClient.get<AERIONAnalysisResultData>(`/analysis/${analysisId}`);
+  getById: async (analysisId: string, options?: RequestInit): Promise<APIEnvelope<AERIONAnalysisResultData>> => {
+    return apiClient.get<AERIONAnalysisResultData>(`/analysis/${analysisId}`, options);
   },
 
   submitBorderJob: async (payload: {
@@ -257,8 +281,8 @@ export const analysisApi = {
     longitude?: number;
     generate_annotated_video?: boolean;
     idempotency_key?: string;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/jobs/border', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/jobs/border', payload, options);
   },
 
   submitDisasterJob: async (payload: {
@@ -270,12 +294,16 @@ export const analysisApi = {
     latitude?: number;
     longitude?: number;
     idempotency_key?: string;
-  }): Promise<APIEnvelope<any>> => {
-    return apiClient.post('/analysis/jobs/disaster', payload);
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post('/analysis/jobs/disaster', payload, options);
   },
 
-  getJobStatus: async (jobId: string): Promise<APIEnvelope<any>> => {
-    return apiClient.get(`/analysis/jobs/${jobId}`);
+  getJobStatus: async (jobId: string, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.get(`/analysis/jobs/${jobId}`, options);
+  },
+
+  cancelJob: async (jobId: string, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post(`/analysis/jobs/${jobId}/cancel`, {}, options);
   },
 };
 
@@ -294,7 +322,8 @@ export const externalApi = {
     originLon: number,
     destLat: number,
     destLon: number,
-    profile: string = 'driving-car'
+    profile: string = 'driving-car',
+    criterion: 'fastest' | 'shortest' = 'fastest'
   ): Promise<APIEnvelope<any>> => {
     const query = new URLSearchParams({
       origin_lat: originLat.toString(),
@@ -302,6 +331,7 @@ export const externalApi = {
       dest_lat: destLat.toString(),
       dest_lon: destLon.toString(),
       profile,
+      criterion,
     });
     return apiClient.get(`/external/route?${query.toString()}`);
   },

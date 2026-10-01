@@ -12,13 +12,18 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.db.models import User
 from app.db.session import get_async_session
+from app.core.errors import ValidationError
 from app.schemas.auth import (
+    AvatarUploadRequest,
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     GoogleLoginRequest,
     RefreshTokenRequest,
     ResetPasswordRequest,
     TokenResponse,
+    UpdatePreferencesRequest,
+    UpdateProfileRequest,
     UserLoginRequest,
     UserRegisterRequest,
     UserResponse,
@@ -27,6 +32,11 @@ from app.schemas.common import MetaBlock, ResponseEnvelope, utc_now_iso
 from app.services.auth_service import AuthService
 from app.services.email_service import email_service
 import asyncio
+import base64
+import io
+from PIL import Image
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -216,23 +226,219 @@ async def logout(
 async def get_me(
     request: Request,
     current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
 ) -> ResponseEnvelope[UserResponse]:
     settings = get_settings()
-    user_resp = UserResponse(
-        id=str(current_user.id),
-        organization_id=str(current_user.organization_id),
-        email=current_user.email,
-        role=current_user.role,
-        auth_provider=current_user.auth_provider,
-        display_name=current_user.display_name,
-        is_active=current_user.is_active,
-        created_at=current_user.created_at,
-    )
+    stmt = select(User).options(selectinload(User.organization)).where(User.id == current_user.id)
+    res = await session.execute(stmt)
+    user_loaded = res.scalar_one_or_none() or current_user
+    user_resp = AuthService.build_user_response(user_loaded)
     meta = MetaBlock(
         timestamp=utc_now_iso(),
         request_id=_extract_request_id(request),
         version=settings.API_VERSION,
     )
     return ResponseEnvelope(success=True, data=user_resp, meta=meta)
+
+
+@router.patch(
+    "/profile",
+    response_model=ResponseEnvelope[UserResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Update authenticated user profile information",
+)
+async def update_profile(
+    req: UpdateProfileRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[UserResponse]:
+    settings = get_settings()
+    user_resp = await AuthService.update_profile(session, current_user, req.display_name)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=user_resp, meta=meta)
+
+
+@router.post(
+    "/avatar",
+    response_model=ResponseEnvelope[UserResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Upload and set profile avatar image",
+)
+async def upload_avatar(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[UserResponse]:
+    settings = get_settings()
+    content_type = request.headers.get("content-type", "")
+    raw_bytes: bytes = b""
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        uploaded_file = form.get("file") or form.get("avatar")
+        if not uploaded_file or not hasattr(uploaded_file, "read"):
+            raise ValidationError("No image file provided in multipart upload.")
+        raw_bytes = await uploaded_file.read()
+    else:
+        # JSON payload with avatar_base64
+        try:
+            body = await request.json()
+        except Exception:
+            raise ValidationError("Invalid JSON request body.")
+        b64_str = body.get("avatar_base64")
+        if not b64_str:
+            raise ValidationError("Missing 'avatar_base64' in payload.")
+        if "," in b64_str:
+            b64_str = b64_str.split(",", 1)[1]
+        try:
+            raw_bytes = base64.b64decode(b64_str)
+        except Exception:
+            raise ValidationError("Malformed base64 image data.")
+
+    # Size check (2MB max)
+    if len(raw_bytes) > 2 * 1024 * 1024:
+        raise ValidationError("Avatar image exceeds 2MB limit.")
+    if len(raw_bytes) < 16:
+        raise ValidationError("Image file is empty or too small.")
+
+    # Verification with PIL
+    try:
+        test_img = Image.open(io.BytesIO(raw_bytes))
+        test_img.verify()
+    except Exception:
+        raise ValidationError("Corrupted or unsupported image file. Must be a valid JPEG, PNG, or WebP image.")
+
+    # Re-open for transformation
+    proc_img = Image.open(io.BytesIO(raw_bytes))
+    if proc_img.format not in ("JPEG", "PNG", "WEBP", "MPO"):
+        raise ValidationError(f"Unsupported image format ({proc_img.format}). Only JPEG, PNG, and WebP are allowed.")
+
+    # Square crop & thumbnail to 256x256
+    proc_img = proc_img.convert("RGB")
+    w, h = proc_img.size
+    min_dim = min(w, h)
+    left = (w - min_dim) // 2
+    top = (h - min_dim) // 2
+    cropped = proc_img.crop((left, top, left + min_dim, top + min_dim))
+    cropped = cropped.resize((256, 256), Image.Resampling.LANCZOS)
+
+    out_buf = io.BytesIO()
+    cropped.save(out_buf, format="JPEG", quality=85, optimize=True)
+    data_uri = f"data:image/jpeg;base64,{base64.b64encode(out_buf.getvalue()).decode('utf-8')}"
+
+    user_resp = await AuthService.update_avatar(session, current_user, data_uri)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=user_resp, meta=meta)
+
+
+@router.delete(
+    "/avatar",
+    response_model=ResponseEnvelope[UserResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Remove avatar image and revert to default initials avatar",
+)
+async def delete_avatar(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[UserResponse]:
+    settings = get_settings()
+    user_resp = await AuthService.update_avatar(session, current_user, None)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=user_resp, meta=meta)
+
+
+@router.patch(
+    "/password",
+    response_model=ResponseEnvelope[dict],
+    status_code=status.HTTP_200_OK,
+    summary="Change password for authenticated local account",
+)
+async def change_password(
+    req: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[dict]:
+    settings = get_settings()
+    res = await AuthService.change_password(session, current_user, req.current_password, req.new_password)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=res, meta=meta)
+
+
+@router.get(
+    "/preferences",
+    response_model=ResponseEnvelope[dict],
+    status_code=status.HTTP_200_OK,
+    summary="Retrieve user interface and notification preferences",
+)
+async def get_preferences(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> ResponseEnvelope[dict]:
+    settings = get_settings()
+    default_prefs = {
+        "notifications": {
+            "login_alerts": True,
+            "analysis_complete": True,
+            "failure_alerts": True,
+            "report_ready": True,
+        },
+        "interface": {
+            "reduced_motion": False,
+            "density": "comfortable",
+            "animations": True,
+            "default_page": "/border",
+        }
+    }
+    current_prefs = dict(default_prefs)
+    if current_user.preferences:
+        current_prefs.update(current_user.preferences)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=current_prefs, meta=meta)
+
+
+@router.patch(
+    "/preferences",
+    response_model=ResponseEnvelope[UserResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Update user interface and notification preferences",
+)
+async def update_preferences(
+    req: UpdatePreferencesRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResponseEnvelope[UserResponse]:
+    settings = get_settings()
+    user_resp = await AuthService.update_preferences(session, current_user, req.preferences)
+    meta = MetaBlock(
+        timestamp=utc_now_iso(),
+        request_id=_extract_request_id(request),
+        version=settings.API_VERSION,
+    )
+    return ResponseEnvelope(success=True, data=user_resp, meta=meta)
+
 
 

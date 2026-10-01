@@ -63,6 +63,7 @@ class RuntimeAdapter:
         mode: str = "disaster",
         drone_model: str = "visdrone_only",
         terrain_type: Optional[str] = "arid",
+        border_zone_polygon: Optional[List[Tuple[float, float]]] = None,
     ) -> Any:
         """
         Instantiate an AERIONOrchestrator. Imports orchestrator lazily.
@@ -77,6 +78,7 @@ class RuntimeAdapter:
                 confidence=FROZEN_CONFIDENCE_THRESHOLD,
                 iou=FROZEN_IOU_THRESHOLD,
                 terrain_type=terrain_type,
+                border_zone_polygon=border_zone_polygon,
             )
         except Exception as exc:
             logger.exception(f"Failed to initialize AERIONOrchestrator for mode '{mode}': {exc}")
@@ -90,9 +92,11 @@ class RuntimeAdapter:
         mode: str = "disaster",
         drone_model: str = "visdrone_only",
         terrain_type: Optional[str] = "arid",
+        border_zone_polygon: Optional[List[Tuple[float, float]]] = None,
     ) -> Any:
         """Retrieve or lazily instantiate an orchestrator instance for the requested configuration."""
-        key = f"{mode}:{drone_model}:{terrain_type}"
+        zone_key = "no_zone" if not border_zone_polygon else f"zone_{len(border_zone_polygon)}_{hash(tuple(border_zone_polygon[0]))}"
+        key = f"{mode}:{drone_model}:{terrain_type}:{zone_key}"
         async with self._lock:
             if key not in self._orchestrators:
                 logger.info(f"Lazily creating AERIONOrchestrator instance for key: {key}")
@@ -100,6 +104,7 @@ class RuntimeAdapter:
                     mode=mode,
                     drone_model=drone_model,
                     terrain_type=terrain_type,
+                    border_zone_polygon=border_zone_polygon,
                 )
             return self._orchestrators[key]
 

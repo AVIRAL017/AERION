@@ -192,6 +192,14 @@ class APIClient {
     });
   }
 
+  patch<T>(endpoint: string, body?: any, options?: RequestInit) {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
   delete<T>(endpoint: string, options?: RequestInit) {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }

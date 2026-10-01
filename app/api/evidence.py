@@ -30,59 +30,7 @@ logger = logging.getLogger("aerion.api.evidence")
 router = APIRouter(prefix="/evidence", tags=["Evidence Export"])
 
 
-def _ensure_web_playable_mp4(file_path: Path) -> Path:
-    """
-    Ensures that an MP4 evidence video can be played inline by HTML5 browsers.
-    Standard surveillance codecs (like mp4v / MPEG-4 Part 2) cannot be decoded by Chrome/Edge/Firefox.
-    Transcodes to H.264 (avc1) cached as {stem}_web.mp4 if needed.
-    """
-    if file_path.stem.endswith("_web"):
-        return file_path
-    web_path = file_path.parent / f"{file_path.stem}_web.mp4"
-    if web_path.exists() and web_path.stat().st_size > 0:
-        return web_path
 
-    try:
-        import cv2
-        cap = cv2.VideoCapture(str(file_path))
-        if not cap.isOpened():
-            return file_path
-
-        fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
-        codec_str = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)]).lower()
-        if codec_str in ("avc1", "h264"):
-            cap.release()
-            return file_path
-
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        if width <= 0 or height <= 0:
-            cap.release()
-            return file_path
-
-        fourcc = cv2.VideoWriter_fourcc(*"avc1")
-        writer = cv2.VideoWriter(str(web_path), fourcc, fps, (width, height))
-        if not writer.isOpened():
-            cap.release()
-            return file_path
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            writer.write(frame)
-
-        cap.release()
-        writer.release()
-
-        if web_path.exists() and web_path.stat().st_size > 0:
-            logger.info(f"Successfully transcoded {file_path.name} to H.264 ({web_path.name}) for web playback.")
-            return web_path
-    except Exception as exc:
-        logger.warning(f"Could not transcode video for web playback: {exc}")
-
-    return file_path
 
 
 @router.get(
@@ -157,7 +105,9 @@ async def download_evidence_artifact(
     elif suffix in (".mp4",):
         media_type = "video/mp4"
         if not download:
-            effective_file_path = _ensure_web_playable_mp4(file_path)
+            legacy_web_path = file_path.parent / f"{file_path.stem}_web.mp4"
+            if legacy_web_path.exists() and legacy_web_path.is_file():
+                effective_file_path = legacy_web_path
     elif suffix in (".pdf",):
         media_type = "application/pdf"
     elif suffix in (".json",):

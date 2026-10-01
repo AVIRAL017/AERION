@@ -246,46 +246,70 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
     onClose();
   };
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 font-mono">
-      <div className="w-full max-w-xl bg-panel border border-white/[0.12] rounded-xl shadow-2xl overflow-hidden flex flex-col">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 font-sans animate-in fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="w-full max-w-xl bg-white border border-slate-200 rounded-xl shadow-floating overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="h-12 px-6 flex items-center justify-between border-b border-white/[0.08] bg-elevated/40">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-accent text-[20px]">pin_drop</span>
-            <h2 className="text-sm font-semibold text-paper tracking-wider uppercase">
+        <div className="h-14 px-6 flex items-center justify-between border-b border-slate-200 bg-slate-50/80 backdrop-blur">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center text-accent">
+              <span className="material-symbols-outlined text-[20px]">pin_drop</span>
+            </div>
+            <h2 className="text-sm font-bold text-slate-800 tracking-wider uppercase font-mono">
               OPERATOR GEOGRAPHIC CONTEXT
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="text-muted hover:text-paper text-sm p-1 transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            title="Close modal (Escape)"
           >
-            ✕
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {/* Warning Banner */}
-        <div className="px-6 py-2.5 bg-status-warning/10 border-b border-status-warning/20 flex items-start gap-2.5">
-          <span className="material-symbols-outlined text-status-warning text-[18px] shrink-0 mt-0.5">
+        <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200 flex items-start gap-2.5 font-mono">
+          <span className="material-symbols-outlined text-amber-600 text-[18px] shrink-0 mt-0.5">
             warning
           </span>
-          <p className="text-[11px] text-paper/90 leading-tight">
+          <p className="text-[11px] text-amber-900 leading-tight">
             <strong>OPERATOR SENSITIVITY NOTICE:</strong> Approximate geographic context enriches weather, routing, and seismic awareness. All AI object perception (YOLO/Siamese) runs strictly standalone without location dependencies.
           </p>
         </div>
 
         {/* Modal Tabs */}
-        <div className="flex border-b border-white/[0.08] bg-[#070A0E] text-xs">
+        <div className="flex border-b border-slate-200 bg-slate-100/80 text-xs font-mono">
           <button
             type="button"
             onClick={() => setActiveTab('MANUAL')}
             className={`flex-1 py-3 px-4 text-center font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'MANUAL'
-                ? 'border-accent text-accent bg-accent/5'
-                : 'border-transparent text-muted hover:text-paper hover:bg-white/[0.02]'
+                ? 'border-accent text-accent bg-white font-bold shadow-xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
             <span className="material-symbols-outlined text-[16px]">edit_location</span>
@@ -297,8 +321,8 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
             onClick={() => setActiveTab('SEARCH')}
             className={`flex-1 py-3 px-4 text-center font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'SEARCH'
-                ? 'border-accent text-accent bg-accent/5'
-                : 'border-transparent text-muted hover:text-paper hover:bg-white/[0.02]'
+                ? 'border-accent text-accent bg-white font-bold shadow-xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
             <span className="material-symbols-outlined text-[16px]">search</span>
@@ -310,8 +334,8 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
             onClick={() => setActiveTab('MAP')}
             className={`flex-1 py-3 px-4 text-center font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'MAP'
-                ? 'border-accent text-accent bg-accent/5'
-                : 'border-transparent text-muted hover:text-paper hover:bg-white/[0.02]'
+                ? 'border-accent text-accent bg-white font-bold shadow-xs'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
           >
             <span className="material-symbols-outlined text-[16px]">map</span>
@@ -450,7 +474,7 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
               {/* Real Leaflet Map Container */}
               <div
                 ref={mapContainerRef}
-                className="relative w-full h-64 bg-[#070A0E] border border-white/[0.12] rounded-lg overflow-hidden cursor-crosshair select-none z-10"
+                className="relative w-full h-64 bg-slate-100 border border-slate-300 rounded-lg overflow-hidden cursor-crosshair select-none z-10 shadow-inner"
                 style={{ minHeight: '256px' }}
               />
 
@@ -547,11 +571,11 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="h-14 px-6 flex items-center justify-between border-t border-white/[0.08] bg-[#0B0F14]">
+        <div className="h-16 px-6 flex items-center justify-between border-t border-slate-200 bg-slate-50">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded border border-white/[0.1] text-muted hover:text-paper transition-all text-xs"
+            className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-mono hover:bg-slate-100 transition-all text-xs cursor-pointer shadow-sm active:scale-95"
           >
             CANCEL
           </button>
@@ -559,9 +583,9 @@ export const OperatorLocationModal: React.FC<OperatorLocationModalProps> = ({
           <button
             type="button"
             onClick={handleConfirm}
-            className="px-5 py-1.5 rounded bg-accent text-graphite font-bold tracking-wider hover:bg-accent/90 transition-all flex items-center gap-2 text-xs"
+            className="px-5 py-2 rounded-lg bg-accent text-white font-mono font-bold tracking-wider hover:bg-accent-hover transition-all flex items-center gap-2 text-xs shadow-sm cursor-pointer active:scale-95"
           >
-            <span className="material-symbols-outlined text-[16px]">check_circle</span>
+            <span className="material-symbols-outlined text-[18px]">check_circle</span>
             <span>CONFIRM APPROXIMATE LOCATION</span>
           </button>
         </div>

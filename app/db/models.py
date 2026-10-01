@@ -68,6 +68,8 @@ class User(Base):
     auth_provider: Mapped[str] = mapped_column(String(50), default="local", nullable=False)  # 'local', 'google'
     provider_sub: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True, index=True)
     display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    preferences: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     role: Mapped[str] = mapped_column(String(50), default="operator", nullable=False)  # 'admin', 'operator', 'analyst'
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

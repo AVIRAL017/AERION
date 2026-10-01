@@ -123,12 +123,14 @@ class RuntimeManager:
         frame: Any,
         frame_number: int = 0,
         terrain_context: Optional[str] = "arid",
+        border_zone_polygon: Optional[List[Tuple[float, float]]] = None,
     ) -> Any:
         """Executes border surveillance frame inference with ByteTrack."""
         orch = await self.adapter.get_orchestrator(
             mode="border",
             drone_model="visdrone_only",
             terrain_type=terrain_context,
+            border_zone_polygon=border_zone_polygon,
         )
 
         async with self.inference_lock.acquire(

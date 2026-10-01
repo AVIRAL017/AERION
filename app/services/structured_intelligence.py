@@ -214,20 +214,29 @@ class MistralAdvisoryClient:
         protocol: str,
     ) -> str:
         return f"""
-Operational Mode: {mode}
-Verified Evidence Context:
+OPERATIONAL MISSION MODE: {mode}
+
+[STRUCTURED GROUNDED EVIDENCE]
 {json.dumps(context, default=str, indent=2)}
 
-Standard Operating Protocol:
+STANDARD OPERATING PROTOCOL:
 {protocol}
 
-Instructions:
-1. Write a concise, plain-language advisory for the mission commander in 4-5 sentences.
-2. State ONLY verified facts from the context.
-3. Reference the standard operating protocol.
-4. STRICT INVARIANT: DO NOT invent coordinates, casualties, property damage, or infiltration events.
-5. If weather, routing, or shelters are unavailable, explicitly note the missing data.
-6. Use 'Potential Unauthorized Crossing Indicator' for border indicators, never 'confirmed infiltration'.
+STRICT INVARIANT: DO NOT invent coordinates, casualty counts, damaged infrastructure, or threat indicators not present in evidence.
+State ONLY verified facts supported by the structured evidence above.
+For crossing events, use terms like 'Potential Unauthorized Crossing Indicator' and never 'confirmed infiltration'.
+
+STRICT ADVISORY INSTRUCTIONS:
+1. Write a structured, executive-grade advisory distinguishing:
+   - [OBSERVED FACTS]: Grounded in perception detections, track IDs, and verified timestamps. State ONLY verified facts.
+   - [DERIVED ASSESSMENTS]: Grounded in computed metrics, zone states, and threat transitions. Use 'Potential Unauthorized Crossing Indicator' and never 'confirmed infiltration'.
+   - [PREDICTED / TREND]: Observed movement trends (RISING / FALLING / STABLE) and directional trajectories. NEVER invent future threat probabilities.
+   - [UNAVAILABLE DATA & LIMITATIONS]: Explicitly acknowledge unconfigured zones, unacquired borders, or unverified weather/routing.
+2. STRICT ZERO-FABRICATION INVARIANT:
+   - STRICT INVARIANT: DO NOT invent coordinates, casualties, property damage, routes, weather, shelters, or infiltration events.
+   - If a Demo Zone is not configured, state that border threat relative to zone is UNAVAILABLE.
+   - Do NOT convert uncertainty into certainty.
+3. Keep the synthesis authoritative, concise, and strictly bounded to verified evidence.
 """
 
     def _build_grounded_prompt(
@@ -273,27 +282,42 @@ Instructions:
             det_count = evidence_package.get("detection_count", 0)
             crossing_count = evidence_package.get("crossing_indicators_count", 0)
             if det_count > 0:
-                findings.append(f"{det_count} verified object detections recorded by frozen detector.")
+                findings.append(f"[OBSERVED] {det_count} verified object detection(s) recorded by frozen detector.")
             if crossing_count > 0:
-                findings.append(f"{crossing_count} Potential Unauthorized Crossing Indicator(s) evaluated.")
+                findings.append(f"[DERIVED] {crossing_count} Potential Unauthorized Crossing Indicator(s) evaluated.")
             else:
-                findings.append("Zero Potential Unauthorized Crossing Indicators triggered.")
+                findings.append("[DERIVED] Zero Potential Unauthorized Crossing Indicators triggered.")
+
+            # Demo zone activity
+            zone_act = evidence_package.get("demo_zone_activity")
+            if isinstance(zone_act, dict) and zone_act.get("zone_configured"):
+                findings.append(
+                    f"[DERIVED] Demo Zone ({zone_act.get('sector_name')}): {zone_act.get('total_entries', 0)} entries, {zone_act.get('total_exits', 0)} exits recorded."
+                )
+            else:
+                findings.append("[UNAVAILABLE] Demo Zone: BORDER CONTEXT NOT SET. Spatial geofencing is unconfigured.")
+
+            # Threat level changes
+            changes = evidence_package.get("threat_level_changes")
+            if isinstance(changes, list) and len(changes) > 0:
+                findings.append(f"[PREDICTED/TREND] {len(changes)} dynamic threat level transition(s) tracked across timeline.")
+
             border_status = evidence_package.get("authoritative_border_status")
             if border_status:
-                findings.append(f"Authoritative boundary status: {border_status}.")
+                findings.append(f"[UNAVAILABLE] Authoritative boundary status: {border_status}.")
         else:
             damage_evals = evidence_package.get("damage_evaluations_count", 0)
             damage_ratio = evidence_package.get("mean_damage_ratio", 0.0)
             if damage_evals > 0:
                 findings.append(
-                    f"Structural damage assessment: mean damage ratio {damage_ratio:.2f} across {damage_evals} evaluation(s)."
+                    f"[DERIVED] Structural damage assessment: mean damage ratio {damage_ratio:.2f} across {damage_evals} evaluation(s)."
                 )
             hazards_count = evidence_package.get("historical_hazards_count", 0)
             if hazards_count > 0:
-                findings.append(f"{hazards_count} historical hazard record(s) within operational radius.")
+                findings.append(f"[OBSERVED] {hazards_count} historical hazard record(s) within operational radius.")
             shelters_count = evidence_package.get("shelters_count", 0)
             if shelters_count > 0:
-                findings.append(f"{shelters_count} registered emergency shelter(s) referenced.")
+                findings.append(f"[OBSERVED] {shelters_count} registered emergency shelter(s) referenced.")
         return findings
 
     async def generate_advisory(

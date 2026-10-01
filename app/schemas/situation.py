@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from enum import Enum
@@ -308,4 +308,12 @@ class SituationReportResponse(BaseModel):
     annotated_image_base64: Optional[str] = None
     annotated_artifact: Optional[Dict[str, Any]] = None
     annotated_video_artifact: Optional[Dict[str, Any]] = None
+    threat_timeline: Optional[List[Dict[str, Any]]] = None
+    vehicle_summary: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
+    demo_zone_activity: Optional[Dict[str, Any]] = None
+    threat_level_changes: Optional[List[Dict[str, Any]]] = None
+    evidence_frames: Optional[List[Dict[str, Any]]] = None
+    spatial_context: Optional[Dict[str, Any]] = None
+    routing_summary: Optional[Dict[str, Any]] = None
+    shelter_summary: Optional[Dict[str, Any]] = None
 

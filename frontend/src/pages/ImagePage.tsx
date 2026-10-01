@@ -17,8 +17,9 @@ export const ImagePage: React.FC = () => {
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // BUG E & G: Presentation Controls
+  // Presentation Controls
   const [densityMode, setDensityMode] = useState<'normal' | 'dense'>('normal');
   const [showBoxes, setShowBoxes] = useState<boolean>(true);
   const [showLabels, setShowLabels] = useState<boolean>(true);
@@ -26,6 +27,7 @@ export const ImagePage: React.FC = () => {
   const [showConfidence, setShowConfidence] = useState<boolean>(true);
   const [zoomScale, setZoomScale] = useState<number>(1.0);
   const [selectedDet, setSelectedDet] = useState<any | null>(null);
+  const [mobileTab, setMobileTab] = useState<'canvas' | 'intelligence'>('canvas');
 
   // Restore analysis if analysis_id query parameter is present
   useEffect(() => {
@@ -34,14 +36,18 @@ export const ImagePage: React.FC = () => {
 
     const restoreAnalysis = async () => {
       setIsLoading(true);
+      setErrorMessage(null);
       try {
         const resp = await analysisApi.getById(analysisIdParam);
         if (resp.success && resp.data) {
           setActiveResult(resp.data);
           setViewMode('annotated');
+        } else {
+          setErrorMessage('Unable to load requested image analysis.');
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn(`Could not restore image analysis ${analysisIdParam}:`, err);
+        setErrorMessage(err.message || 'Error loading analysis.');
       } finally {
         setIsLoading(false);
       }
@@ -103,74 +109,116 @@ export const ImagePage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-graphite">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas text-content">
       {/* Top Telemetry Header */}
-      <header className="min-h-[48px] border-b border-white/[0.06] bg-panel flex items-center justify-between px-4 sm:px-6 py-1.5 flex-shrink-0 z-10 gap-3 overflow-x-auto custom-scrollbar">
+      <header className="min-h-[52px] border-b border-border bg-surface flex items-center justify-between px-4 sm:px-6 py-2 flex-shrink-0 z-10 gap-3 overflow-x-auto shadow-sm">
         <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-accent text-lg">image_search</span>
-            <span className="font-mono text-xs font-bold text-paper uppercase tracking-wider">
-              AERION // STANDALONE IMAGE PERCEPTION
-            </span>
+            <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center text-accent">
+              <span className="material-symbols-outlined text-lg">image_search</span>
+            </div>
+            <div>
+              <span className="font-mono text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                AERION // STANDALONE IMAGE PERCEPTION
+              </span>
+              <span className="text-[10px] font-mono text-slate-500 block">
+                FROZEN MODEL RUNTIME &bull; ZERO FABRICATION
+              </span>
+            </div>
           </div>
-          <span className="px-2 py-0.5 rounded bg-elevated border border-white/[0.08] text-[10px] font-mono text-muted">
-            ZERO-DEPENDENCY PERCEPTION PIPELINE
-          </span>
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
           {activeResult && (
             <Link
               to={`/situations/00000000-0000-0000-0000-000000000001/report?analysis_id=${encodeURIComponent(activeResult.analysis_id)}`}
-              className="px-2.5 py-1 rounded bg-elevated border border-white/[0.08] text-muted hover:text-accent hover:border-accent/40 text-[10px] font-mono flex items-center gap-1 transition-all"
+              className="h-8 px-3 rounded-lg bg-white border border-border text-slate-700 hover:text-accent hover:border-accent text-xs font-mono font-medium flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
               title="View deterministic operational situation report"
             >
-              <span className="material-symbols-outlined text-[13px]">description</span>
+              <span className="material-symbols-outlined text-[15px]">description</span>
               <span>OPERATIONAL REPORT</span>
             </Link>
           )}
 
           <button
             onClick={() => setIsHistoryOpen(true)}
-            className="px-2.5 py-1 rounded bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40 text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer"
+            className="h-8 px-3 rounded-lg bg-white border border-border text-slate-700 hover:text-accent hover:border-accent text-xs font-mono font-medium flex items-center gap-1.5 transition-all shadow-sm cursor-pointer active:scale-95"
             title="View past analysis history"
           >
-            <span className="material-symbols-outlined text-[13px]">history</span>
+            <span className="material-symbols-outlined text-[15px]">history</span>
             <span>HISTORY</span>
           </button>
 
           <button
             onClick={() => { setUploadSourceType('drone_image'); setIsUploadOpen(true); }}
-            className="px-3 py-1 rounded bg-accent text-graphite font-bold text-[10px] font-mono hover:bg-accent/90 transition-all flex items-center gap-1.5 cursor-pointer shadow"
+            className="h-8 px-3.5 rounded-lg bg-accent text-white font-mono font-bold text-xs hover:bg-accent-hover transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[14px]">flight</span>
+            <span className="material-symbols-outlined text-[16px]">flight</span>
             <span>INGEST DRONE IMAGE</span>
           </button>
 
           <button
             onClick={() => { setUploadSourceType('satellite_image'); setIsUploadOpen(true); }}
-            className="px-3 py-1 rounded bg-elevated border border-white/[0.1] text-paper hover:border-accent hover:text-accent font-mono text-[10px] transition-all flex items-center gap-1.5 cursor-pointer"
+            className="h-8 px-3.5 rounded-lg bg-white border border-slate-300 text-slate-700 hover:border-accent hover:text-accent font-mono font-medium text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[14px]">satellite_alt</span>
+            <span className="material-symbols-outlined text-[16px]">satellite_alt</span>
             <span>INGEST SATELLITE IMAGE</span>
           </button>
         </div>
       </header>
 
+      {/* Mobile / Tablet Responsive Tab Switcher (<lg) */}
+      <div className="lg:hidden flex items-center justify-between border-b border-border bg-surface px-4 py-2 shrink-0 z-20 shadow-sm">
+        <div className="flex rounded-lg bg-slate-100 p-0.5 border border-slate-200">
+          <button
+            onClick={() => setMobileTab('canvas')}
+            className={`px-3 py-1.5 rounded-md text-xs font-mono font-medium transition-all ${
+              mobileTab === 'canvas' ? 'bg-white text-accent font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            IMAGE CANVAS
+          </button>
+          <button
+            onClick={() => setMobileTab('intelligence')}
+            className={`px-3 py-1.5 rounded-md text-xs font-mono font-medium transition-all ${
+              mobileTab === 'intelligence' ? 'bg-white text-accent font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            PERCEPTION INTELLIGENCE ({detections.length})
+          </button>
+        </div>
+      </div>
+
+      {/* Error Alert Banner */}
+      {errorMessage && (
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2.5 flex items-center justify-between text-xs font-mono text-rose-800">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px] text-rose-600">error</span>
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-rose-600 hover:text-rose-900 font-bold underline"
+          >
+            DISMISS
+          </button>
+        </div>
+      )}
+
       {/* Main Workspace Layout */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Left / Center: Image Canvas & Viewport */}
-        <div className="flex-1 flex flex-col bg-[#07090C] overflow-hidden relative">
-          {/* Canvas Subheader */}
-          <div className="h-10 border-b border-white/[0.06] bg-graphite/60 flex items-center justify-between px-4 flex-shrink-0">
-            <div className="flex items-center gap-3 font-mono text-[11px]">
-              <span className="text-muted">SOURCE:</span>
-              <span className="text-paper uppercase">{activeResult?.source_type || 'AERIAL IMAGE'}</span>
+        <div className={`${mobileTab === 'canvas' ? 'flex' : 'hidden lg:flex'} flex-1 flex-col bg-slate-100 overflow-hidden relative spatial-grid`}>
+          {/* Canvas Subheader Controls */}
+          <div className="h-auto min-h-[44px] py-1.5 border-b border-slate-200/80 bg-white/90 backdrop-blur flex flex-wrap items-center justify-between px-4 gap-2 flex-shrink-0 shadow-sm z-10">
+            <div className="flex items-center gap-3 font-mono text-xs">
+              <span className="text-slate-500 font-semibold">SOURCE:</span>
+              <span className="text-slate-800 font-bold uppercase">{activeResult?.source_type || 'AERIAL IMAGE'}</span>
               {activeResult?.analysis_id && (
                 <>
-                  <span className="text-faint">|</span>
-                  <span className="text-muted">ID:</span>
-                  <span className="text-accent">{activeResult.analysis_id.substring(0, 8)}...</span>
+                  <span className="text-slate-300">|</span>
+                  <span className="text-slate-500">ID:</span>
+                  <span className="text-accent font-semibold">{activeResult.analysis_id.substring(0, 8)}...</span>
                 </>
               )}
             </div>
@@ -178,11 +226,11 @@ export const ImagePage: React.FC = () => {
             {activeResult && (
               <div className="flex items-center gap-2">
                 {/* Density Mode Switcher */}
-                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                <div className="flex items-center rounded-lg bg-slate-100 border border-slate-200 p-0.5">
                   <button
                     onClick={() => setDensityMode('normal')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
-                      densityMode === 'normal' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
+                      densityMode === 'normal' ? 'bg-white text-accent font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'
                     }`}
                     title="Normal presentation: bounding boxes with labels"
                   >
@@ -190,8 +238,8 @@ export const ImagePage: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setDensityMode('dense')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
-                      densityMode === 'dense' ? 'bg-status-warning text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
+                      densityMode === 'dense' ? 'bg-white text-amber-600 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'
                     }`}
                     title="Dense scene mode: clean boxes to avoid overlapping clutter"
                   >
@@ -200,35 +248,35 @@ export const ImagePage: React.FC = () => {
                 </div>
 
                 {/* Layer Toggles */}
-                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5 gap-0.5">
+                <div className="flex items-center rounded-lg bg-slate-100 border border-slate-200 p-0.5 gap-0.5">
                   <button
                     onClick={() => setShowBoxes(!showBoxes)}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
-                      showBoxes ? 'text-accent font-bold' : 'text-faint'
+                    className={`px-2 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
+                      showBoxes ? 'bg-white text-accent font-bold shadow-sm' : 'text-slate-400 hover:text-slate-700'
                     }`}
                   >
                     BOXES: {showBoxes ? 'ON' : 'OFF'}
                   </button>
                   <button
                     onClick={() => setShowLabels(!showLabels)}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
-                      showLabels ? 'text-accent font-bold' : 'text-faint'
+                    className={`px-2 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
+                      showLabels ? 'bg-white text-accent font-bold shadow-sm' : 'text-slate-400 hover:text-slate-700'
                     }`}
                   >
                     LABELS: {showLabels ? 'ON' : 'OFF'}
                   </button>
                   <button
                     onClick={() => setShowConfidence(!showConfidence)}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
-                      showConfidence ? 'text-accent font-bold' : 'text-faint'
+                    className={`px-2 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
+                      showConfidence ? 'bg-white text-accent font-bold shadow-sm' : 'text-slate-400 hover:text-slate-700'
                     }`}
                   >
                     CONF: {showConfidence ? 'ON' : 'OFF'}
                   </button>
                   <button
                     onClick={() => setShowDetectionIds(!showDetectionIds)}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all cursor-pointer ${
-                      showDetectionIds ? 'text-accent font-bold' : 'text-faint'
+                    className={`px-2 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
+                      showDetectionIds ? 'bg-white text-accent font-bold shadow-sm' : 'text-slate-400 hover:text-slate-700'
                     }`}
                   >
                     IDS: {showDetectionIds ? 'ON' : 'OFF'}
@@ -236,25 +284,25 @@ export const ImagePage: React.FC = () => {
                 </div>
 
                 {/* Zoom Controls */}
-                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                <div className="flex items-center rounded-lg bg-slate-100 border border-slate-200 p-0.5">
                   <button
                     onClick={() => setZoomScale((z) => Math.max(0.5, z - 0.25))}
-                    className="px-1.5 py-0.5 text-[11px] font-mono text-muted hover:text-paper cursor-pointer"
+                    className="w-6 h-6 flex items-center justify-center text-xs font-mono text-slate-600 hover:text-slate-900 cursor-pointer"
                     title="Zoom Out"
                   >
                     -
                   </button>
-                  <span className="px-1 text-[9px] font-mono text-muted">{Math.round(zoomScale * 100)}%</span>
+                  <span className="px-1 text-[10px] font-mono text-slate-700 font-semibold">{Math.round(zoomScale * 100)}%</span>
                   <button
                     onClick={() => setZoomScale((z) => Math.min(3.0, z + 0.25))}
-                    className="px-1.5 py-0.5 text-[11px] font-mono text-muted hover:text-paper cursor-pointer"
+                    className="w-6 h-6 flex items-center justify-center text-xs font-mono text-slate-600 hover:text-slate-900 cursor-pointer"
                     title="Zoom In"
                   >
                     +
                   </button>
                   <button
                     onClick={() => setZoomScale(1.0)}
-                    className="px-1 text-[9px] font-mono text-accent hover:underline cursor-pointer"
+                    className="px-2 text-[10px] font-mono text-accent hover:underline cursor-pointer font-bold"
                     title="Reset Zoom"
                   >
                     RESET
@@ -262,74 +310,64 @@ export const ImagePage: React.FC = () => {
                 </div>
 
                 {/* View Mode Switcher */}
-                <div className="flex items-center rounded bg-elevated/70 border border-white/[0.1] p-0.5">
+                <div className="flex items-center rounded-lg bg-slate-100 border border-slate-200 p-0.5">
                   <button
                     onClick={() => setViewMode('annotated')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
                       viewMode === 'annotated'
-                        ? 'bg-accent text-graphite font-bold shadow'
-                        : 'text-muted hover:text-paper'
+                        ? 'bg-white text-accent font-bold shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     ANNOTATED
                   </button>
                   <button
                     onClick={() => setViewMode('raw')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono transition-all cursor-pointer ${
                       viewMode === 'raw'
-                        ? 'bg-accent text-graphite font-bold shadow'
-                        : 'text-muted hover:text-paper'
+                        ? 'bg-white text-accent font-bold shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     RAW
                   </button>
                 </div>
 
-                {/* PRIMARY: Download Annotated Image */}
-                {activeResult.annotated_artifact ? (
+                {/* Download Actions */}
+                {activeResult.annotated_artifact && (
                   <button
                     onClick={handleDownloadAnnotated}
                     disabled={isDownloading}
-                    className="px-2.5 py-1 rounded bg-accent text-graphite hover:bg-accent/90 text-[10px] font-mono font-bold flex items-center gap-1.5 shadow transition-all cursor-pointer disabled:opacity-50"
-                    title="Download high-resolution annotated image with verified model detections"
+                    className="h-7 px-2.5 rounded-lg bg-accent text-white hover:bg-accent-hover text-[10px] font-mono font-bold flex items-center gap-1 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                    title="Download high-resolution annotated image"
                   >
-                    <span className="material-symbols-outlined text-[13px]">download</span>
-                    <span>{isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD ANNOTATED IMAGE'}</span>
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    className="px-2.5 py-1 rounded bg-elevated/40 border border-white/[0.06] text-muted/60 text-[10px] font-mono font-medium flex items-center gap-1.5 cursor-not-allowed opacity-60"
-                    title="Annotated visual artifact is unavailable for this analysis"
-                  >
-                    <span className="material-symbols-outlined text-[13px]">block</span>
-                    <span>ANNOTATED ARTIFACT UNAVAILABLE</span>
+                    <span className="material-symbols-outlined text-[14px]">download</span>
+                    <span>{isDownloading ? 'DOWNLOADING...' : 'DOWNLOAD ANNOTATED'}</span>
                   </button>
                 )}
 
-                {/* SECONDARY: Download Original Image */}
                 <button
                   onClick={handleDownloadOriginal}
                   disabled={isDownloading || (!rawImageUrl && !activeResult.source_artifact?.artifact_key)}
-                  className="px-2.5 py-1 rounded bg-elevated border border-white/[0.1] text-paper hover:text-accent hover:border-accent text-[10px] font-mono flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="h-7 px-2.5 rounded-lg bg-white border border-slate-300 text-slate-700 hover:text-accent hover:border-accent text-[10px] font-mono font-medium flex items-center gap-1 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
                   title="Download unmodified original source image"
                 >
-                  <span className="material-symbols-outlined text-[13px]">photo</span>
-                  <span>DOWNLOAD ORIGINAL IMAGE</span>
+                  <span className="material-symbols-outlined text-[14px]">photo</span>
+                  <span>DOWNLOAD ORIGINAL</span>
                 </button>
               </div>
             )}
           </div>
 
           {/* Canvas Area */}
-          <div className="flex-1 relative flex items-center justify-center p-4 overflow-hidden telemetry-grid">
+          <div className="flex-1 relative flex items-center justify-center p-4 overflow-hidden">
             {isLoading ? (
-              <div className="flex flex-col items-center justify-center font-mono text-xs text-muted">
+              <div className="flex flex-col items-center justify-center font-mono text-xs text-slate-500">
                 <span className="material-symbols-outlined text-accent animate-spin text-3xl mb-2">progress_activity</span>
                 <span>LOADING ANALYSIS RESULT...</span>
               </div>
             ) : activeResult ? (
-              <div className="relative max-w-full max-h-full flex items-center justify-center border border-white/[0.08] rounded shadow-2xl overflow-hidden bg-black">
+              <div className="relative max-w-full max-h-full flex items-center justify-center border border-slate-300/80 rounded-xl shadow-card-hover overflow-hidden bg-slate-900 card-3d">
                 <div
                   className="transition-transform duration-150 ease-out flex items-center justify-center max-w-full max-h-full"
                   style={{ transform: `scale(${zoomScale})` }}
@@ -381,9 +419,9 @@ export const ImagePage: React.FC = () => {
                                   y={by}
                                   width={bw}
                                   height={bh}
-                                  fill={isSelected ? 'rgba(56, 213, 245, 0.25)' : 'none'}
-                                  stroke="#38D5F5"
-                                  strokeWidth={Math.max(1.5, (activeResult.image_width || 1000) / 600)}
+                                  fill={isSelected ? 'rgba(2, 132, 199, 0.25)' : 'none'}
+                                  stroke={isSelected ? '#0284C7' : '#38BDF8'}
+                                  strokeWidth={Math.max(1.8, (activeResult.image_width || 1000) / 550)}
                                 />
                                 {showLabels && (densityMode === 'normal' || isSelected || bw >= 45) && (
                                   <>
@@ -392,15 +430,15 @@ export const ImagePage: React.FC = () => {
                                       y={badgeY}
                                       width={badgeW}
                                       height={16}
-                                      fill={isSelected ? '#38D5F5' : 'rgba(7, 9, 12, 0.85)'}
-                                      stroke="#38D5F5"
+                                      fill={isSelected ? '#0284C7' : 'rgba(15, 23, 42, 0.88)'}
+                                      stroke={isSelected ? '#0284C7' : '#38BDF8'}
                                       strokeWidth={1}
-                                      rx={2}
+                                      rx={3}
                                     />
                                     <text
                                       x={bx + 3}
                                       y={textY}
-                                      fill={isSelected ? '#07090C' : '#38D5F5'}
+                                      fill={isSelected ? '#FFFFFF' : '#38BDF8'}
                                       fontSize={Math.max(9, (activeResult.image_width || 1000) / 105)}
                                       fontFamily="monospace"
                                       fontWeight="bold"
@@ -419,39 +457,39 @@ export const ImagePage: React.FC = () => {
                 </div>
 
                 {/* Overlays / Labels */}
-                <div className="absolute top-2 left-2 flex items-center gap-1.5 pointer-events-none">
-                  <span className="px-2 py-0.5 rounded bg-graphite/90 border border-white/[0.15] text-[9px] font-mono text-paper">
+                <div className="absolute top-3 left-3 flex items-center gap-2 pointer-events-none">
+                  <span className="px-2.5 py-1 rounded-md bg-white/90 backdrop-blur border border-slate-200 text-[10px] font-mono font-bold text-slate-800 shadow-sm">
                     {viewMode === 'annotated' ? 'AUTHORITATIVE ANNOTATED ARTIFACT' : 'RAW AERIAL INPUT'}
                   </span>
-                  <span className="px-2 py-0.5 rounded bg-graphite/90 border border-accent/40 text-[9px] font-mono text-accent">
+                  <span className="px-2.5 py-1 rounded-md bg-sky-500 text-white text-[10px] font-mono font-bold shadow-sm">
                     COUNT: {detections.length}
                   </span>
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center p-8 text-center max-w-md">
-                <div className="w-14 h-14 rounded-full bg-elevated/70 border border-white/[0.08] flex items-center justify-center text-muted mb-4">
-                  <span className="material-symbols-outlined text-[28px]">image</span>
+              <div className="flex flex-col items-center justify-center p-8 text-center max-w-md card-3d-interactive bg-white border border-border rounded-2xl shadow-card">
+                <div className="w-16 h-16 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-accent mb-4 shadow-sm">
+                  <span className="material-symbols-outlined text-[32px]">image</span>
                 </div>
-                <h3 className="text-sm font-semibold font-mono text-paper mb-1">
+                <h3 className="text-base font-bold font-mono text-slate-800 mb-1.5">
                   NO ACTIVE IMAGE LOADED
                 </h3>
-                <p className="text-xs text-muted leading-relaxed mb-6 font-mono">
+                <p className="text-xs text-slate-500 leading-relaxed mb-6 font-mono">
                   Ingest an aerial drone or satellite image to run deterministic object perception inference without requiring external geocontext or location services.
                 </p>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
                   <button
                     onClick={() => { setUploadSourceType('drone_image'); setIsUploadOpen(true); }}
-                    className="px-4 py-2 rounded bg-accent text-graphite font-mono font-bold text-xs hover:bg-accent/90 transition-all flex items-center gap-1.5 shadow cursor-pointer"
+                    className="w-full sm:w-auto flex-1 h-10 px-4 rounded-lg bg-accent text-white font-mono font-bold text-xs hover:bg-accent-hover transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-95"
                   >
-                    <span className="material-symbols-outlined text-[16px]">flight</span>
+                    <span className="material-symbols-outlined text-[18px]">flight</span>
                     <span>INGEST DRONE IMAGE</span>
                   </button>
                   <button
                     onClick={() => { setUploadSourceType('satellite_image'); setIsUploadOpen(true); }}
-                    className="px-4 py-2 rounded bg-elevated border border-white/[0.1] text-paper font-mono text-xs hover:border-accent hover:text-accent transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="w-full sm:w-auto flex-1 h-10 px-4 rounded-lg bg-white border border-slate-300 text-slate-700 font-mono font-medium text-xs hover:border-accent hover:text-accent transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95"
                   >
-                    <span className="material-symbols-outlined text-[16px]">satellite_alt</span>
+                    <span className="material-symbols-outlined text-[18px]">satellite_alt</span>
                     <span>INGEST SATELLITE IMAGE</span>
                   </button>
                 </div>
@@ -461,47 +499,47 @@ export const ImagePage: React.FC = () => {
         </div>
 
         {/* Right Sidebar: Perception Intelligence Panel */}
-        <aside className="w-80 flex-shrink-0 bg-panel border-l border-white/[0.06] flex flex-col overflow-y-auto custom-scrollbar">
-          <div className="p-4 border-b border-white/[0.06]">
-            <h2 className="text-xs font-mono font-medium tracking-wider text-muted uppercase mb-2">
+        <aside className={`${mobileTab === 'intelligence' ? 'flex' : 'hidden lg:flex'} w-full lg:w-80 flex-shrink-0 bg-surface border-l border-border flex-col overflow-y-auto custom-scrollbar shadow-sm`}>
+          <div className="p-5 border-b border-border bg-slate-50/50">
+            <h2 className="text-xs font-mono font-bold tracking-wider text-slate-500 uppercase mb-2">
               PERCEPTION SUMMARY
             </h2>
             <div className="flex items-baseline justify-between">
               <span className="text-3xl font-mono font-bold text-accent">
                 {detections.length}
               </span>
-              <span className="text-xs font-mono text-muted uppercase">
+              <span className="text-xs font-mono text-slate-500 uppercase font-semibold">
                 TOTAL DETECTIONS
               </span>
             </div>
-            <p className="text-[11px] font-mono text-faint mt-1">
+            <p className="text-[10px] font-mono text-slate-400 mt-1">
               FROZEN YOLOV8 PERCEPTION RUNTIME (CONFIDENCE &ge; 0.25)
             </p>
           </div>
 
           {/* Detections by Category */}
-          <div className="p-4 border-b border-white/[0.06] space-y-3">
-            <h3 className="text-[10px] font-mono text-muted uppercase tracking-wider">
+          <div className="p-5 border-b border-border space-y-3">
+            <h3 className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-bold">
               DETECTIONS BY CATEGORY
             </h3>
 
             {Object.keys(classCounts).length > 0 ? (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {Object.entries(classCounts).map(([cls, count]) => (
                   <div
                     key={cls}
-                    className="flex items-center justify-between p-2 rounded bg-graphite/40 border border-white/[0.04] text-xs font-mono"
+                    className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono"
                   >
-                    <span className="text-paper capitalize">{cls}</span>
-                    <span className="px-2 py-0.5 rounded bg-accent/15 border border-accent/30 text-accent font-bold">
+                    <span className="text-slate-800 font-medium capitalize">{cls}</span>
+                    <span className="px-2.5 py-0.5 rounded-md bg-sky-100 text-accent font-bold">
                       {count}
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="p-3 bg-graphite/40 border border-white/[0.04] rounded text-center">
-                <span className="text-[11px] font-mono text-faint">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-center">
+                <span className="text-xs font-mono text-slate-400">
                   {activeResult ? 'NO DETECTIONS FOUND (COUNT = 0)' : 'AWAITING IMAGE INGEST'}
                 </span>
               </div>
@@ -509,9 +547,9 @@ export const ImagePage: React.FC = () => {
           </div>
 
           {/* Detections List */}
-          <div className="p-4 flex-1 flex flex-col space-y-3 overflow-y-auto custom-scrollbar">
+          <div className="p-5 flex-1 flex flex-col space-y-3 overflow-y-auto custom-scrollbar">
             <div className="flex items-center justify-between">
-              <h3 className="text-[10px] font-mono text-muted uppercase tracking-wider">
+              <h3 className="text-[10px] font-mono text-slate-500 uppercase tracking-wider font-bold">
                 CONFIRMED DETECTIONS ({detections.length})
               </h3>
             </div>
@@ -521,32 +559,32 @@ export const ImagePage: React.FC = () => {
                 {detections.map((d, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded bg-graphite/30 border border-white/[0.04] text-[11px] font-mono flex items-center justify-between"
+                    className="p-2.5 rounded-lg bg-white border border-slate-200 hover:border-accent text-xs font-mono flex items-center justify-between transition-colors shadow-2xs"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-faint text-[9px]">#{idx + 1}</span>
-                      <span className="text-paper font-semibold capitalize">{d.class_name}</span>
+                      <span className="text-slate-400 text-[10px]">#{idx + 1}</span>
+                      <span className="text-slate-800 font-semibold capitalize">{d.class_name}</span>
                     </div>
-                    <span className="text-accent text-[10px]">
+                    <span className="text-accent font-bold text-[11px]">
                       {(d.confidence * 100).toFixed(1)}%
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-6 font-mono text-xs text-faint">
+              <div className="text-center py-8 font-mono text-xs text-slate-400">
                 {activeResult ? 'ZERO DETECTIONS RECORDED' : 'NO DATA AVAILABLE'}
               </div>
             )}
           </div>
 
           {/* Footer Note */}
-          <div className="p-4 border-t border-white/[0.06] bg-graphite/30">
-            <div className="flex items-center gap-1.5 text-accent text-[10px] font-mono mb-1">
-              <span className="material-symbols-outlined text-[13px]">verified</span>
+          <div className="p-4 border-t border-border bg-slate-50">
+            <div className="flex items-center gap-1.5 text-accent text-[11px] font-mono font-bold mb-1">
+              <span className="material-symbols-outlined text-[16px]">verified</span>
               <span>AUDIT-GRADE TRACEABILITY</span>
             </div>
-            <p className="text-[10px] text-faint leading-relaxed font-mono">
+            <p className="text-[10px] text-slate-500 leading-relaxed font-mono">
               Inference runs strictly on frozen perception models. No hallucinations, no heuristic fallbacks.
             </p>
           </div>
@@ -558,8 +596,10 @@ export const ImagePage: React.FC = () => {
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         defaultMode={uploadSourceType}
+        onError={(err) => setErrorMessage(err)}
         onAnalysisSuccess={(res, meta) => {
           setActiveResult(res);
+          setErrorMessage(null);
           if (meta?.imageUrl) setRawImageUrl(meta.imageUrl);
           setViewMode('annotated');
           if (res.analysis_id) {

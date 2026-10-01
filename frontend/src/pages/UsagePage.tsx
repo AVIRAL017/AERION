@@ -54,28 +54,31 @@ export const UsagePage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full w-full overflow-y-auto custom-scrollbar bg-graphite p-8">
-      <div className="max-w-4xl mx-auto w-full space-y-6">
+    <div className="flex-1 flex flex-col h-full w-full overflow-y-auto custom-scrollbar bg-slate-50 p-6 sm:p-8">
+      <div className="max-w-5xl mx-auto w-full space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-5 gap-4">
           <div>
-            <h1 className="text-base font-semibold text-white tracking-wide uppercase font-sans">
-              RESOURCE USAGE & QUOTAS
-            </h1>
-            <p className="text-xs text-muted font-mono">
-              AUDITABLE METERED CONSUMPTION TELEMETRY
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-accent text-[22px]">data_usage</span>
+              <h1 className="text-lg font-bold text-slate-900 tracking-wide uppercase font-sans">
+                RESOURCE USAGE & QUOTAS
+              </h1>
+            </div>
+            <p className="text-xs text-slate-500 font-mono mt-0.5">
+              AUDITABLE METERED CONSUMPTION TELEMETRY & EDGE WORKLOAD ALLOCATION
             </p>
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="px-2.5 py-1 rounded bg-accent/10 border border-accent/20 text-accent font-mono text-xs uppercase">
+            <span className="px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-700 font-mono text-xs font-semibold uppercase shadow-2xs">
               TIER: {usage?.tier || 'FREE'}
             </span>
             {usage?.tier !== 'PRO' && (
               <button
                 onClick={handleUpgrade}
                 disabled={upgrading}
-                className="px-3 py-1 bg-accent/20 hover:bg-accent/30 border border-accent/40 rounded text-accent font-mono text-xs transition-colors"
+                className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg font-mono text-xs uppercase font-semibold transition-all shadow-sm"
               >
                 {upgrading ? 'Processing...' : 'Upgrade to PRO (₹9/mo)'}
               </button>
@@ -84,89 +87,106 @@ export const UsagePage: React.FC = () => {
         </div>
 
         {message && (
-          <div className="p-3 bg-panel border border-accent/30 rounded text-accent text-xs font-mono">
+          <div className="p-3.5 bg-sky-50 border border-sky-200 rounded-xl text-sky-800 text-xs font-mono shadow-2xs">
             {message}
           </div>
         )}
 
         {/* Metering Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* API Requests */}
-          <div className="p-5 bg-panel border border-white/[0.06] rounded-lg">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-mono text-muted uppercase">API REQUESTS</span>
-              <span className="text-xs font-mono text-paper font-medium">
+          <div className="card-3d-interactive p-6 bg-white border border-slate-200 rounded-xl space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-sky-600 text-[18px]">api</span>
+                <span className="text-xs font-mono text-slate-600 uppercase font-bold">API REQUESTS</span>
+              </div>
+              <span className="text-sm font-mono text-slate-900 font-bold">
                 {usage ? `${usage.api_requests_used} / ${usage.api_requests_limit}` : '--'}
               </span>
             </div>
-            <div className="w-full bg-graphite rounded-full h-1.5 overflow-hidden">
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/60">
               <div
-                className="bg-accent h-full"
+                className="bg-sky-500 h-full rounded-full transition-all duration-500"
                 style={{
                   width: usage ? `${Math.min((usage.api_requests_used / usage.api_requests_limit) * 100, 100)}%` : '0%',
                 }}
               ></div>
             </div>
+            <span className="text-[10px] text-slate-400 font-mono block">Inference and situational query calls across edge gateway</span>
           </div>
 
           {/* Drone Processing Minutes */}
-          <div className="p-5 bg-panel border border-white/[0.06] rounded-lg">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-mono text-muted uppercase">DRONE PROCESSING (MIN)</span>
-              <span className="text-xs font-mono text-paper font-medium">
+          <div className="card-3d-interactive p-6 bg-white border border-slate-200 rounded-xl space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-600 text-[18px]">flight</span>
+                <span className="text-xs font-mono text-slate-600 uppercase font-bold">DRONE PROCESSING (MIN)</span>
+              </div>
+              <span className="text-sm font-mono text-slate-900 font-bold">
                 {usage ? `${usage.drone_processing_minutes_used} / ${usage.drone_processing_minutes_limit}` : '--'}
               </span>
             </div>
-            <div className="w-full bg-graphite rounded-full h-1.5 overflow-hidden">
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/60">
               <div
-                className="bg-status-warning h-full"
+                className="bg-amber-500 h-full rounded-full transition-all duration-500"
                 style={{
                   width: usage ? `${Math.min((usage.drone_processing_minutes_used / usage.drone_processing_minutes_limit) * 100, 100)}%` : '0%',
                 }}
               ></div>
             </div>
+            <span className="text-[10px] text-slate-400 font-mono block">Tactical aerial stream transcoding and frame segmentation</span>
           </div>
 
           {/* Satellite Scenes */}
-          <div className="p-5 bg-panel border border-white/[0.06] rounded-lg">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-mono text-muted uppercase">SATELLITE SCENES</span>
-              <span className="text-xs font-mono text-paper font-medium">
+          <div className="card-3d-interactive p-6 bg-white border border-slate-200 rounded-xl space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-emerald-600 text-[18px]">satellite_alt</span>
+                <span className="text-xs font-mono text-slate-600 uppercase font-bold">SATELLITE SCENES</span>
+              </div>
+              <span className="text-sm font-mono text-slate-900 font-bold">
                 {usage ? `${usage.satellite_scenes_used} / ${usage.satellite_scenes_limit}` : '--'}
               </span>
             </div>
-            <div className="w-full bg-graphite rounded-full h-1.5 overflow-hidden">
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/60">
               <div
-                className="bg-status-success h-full"
+                className="bg-emerald-500 h-full rounded-full transition-all duration-500"
                 style={{
                   width: usage ? `${Math.min((usage.satellite_scenes_used / usage.satellite_scenes_limit) * 100, 100)}%` : '0%',
                 }}
               ></div>
             </div>
+            <span className="text-[10px] text-slate-400 font-mono block">Multi-spectral satellite tiles ingested from Copernicus & Sentinel</span>
           </div>
 
           {/* Storage Bytes */}
-          <div className="p-5 bg-panel border border-white/[0.06] rounded-lg">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-mono text-muted uppercase">STORAGE ALLOCATION</span>
-              <span className="text-xs font-mono text-paper font-medium">
+          <div className="card-3d-interactive p-6 bg-white border border-slate-200 rounded-xl space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-indigo-600 text-[18px]">hard_drive</span>
+                <span className="text-xs font-mono text-slate-600 uppercase font-bold">STORAGE ALLOCATION</span>
+              </div>
+              <span className="text-sm font-mono text-slate-900 font-bold">
                 {usage ? `${(usage.storage_bytes_used / 1e6).toFixed(1)} MB / ${(usage.storage_bytes_limit / 1e6).toFixed(0)} MB` : '--'}
               </span>
             </div>
-            <div className="w-full bg-graphite rounded-full h-1.5 overflow-hidden">
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200/60">
               <div
-                className="bg-status-ai h-full"
+                className="bg-indigo-500 h-full rounded-full transition-all duration-500"
                 style={{
                   width: usage ? `${Math.min((usage.storage_bytes_used / usage.storage_bytes_limit) * 100, 100)}%` : '0%',
                 }}
               ></div>
             </div>
+            <span className="text-[10px] text-slate-400 font-mono block">Encrypted telemetry, vector embeddings, and forensic reports</span>
           </div>
         </div>
 
         {/* Policy Invariant Note */}
-        <div className="p-4 bg-graphite/40 border border-white/[0.04] rounded text-xs font-mono text-faint">
-          INVARIANT: Plans are bounded. Quotas strictly enforce fair allocation across edge and cloud infrastructure without silent overflows.
+        <div className="card-3d p-4 bg-white/90 border border-slate-200 rounded-xl text-xs font-mono text-slate-500 flex items-center gap-3">
+          <span className="material-symbols-outlined text-sky-600 text-[20px]">verified</span>
+          <span>INVARIANT: Plans are strictly bounded. Quotas enforce fair allocation across edge and cloud infrastructure without silent overflows.</span>
         </div>
       </div>
     </div>

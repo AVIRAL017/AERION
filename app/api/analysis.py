@@ -216,6 +216,9 @@ class BorderVideoAnalysisRequest(BaseModel):
     frame_stride: int = Field(default=5, ge=1, le=30)
     terrain_context: Optional[str] = Field(default="arid")
     generate_annotated_video: bool = Field(default=True, description="Whether to generate derived annotated video artifact")
+    zone_polygon: Optional[List[List[float]]] = Field(default=None, description="Explicit user-configured border/demo zone polygon [(x1,y1), (x2,y2), ...]")
+    sector_id: Optional[str] = Field(default=None, description="Explicit sector ID")
+    sector_name: Optional[str] = Field(default=None, description="Explicit sector title/label")
 
 
 
@@ -270,6 +273,21 @@ async def analyze_image(
     req_dim = "satellite_tile" if req.source_type.lower() == "satellite" else "drone_image"
     await _check_quota_before_inference(payload.get("org"), dimension=req_dim)
 
+    # Verify image integrity: file must be a valid, decodable image
+    from PIL import Image as PILImage
+    try:
+        with PILImage.open(target_path) as test_img:
+            test_img.verify()
+    except Exception as img_err:
+        if is_temp and target_path and target_path.exists():
+            try:
+                target_path.unlink()
+            except Exception:
+                pass
+        raise ValidationError(
+            message=f"Corrupted or unsupported image file: {img_err}",
+            details=[{"field": "image", "issue": "corrupted_or_invalid_image", "provided": str(target_path)}],
+        )
 
     try:
         if req.source_type.lower() == "satellite":
@@ -636,6 +654,9 @@ async def analyze_border_video(
             frame_stride=req.frame_stride,
             terrain_context=req.terrain_context,
             generate_annotated_video=req.generate_annotated_video,
+            zone_polygon=req.zone_polygon,
+            sector_id=req.sector_id,
+            sector_name=req.sector_name,
         )
 
         annotated_artifact = report_data.get("annotated_video_artifact")
@@ -662,6 +683,11 @@ async def analyze_border_video(
                     "processed_frames": report_data.get("processed_frames"),
                     "total_video_frames": report_data.get("total_video_frames"),
                     "detection_confidence_stats": report_data.get("detection_confidence_stats"),
+                    "threat_timeline": report_data.get("threat_timeline", []),
+                    "threat_level_changes": report_data.get("threat_level_changes", []),
+                    "evidence_frames": report_data.get("evidence_frames", []),
+                    "vehicle_summary": report_data.get("vehicle_summary"),
+                    "demo_zone_activity": report_data.get("demo_zone_activity"),
                 },
             )
             report_data["persistence"] = persist_info
@@ -723,6 +749,9 @@ class BorderSecurityModeE2ERequest(BaseModel):
     longitude: Optional[float] = Field(default=None, ge=-180.0, le=180.0)
     generate_annotated_video: bool = Field(default=True)
     run_intelligence: bool = Field(default=True)
+    zone_polygon: Optional[List[List[float]]] = Field(default=None, description="Explicit user-configured border/demo zone polygon")
+    sector_id: Optional[str] = Field(default=None)
+    sector_name: Optional[str] = Field(default=None)
 
 
 @router.post(
@@ -1753,6 +1782,9 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                 frame_stride=req.frame_stride,
                 terrain_context=req.terrain_context,
                 generate_annotated_video=req.generate_annotated_video,
+                zone_polygon=req.zone_polygon,
+                sector_id=req.sector_id,
+                sector_name=req.sector_name,
             )
             annotated_video_res = report_data.get("annotated_video_artifact") or report_data.get("annotated_video")
             if annotated_video_res:
@@ -1837,14 +1869,26 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
 
         evidence_package = {
             "mode": "BORDER_SECURITY",
+            "analysis_id": analysis_id,
+            "job_id": job_id,
             "detection_count": total_detections_count,
             "crossing_indicators_count": num_indicators,
             "indicators": crossing_indicators,
             "authoritative_border_status": border_contract.acquisition_status.value,
             "border_contract_message": border_contract.status_message,
-            "sensor_coordinates": {"latitude": req.latitude, "longitude": req.longitude} if has_coords else None,
-            "border_proximity": border_proximity_info,
+            "sensor_coordinates": {"latitude": req.latitude, "longitude": req.longitude} if has_coords else "UNAVAILABLE: No GPS telemetry",
+            "border_proximity": border_proximity_info or "UNAVAILABLE: Border proximity suspended",
             "weather_status": weather_info.get("status") if weather_info else "UNAVAILABLE",
+            "weather_details": weather_info if weather_info and weather_info.get("status") != "UNAVAILABLE" else "UNAVAILABLE",
+            "threat_timeline": (report_data.get("threat_timeline") or [])[:15] if 'report_data' in locals() and isinstance(report_data, dict) else [],
+            "threat_level_changes": report_data.get("threat_level_changes", []) if 'report_data' in locals() and isinstance(report_data, dict) else [],
+            "vehicle_summary": report_data.get("vehicle_summary") if 'report_data' in locals() and isinstance(report_data, dict) else "UNAVAILABLE",
+            "demo_zone_activity": report_data.get("demo_zone_activity") if 'report_data' in locals() and isinstance(report_data, dict) else {
+                "status": "NO_DEMO_ZONE_CONFIGURED",
+                "message": "BORDER CONTEXT NOT SET. No demo zone configured.",
+            },
+            "evidence_frames_count": len(report_data.get("evidence_frames", [])) if 'report_data' in locals() and isinstance(report_data, dict) else 0,
+            "model_identity": "YOLOv8s Perception / ByteTrack Tracker (Frozen Validated)",
             "limitations": limitations + [
                 "A detection alone is NOT a confirmed infiltration event.",
                 "Authoritative Survey of India boundary data is NOT acquired; proximity claims are suspended.",
@@ -1879,6 +1923,11 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                     "tracks": report_data.get("tracks", []),
                     "unique_tracks_count": report_data.get("unique_tracks_count", 0),
                     "detection_confidence_stats": report_data.get("detection_confidence_stats"),
+                    "threat_timeline": report_data.get("threat_timeline", []),
+                    "threat_level_changes": report_data.get("threat_level_changes", []),
+                    "evidence_frames": report_data.get("evidence_frames", []),
+                    "vehicle_summary": report_data.get("vehicle_summary"),
+                    "demo_zone_activity": report_data.get("demo_zone_activity"),
                 }
             persist_info = await _safely_persist_result(
                 result=last_result,

@@ -183,10 +183,14 @@ class BorderVideoJobService:
         frame_stride: int = 1,
         terrain_context: Optional[str] = "arid",
         generate_annotated_video: bool = True,
+        zone_polygon: Optional[List[Any]] = None,
+        sector_id: Optional[str] = None,
+        sector_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Iterates over video frames without caching raw frames in memory, rendering derived video evidence."""
+        """Iterates over video frames without caching raw frames in memory, rendering derived video evidence and real-time threat timeline."""
         import tempfile
         import shutil
+        from app.services.storage_service import LocalArtifactStorage
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -197,30 +201,25 @@ class BorderVideoJobService:
         frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
+        # Explicit user-configured zone vs neutral unconfigured state
+        effective_zone: Optional[List[Tuple[float, float]]] = None
+        if zone_polygon and len(zone_polygon) >= 3:
+            effective_zone = [(float(p[0]), float(p[1])) for p in zone_polygon]
+
+        effective_sector_name = sector_name or ("Operational Border Zone" if effective_zone else "BORDER CONTEXT NOT SET")
+        effective_sector_id = sector_id or ("ZONE-CONFIGURED" if effective_zone else "NO-ZONE-CONFIGURED")
+
         engine = SituationEngine(
             project_id=project_id,
             mode=OperationMode.BORDER_SECURITY,
             temporal_mode=TemporalMode.RECORDED_FOOTAGE,
-            sector_id="OPERATIONAL-SECTOR-01",
-            sector_name="Operational Sensor Field (Internal)",
+            sector_id=effective_sector_id,
+            sector_name=effective_sector_name,
             sector_type="SENSOR_RELATIVE",
             authoritative_border_available=False,
             sensor_coverage_ratio=None,
             terrain_type=terrain_context or "arid",
         )
-
-        # Retrieve pipeline zone boundary if available
-        zone_polygon = None
-        try:
-            orch = await self.runtime_manager.adapter.get_orchestrator(
-                mode="border",
-                drone_model="visdrone_only",
-                terrain_type=terrain_context,
-            )
-            pipeline = orch.get_border_pipeline()
-            zone_polygon = getattr(pipeline, "zone_polygon", None)
-        except Exception as exc:
-            logger.debug(f"Could not pre-load zone polygon from pipeline: {exc}")
 
         # Setup streaming video writer if annotation requested
         video_writer: Optional[cv2.VideoWriter] = None
@@ -230,7 +229,6 @@ class BorderVideoJobService:
         if generate_annotated_video:
             temp_annot_dir = Path(tempfile.mkdtemp(prefix="aerion_video_annot_"))
             temp_annot_video_path = temp_annot_dir / f"{uuid.uuid4()}.mp4"
-            # Output video FPS matches processed frame rate or source FPS
             effective_fps = max(1.0, source_fps / frame_stride)
             video_writer = self.annotation_service.create_video_writer(
                 output_path=temp_annot_video_path,
@@ -248,6 +246,22 @@ class BorderVideoJobService:
         last_runtime_result: Optional[AERIONAnalysisResult] = None
         effective_total_frames = min(max_frames, (total_video_frames + frame_stride - 1) // frame_stride) if max_frames else max(1, (total_video_frames + frame_stride - 1) // frame_stride)
 
+        # Real-time Threat & Zone Tracking Structures
+        threat_timeline: List[Dict[str, Any]] = []
+        threat_level_changes: List[Dict[str, Any]] = []
+        evidence_frames: List[Dict[str, Any]] = []
+        track_threat_history: Dict[int, List[Dict[str, Any]]] = {}
+        track_zone_history: Dict[int, str] = {}
+        track_threat_level_history: Dict[int, str] = {}
+        vehicle_classes: Dict[str, int] = {}
+        zone_entry_count = 0
+        zone_exit_count = 0
+        vehicles_inside: Set[int] = set()
+        vehicles_approached: Set[int] = set()
+
+        storage_service = LocalArtifactStorage()
+        proj_uuid = uuid.UUID(project_id) if len(project_id) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
+
         try:
             while True:
                 success, frame = cap.read()
@@ -259,10 +273,14 @@ class BorderVideoJobService:
                         frame=frame,
                         frame_number=frame_idx,
                         terrain_context=terrain_context,
+                        border_zone_polygon=effective_zone,
                     )
                     engine.ingest_runtime_result(result)
                     processed_count += 1
                     last_runtime_result = result
+
+                    t_sec = round(frame_idx / source_fps, 2)
+                    t_fmt = f"{int(t_sec // 60):02d}:{t_sec % 60:04.1f}"
 
                     # Collect metrics and structured detection evidence
                     for det_i, d in enumerate(result.detections):
@@ -274,19 +292,145 @@ class BorderVideoJobService:
                         all_detections.append(det_dict)
                         if d.track_id is not None:
                             unique_track_ids.add(d.track_id)
+                        c_name = d.class_name or "vehicle"
+                        vehicle_classes[c_name] = vehicle_classes.get(c_name, 0) + 1
+
                     for t in (result.tracks or []):
                         track_dict = t.to_dict()
                         track_dict["frame_number"] = frame_idx
                         all_tracks.append(track_dict)
-                        if getattr(t, "track_id", None) is not None:
-                            unique_track_ids.add(t.track_id)
+                        tid = getattr(t, "track_id", None)
+                        if tid is not None:
+                            unique_track_ids.add(tid)
+
+                        # Match with BorderAnalysis
+                        matching_ba = None
+                        if result.border_analysis:
+                            for ba in result.border_analysis:
+                                if ba.track_id == tid:
+                                    matching_ba = ba
+                                    break
+
+                        # Determine Zone State and Threat Level based on actual evidence
+                        is_key_event = False
+                        if effective_zone and matching_ba:
+                            if matching_ba.zone_entry:
+                                zone_state = "ENTERED DEMO ZONE"
+                                zone_entry_count += 1
+                                vehicles_inside.add(tid)
+                                is_key_event = True
+                            elif matching_ba.zone_exit:
+                                zone_state = "LEFT DEMO ZONE"
+                                zone_exit_count += 1
+                                vehicles_inside.discard(tid)
+                                is_key_event = True
+                            elif matching_ba.inside_restricted_zone:
+                                zone_state = "INSIDE DEMO ZONE"
+                                vehicles_inside.add(tid)
+                            elif (matching_ba.direction_relation in ("entering_zone", "toward_boundary") or (matching_ba.approach_score or 0) > 0.4):
+                                zone_state = "APPROACHING DEMO ZONE"
+                                vehicles_approached.add(tid)
+                            else:
+                                zone_state = "OUTSIDE DEMO ZONE"
+
+                            threat_lvl = matching_ba.border_priority or "LOW"
+                            score = float(matching_ba.border_activity_score or 0.0)
+
+                            # Calculate observable threat trend
+                            hist = track_threat_history.get(tid, [])
+                            if hist:
+                                prev_s = hist[-1]["score"]
+                                if score > prev_s + 0.05:
+                                    trend = "RISING"
+                                elif score < prev_s - 0.05:
+                                    trend = "FALLING"
+                                else:
+                                    trend = "STABLE"
+                            else:
+                                trend = "BASELINE"
+                            track_threat_history.setdefault(tid, []).append({"score": score, "level": threat_lvl})
+                        else:
+                            zone_state = "NO DEMO ZONE CONFIGURED"
+                            threat_lvl = "UNAVAILABLE"
+                            trend = "UNAVAILABLE"
+
+                        # Track threat level transition
+                        prev_threat_lvl = track_threat_level_history.get(tid)
+                        if prev_threat_lvl and prev_threat_lvl != threat_lvl and threat_lvl != "UNAVAILABLE":
+                            threat_level_changes.append({
+                                "timestamp": t_fmt,
+                                "timestamp_seconds": t_sec,
+                                "frame_number": frame_idx,
+                                "track_id": tid,
+                                "object_class": t.class_name,
+                                "previous_threat_level": prev_threat_lvl,
+                                "current_threat_level": threat_lvl,
+                                "zone_state": zone_state,
+                            })
+                            is_key_event = True
+                        track_threat_level_history[tid] = threat_lvl
+
+                        prev_zone = track_zone_history.get(tid)
+                        track_zone_history[tid] = zone_state
+
+                        ev_id = f"EV-F{frame_idx}-T{tid}"
+                        threat_timeline.append({
+                            "timestamp": t_fmt,
+                            "timestamp_seconds": t_sec,
+                            "frame_number": frame_idx,
+                            "track_id": tid,
+                            "object_class": t.class_name,
+                            "zone_state": zone_state,
+                            "event": f"VEHICLE {zone_state}",
+                            "threat_level": threat_lvl,
+                            "threat_trend": trend,
+                            "confidence": round(float(t.confidence), 4),
+                            "movement_state": getattr(t, "direction", "unknown"),
+                            "position": [round(t.center.x, 1), round(t.center.y, 1)] if getattr(t, "center", None) else None,
+                            "evidence_id": ev_id,
+                        })
+
+                        # Extract authenticated evidence frame for key events
+                        if (is_key_event or tid not in track_threat_history or threat_lvl in ("HIGH", "CRITICAL")) and len(evidence_frames) < 18:
+                            try:
+                                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_f:
+                                    tmp_f_path = Path(tmp_f.name)
+                                cv2.imwrite(str(tmp_f_path), frame)
+                                art_key, sha256_hex, fsize = storage_service.store_file(
+                                    source_path=tmp_f_path,
+                                    asset_type="evidence_frames",
+                                    project_id=proj_uuid,
+                                    suffix=".jpg",
+                                )
+                                tmp_f_path.unlink(missing_ok=True)
+                                evidence_frames.append({
+                                    "evidence_id": ev_id,
+                                    "frame_number": frame_idx,
+                                    "timestamp": t_fmt,
+                                    "timestamp_seconds": t_sec,
+                                    "track_id": tid,
+                                    "object_class": t.class_name,
+                                    "event_description": f"Vehicle Track #{tid} ({t.class_name}) {zone_state.lower()} with {threat_lvl} threat level",
+                                    "threat_level": threat_lvl,
+                                    "confidence": round(float(t.confidence), 4),
+                                    "artifact_key": art_key,
+                                    "sha256": sha256_hex,
+                                    "bounding_box": [t.bbox.x1, t.bbox.y1, t.bbox.x2, t.bbox.y2] if getattr(t, "bbox", None) else None,
+                                    "provenance": "Observed from video surveillance frame inference",
+                                })
+                            except Exception as ev_err:
+                                logger.debug(f"Could not persist evidence frame: {ev_err}")
 
                     # Stream-render to output video writer
                     if video_writer is not None:
-                        # Extract real tracker history
                         tracker_history = {}
                         try:
-                            orch = await self.runtime_manager.adapter.get_orchestrator(mode="border")
+                            orch = await self.runtime_manager.adapter.get_orchestrator(
+                                mode="border",
+                                drone_model="visdrone_only",
+                                terrain_type=terrain_context,
+                                border_zone_polygon=effective_zone,
+                            )
                             p = orch.get_border_pipeline()
                             tracker_history = getattr(p.tracker, "history", {})
                         except Exception:
@@ -297,7 +441,7 @@ class BorderVideoJobService:
                             analysis_result=result,
                             frame_idx=frame_idx,
                             total_source_frames=total_video_frames,
-                            zone_polygon=zone_polygon,
+                            zone_polygon=effective_zone,
                             tracker_history=tracker_history,
                             processed_frame_idx=processed_count - 1,
                             total_processed_frames=effective_total_frames,
@@ -309,7 +453,6 @@ class BorderVideoJobService:
                         break
 
                 frame_idx += 1
-                # Yield to event loop
                 await asyncio.sleep(0)
         finally:
             cap.release()
@@ -322,7 +465,6 @@ class BorderVideoJobService:
         annotated_video_artifact: Optional[Dict[str, Any]] = None
         try:
             if generate_annotated_video and temp_annot_video_path and temp_annot_video_path.exists():
-                proj_uuid = uuid.UUID(project_id) if len(project_id) == 36 else uuid.UUID("00000000-0000-0000-0000-000000000001")
                 effective_fps = max(1.0, source_fps / frame_stride)
                 artifact_res = self.annotation_service.finalize_and_store(
                     temp_video_path=temp_annot_video_path,
@@ -336,7 +478,6 @@ class BorderVideoJobService:
                     total_detections=total_detections,
                 )
                 annotated_video_artifact = artifact_res.to_dict()
-                # Populate canonical single-source aliases
                 annotated_video_artifact["storage_key"] = artifact_res.artifact_key
                 annotated_video_artifact["filename"] = Path(artifact_res.artifact_key).name
                 annotated_video_artifact["byte_size"] = artifact_res.file_size_bytes
@@ -353,6 +494,26 @@ class BorderVideoJobService:
         max_conf = max(conf_list) if conf_list else 0.0
         mean_conf = (sum(conf_list) / len(conf_list)) if conf_list else 0.0
 
+        vehicle_summary = {
+            "total_vehicles_observed": len(unique_track_ids),
+            "class_distribution": vehicle_classes,
+            "approaching_count": len(vehicles_approached),
+            "entered_count": zone_entry_count,
+            "left_count": zone_exit_count,
+            "currently_inside_count": len(vehicles_inside),
+        }
+
+        demo_zone_activity = {
+            "zone_configured": bool(effective_zone),
+            "status": "CONFIGURED" if effective_zone else "NO_DEMO_ZONE_CONFIGURED",
+            "sector_name": effective_sector_name,
+            "zone_geometry": effective_zone if effective_zone else None,
+            "total_entries": zone_entry_count,
+            "total_exits": zone_exit_count,
+            "active_in_zone": len(vehicles_inside),
+            "message": f"{zone_entry_count} entries, {zone_exit_count} exits recorded." if effective_zone else "BORDER CONTEXT NOT SET. Threat relative to demo zone is UNAVAILABLE.",
+        }
+
         return {
             "processed_frames": processed_count,
             "total_video_frames": total_video_frames,
@@ -364,6 +525,11 @@ class BorderVideoJobService:
             "tracks": all_tracks,
             "unique_tracks_count": len(unique_track_ids),
             "total_detections_count": total_detections,
+            "threat_timeline": threat_timeline,
+            "threat_level_changes": threat_level_changes,
+            "evidence_frames": evidence_frames,
+            "vehicle_summary": vehicle_summary,
+            "demo_zone_activity": demo_zone_activity,
             "detection_confidence_stats": {
                 "min_confidence": round(min_conf, 4),
                 "max_confidence": round(max_conf, 4),

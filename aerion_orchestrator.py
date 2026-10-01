@@ -107,7 +107,7 @@ class AERIONOrchestrator:
         self.confidence = confidence
         self.iou = iou
         self.imgsz = imgsz
-        self.border_zone = border_zone_polygon or DEFAULT_BORDER_ZONE
+        self.border_zone = border_zone_polygon
 
         # Configure terrain metadata
         self.terrain_type = terrain_type

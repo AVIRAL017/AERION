@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { analysisApi } from '../api';
 import { normalizeVideoAnalysisResponse } from '../api/videoResultAdapter';
 import { AERIONAnalysisResultData } from '../types';
@@ -10,6 +10,7 @@ interface UploadModalProps {
   onClose: () => void;
   defaultMode?: UploadMode;
   onAnalysisSuccess: (result: AERIONAnalysisResultData, sourceMeta?: { preUrl?: string; postUrl?: string; imageUrl?: string; videoUrl?: string }) => void;
+  onError?: (error: string) => void;
 }
 
 export const UploadModal: React.FC<UploadModalProps> = ({
@@ -17,6 +18,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   onClose,
   defaultMode = 'drone_image',
   onAnalysisSuccess,
+  onError,
 }) => {
   const [mode, setMode] = useState<UploadMode>(defaultMode);
   
@@ -55,6 +57,56 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+
+  // AbortController and active job tracking for safe interruption
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const preInputRef = useRef<HTMLInputElement>(null);
+  const postInputRef = useRef<HTMLInputElement>(null);
+
+  // Safe Cancel and Close Handler
+  const handleCancelOrClose = useCallback((isCloseAction: boolean) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (activeJobIdRef.current) {
+      const jid = activeJobIdRef.current;
+      activeJobIdRef.current = null;
+      analysisApi.cancelJob(jid).catch((err) => {
+        console.warn('Background job cancellation warning:', err);
+      });
+    }
+
+    setIsProcessing(false);
+    setProgressPercent(0);
+
+    if (isCloseAction) {
+      onClose();
+    } else {
+      setStatusMessage('');
+      const cancelMsg = 'Operation was cancelled by user. Operational pipeline ready.';
+      setErrorMessage(cancelMsg);
+      onError?.(cancelMsg);
+    }
+  }, [onClose, onError]);
+
+  // Fail-safe Escape key listener
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleCancelOrClose(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleCancelOrClose]);
 
   // Pre-flight pair compatibility check whenever both T0 and T1 are selected
   useEffect(() => {
@@ -108,10 +160,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     };
   }, [preFile, postFile, mode]);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const preInputRef = useRef<HTMLInputElement>(null);
-  const postInputRef = useRef<HTMLInputElement>(null);
-
   if (!isOpen) return null;
 
   const MAX_IMAGE_SIZE_MB = 15;
@@ -150,7 +198,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       const reader = new FileReader();
       reader.onload = () => {
         const res = reader.result as string;
-        // Strip data:image/...;base64, or data:video/...;base64, prefix
         const base64Content = res.includes(',') ? res.split(',')[1] : res;
         resolve(base64Content);
       };
@@ -214,13 +261,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       }
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsProcessing(true);
     setStatusMessage('ENCODING ASSET PAYLOAD...');
 
     try {
       if (mode === 'drone_image') {
         const b64 = await fileToBase64(selectedFile!);
+        if (controller.signal.aborted) return;
         setStatusMessage('TRANSMITTING TO PERCEPTION INFERENCE ENGINE (YOLOv8)...');
+        
         const resp = await analysisApi.analyzeImage({
           image_base64: b64,
           source_type: 'drone',
@@ -228,7 +279,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           drone_model: droneModel,
           confidence_threshold: confidenceThreshold,
           run_intelligence: true,
-        });
+        }, { signal: controller.signal });
+
+        if (controller.signal.aborted) return;
 
         if (resp.success && resp.data) {
           setStatusMessage('INFERENCE COMPLETE. RENDERING TELEMETRY...');
@@ -240,13 +293,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
       } else if (mode === 'satellite_image') {
         const b64 = await fileToBase64(selectedFile!);
+        if (controller.signal.aborted) return;
         setStatusMessage('TRANSMITTING TO SATELLITE OBB DETECTOR (DOTA)...');
+        
         const resp = await analysisApi.analyzeImage({
           image_base64: b64,
           source_type: 'satellite',
           mode: 'border',
           run_intelligence: true,
-        });
+        }, { signal: controller.signal });
+
+        if (controller.signal.aborted) return;
 
         if (resp.success && resp.data) {
           setStatusMessage('OBB INFERENCE COMPLETE. RENDERING...');
@@ -261,12 +318,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           fileToBase64(preFile!),
           fileToBase64(postFile!),
         ]);
+        if (controller.signal.aborted) return;
         setStatusMessage('TRANSMITTING TO BI-TEMPORAL SIAMESE RESNET-18 MODEL...');
+        
         const resp = await analysisApi.analyzeDamage({
           before_base64: beforeB64,
           after_base64: afterB64,
           run_intelligence: true,
-        });
+        }, { signal: controller.signal });
+
+        if (controller.signal.aborted) return;
 
         if (resp.success && resp.data) {
           if (resp.data.pair_validation && resp.data.pair_validation.is_compatible === false) {
@@ -285,9 +346,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
       } else if (mode === 'border_video') {
         const videoB64 = await fileToBase64(selectedFile!);
+        if (controller.signal.aborted) return;
         setStatusMessage(`SUBMITTING VIDEO ANALYSIS JOB (STRIDE=${frameStride}, MAX=${maxFrames})...`);
         
-        // Submit asynchronous job with idempotency key
         const idempotencyKey = `video_${Date.now()}_${selectedFile?.name || 'clip'}`;
         const submitResp = await analysisApi.submitBorderJob({
           video_base64: videoB64,
@@ -295,16 +356,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           max_frames: maxFrames,
           generate_annotated_video: true,
           idempotency_key: idempotencyKey,
-        });
+        }, { signal: controller.signal });
+
+        if (controller.signal.aborted) return;
 
         if (!submitResp.success || !submitResp.data?.job_id) {
-          // If asynchronous job route fails, fallback to direct streaming video analysis
+          // Fallback to direct analysis
           setStatusMessage('FALLBACK: EXECUTING DIRECT STREAMING INFERENCE...');
           const directResp = await analysisApi.analyzeBorderVideo({
             video_base64: videoB64,
             frame_stride: frameStride,
             max_frames: maxFrames,
-          });
+          }, { signal: controller.signal });
+          
+          if (controller.signal.aborted) return;
+
           if (directResp.success && directResp.data) {
             const normalized = normalizeVideoAnalysisResponse(directResp.data);
             const rawVideoUrl = selectedFile ? URL.createObjectURL(selectedFile) : undefined;
@@ -317,19 +383,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         }
 
         const jobId = submitResp.data.job_id;
+        activeJobIdRef.current = jobId;
         setStatusMessage(`JOB ${jobId.substring(0, 8)} SUBMITTED. QUEUED FOR PIPELINE EXECUTION...`);
 
-        // Poll job status until completion or failure
-        const maxPollAttempts = 120; // 120 * 1s = 2 minutes max
+        // Poll job status with cancellation check
+        const maxPollAttempts = 120;
         let attempts = 0;
         let jobCompleted = false;
 
-        while (attempts < maxPollAttempts && !jobCompleted) {
+        while (attempts < maxPollAttempts && !jobCompleted && !controller.signal.aborted) {
           await new Promise((res) => setTimeout(res, 1000));
+          if (controller.signal.aborted) return;
           attempts++;
 
           try {
-            const statusResp = await analysisApi.getJobStatus(jobId);
+            const statusResp = await analysisApi.getJobStatus(jobId, { signal: controller.signal });
             if (statusResp.success && statusResp.data) {
               const job = statusResp.data;
               const stage = job.current_stage || job.status || 'PROCESSING';
@@ -348,111 +416,138 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 });
                 onClose();
                 return;
-              } else if (job.status === 'FAILED' || job.status === 'PROCESSING_FAILED' || job.status === 'CANCELLED' || job.status === 'failed') {
+              } else if (job.status === 'CANCELLED' || job.status === 'cancelled') {
+                throw new Error('Analysis job was cancelled.');
+              } else if (job.status === 'FAILED' || job.status === 'PROCESSING_FAILED' || job.status === 'failed') {
                 throw new Error(job.error || `Analysis job failed with status: ${job.status}`);
               }
             }
           } catch (pollErr: any) {
-            if (pollErr.message && pollErr.message.includes('Analysis job failed')) {
+            if (controller.signal.aborted) return;
+            if (pollErr.message && (pollErr.message.includes('failed') || pollErr.message.includes('cancelled'))) {
               throw pollErr;
             }
-            // Transient network retry
           }
         }
 
-        if (!jobCompleted) {
+        if (!jobCompleted && !controller.signal.aborted) {
           throw new Error('Video analysis timed out waiting for pipeline completion. Job may still be running in background.');
         }
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Operation failed during backend execution.');
+      const finalMsg =
+        err.name === 'AbortError' || err.message?.includes('aborted') || controller.signal.aborted
+          ? 'Operation was cancelled by user.'
+          : (err.message || 'Operation failed during backend execution.');
+      setErrorMessage(finalMsg);
+      onError?.(finalMsg);
     } finally {
       setIsProcessing(false);
       setProgressPercent(0);
+      abortControllerRef.current = null;
+      activeJobIdRef.current = null;
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl bg-panel border border-white/[0.12] rounded-lg shadow-2xl overflow-hidden flex flex-col font-mono text-xs">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          handleCancelOrClose(true);
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="upload-modal-title"
+    >
+      <div className="w-full max-w-2xl bg-white border border-slate-200/80 rounded-xl shadow-floating overflow-hidden flex flex-col font-sans text-xs text-slate-800 animate-in zoom-in-95 duration-150">
         {/* Modal Header */}
-        <div className="h-12 px-5 flex items-center justify-between border-b border-white/[0.08] bg-[#0B0F14]">
+        <div className="h-14 px-6 flex items-center justify-between border-b border-slate-200 bg-slate-50/80 backdrop-blur">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-accent text-[20px]">upload_file</span>
-            <span className="text-paper font-medium tracking-wider uppercase text-sm">
-              INGEST OPERATIONAL ASSET
-            </span>
+            <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center text-accent">
+              <span className="material-symbols-outlined text-[20px]">upload_file</span>
+            </div>
+            <div>
+              <h2 id="upload-modal-title" className="text-slate-800 font-bold tracking-wide uppercase text-sm font-mono">
+                INGEST OPERATIONAL ASSET
+              </h2>
+              <p className="text-[11px] text-slate-500 font-mono">
+                ZERO-DEPENDENCY PERCEPTION & SITUATION TELEMETRY
+              </p>
+            </div>
           </div>
           <button
-            onClick={onClose}
-            disabled={isProcessing}
-            className="text-muted hover:text-paper transition-colors disabled:opacity-40"
+            onClick={() => handleCancelOrClose(true)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            title="Close modal (Escape)"
+            aria-label="Close modal"
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 flex flex-col gap-5 overflow-y-auto max-h-[75vh] custom-scrollbar">
+        <div className="p-6 flex flex-col gap-5 overflow-y-auto max-h-[75vh] custom-scrollbar bg-white">
           {/* Mode Selector Tabs */}
-          <div className="grid grid-cols-4 gap-2 border-b border-white/[0.06] pb-4">
+          <div className="grid grid-cols-4 gap-2.5 pb-2">
             <button
               onClick={() => { setMode('drone_image'); setSelectedFile(null); setFilePreview(null); }}
               disabled={isProcessing}
-              className={`py-2 px-3 rounded flex flex-col items-center gap-1 border transition-all ${
+              className={`py-2.5 px-3 rounded-lg flex flex-col items-center gap-1.5 border transition-all ${
                 mode === 'drone_image'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-white/[0.06] bg-elevated/40 text-muted hover:text-paper'
-              }`}
+                  ? 'border-accent bg-sky-50/80 text-accent font-semibold shadow-sm'
+                  : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              } disabled:opacity-50`}
             >
-              <span className="material-symbols-outlined text-[18px]">flight</span>
-              <span className="text-[10px] tracking-wide">DRONE AERIAL</span>
+              <span className="material-symbols-outlined text-[20px]">flight</span>
+              <span className="text-[10px] tracking-wide font-mono">DRONE AERIAL</span>
             </button>
 
             <button
               onClick={() => { setMode('satellite_image'); setSelectedFile(null); setFilePreview(null); }}
               disabled={isProcessing}
-              className={`py-2 px-3 rounded flex flex-col items-center gap-1 border transition-all ${
+              className={`py-2.5 px-3 rounded-lg flex flex-col items-center gap-1.5 border transition-all ${
                 mode === 'satellite_image'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-white/[0.06] bg-elevated/40 text-muted hover:text-paper'
-              }`}
+                  ? 'border-accent bg-sky-50/80 text-accent font-semibold shadow-sm'
+                  : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              } disabled:opacity-50`}
             >
-              <span className="material-symbols-outlined text-[18px]">satellite_alt</span>
-              <span className="text-[10px] tracking-wide">SATELLITE OBB</span>
+              <span className="material-symbols-outlined text-[20px]">satellite_alt</span>
+              <span className="text-[10px] tracking-wide font-mono">SATELLITE OBB</span>
             </button>
 
             <button
               onClick={() => { setMode('damage_pair'); }}
               disabled={isProcessing}
-              className={`py-2 px-3 rounded flex flex-col items-center gap-1 border transition-all ${
+              className={`py-2.5 px-3 rounded-lg flex flex-col items-center gap-1.5 border transition-all ${
                 mode === 'damage_pair'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-white/[0.06] bg-elevated/40 text-muted hover:text-paper'
-              }`}
+                  ? 'border-accent bg-sky-50/80 text-accent font-semibold shadow-sm'
+                  : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              } disabled:opacity-50`}
             >
-              <span className="material-symbols-outlined text-[18px]">compare</span>
-              <span className="text-[10px] tracking-wide">DAMAGE PAIR</span>
+              <span className="material-symbols-outlined text-[20px]">compare</span>
+              <span className="text-[10px] tracking-wide font-mono">DAMAGE PAIR</span>
             </button>
 
             <button
               onClick={() => { setMode('border_video'); setSelectedFile(null); setFilePreview(null); }}
               disabled={isProcessing}
-              className={`py-2 px-3 rounded flex flex-col items-center gap-1 border transition-all ${
+              className={`py-2.5 px-3 rounded-lg flex flex-col items-center gap-1.5 border transition-all ${
                 mode === 'border_video'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-white/[0.06] bg-elevated/40 text-muted hover:text-paper'
-              }`}
+                  ? 'border-accent bg-sky-50/80 text-accent font-semibold shadow-sm'
+                  : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              } disabled:opacity-50`}
             >
-              <span className="material-symbols-outlined text-[18px]">videocam</span>
-              <span className="text-[10px] tracking-wide">VIDEO ANALYSIS</span>
+              <span className="material-symbols-outlined text-[20px]">videocam</span>
+              <span className="text-[10px] tracking-wide font-mono">VIDEO ANALYSIS</span>
             </button>
           </div>
 
           {/* Mode Description */}
-          <div className="bg-[#07090C] p-3 rounded border border-white/[0.04] text-[11px] text-muted flex items-start gap-2">
-            <span className="material-symbols-outlined text-accent text-[16px] mt-0.5">info</span>
-            <div>
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-[11px] text-slate-600 flex items-start gap-2.5">
+            <span className="material-symbols-outlined text-accent text-[18px] mt-0.5 shrink-0">info</span>
+            <div className="font-mono leading-relaxed">
               {mode === 'drone_image' && 'Inference via frozen VisDrone YOLOv8 or Unified Drone detector. Produces real bounding boxes, confidence, and tactical classifications.'}
               {mode === 'satellite_image' && 'Inference via frozen DOTA OBB Oriented Bounding Box detector. Preserves exact 4-corner polygon geometry.'}
               {mode === 'damage_pair' && 'Inference via frozen Siamese ResNet-18 change detection network. Computes pixel-level damage ratio and status.'}
@@ -466,7 +561,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 {/* Pre-disaster box */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[11px] text-muted uppercase">PRE-DISASTER BASELINE (T0)</span>
+                  <span className="text-[11px] font-mono text-slate-600 uppercase font-semibold">PRE-DISASTER BASELINE (T0)</span>
                   <input
                     type="file"
                     ref={preInputRef}
@@ -476,24 +571,24 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   />
                   <div
                     onClick={() => !isProcessing && preInputRef.current?.click()}
-                    className="h-36 border border-dashed border-white/[0.15] rounded flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent/60 bg-elevated/20 transition-all overflow-hidden relative"
+                    className="h-36 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent bg-slate-50/60 hover:bg-slate-50 transition-all overflow-hidden relative shadow-sm"
                   >
                     {prePreview ? (
-                      <img src={prePreview} alt="Pre-Disaster" className="w-full h-full object-cover" />
+                      <img src={prePreview} alt="Pre-Disaster" className="w-full h-full object-cover rounded" />
                     ) : (
-                      <div className="flex flex-col items-center text-center gap-1 text-faint">
-                        <span className="material-symbols-outlined text-[24px]">image</span>
-                        <span className="text-[10px]">SELECT T0 IMAGE</span>
-                        <span className="text-[9px] text-muted">Max 15MB (JPG/PNG)</span>
+                      <div className="flex flex-col items-center text-center gap-1.5 text-slate-400">
+                        <span className="material-symbols-outlined text-[28px] text-slate-400">image</span>
+                        <span className="text-[11px] font-medium text-slate-600 font-mono">SELECT T0 IMAGE</span>
+                        <span className="text-[10px] text-slate-400 font-mono">Max 15MB (JPG/PNG)</span>
                       </div>
                     )}
                   </div>
-                  {preFile && <span className="text-[10px] text-paper truncate">{preFile.name}</span>}
+                  {preFile && <span className="text-[10px] text-slate-700 font-mono truncate">{preFile.name}</span>}
                 </div>
 
                 {/* Post-disaster box */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[11px] text-muted uppercase">POST-DISASTER SCENE (T1)</span>
+                  <span className="text-[11px] font-mono text-slate-600 uppercase font-semibold">POST-DISASTER SCENE (T1)</span>
                   <input
                     type="file"
                     ref={postInputRef}
@@ -503,49 +598,49 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   />
                   <div
                     onClick={() => !isProcessing && postInputRef.current?.click()}
-                    className="h-36 border border-dashed border-white/[0.15] rounded flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent/60 bg-elevated/20 transition-all overflow-hidden relative"
+                    className="h-36 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center p-3 cursor-pointer hover:border-accent bg-slate-50/60 hover:bg-slate-50 transition-all overflow-hidden relative shadow-sm"
                   >
                     {postPreview ? (
-                      <img src={postPreview} alt="Post-Disaster" className="w-full h-full object-cover" />
+                      <img src={postPreview} alt="Post-Disaster" className="w-full h-full object-cover rounded" />
                     ) : (
-                      <div className="flex flex-col items-center text-center gap-1 text-faint">
-                        <span className="material-symbols-outlined text-[24px]">image</span>
-                        <span className="text-[10px]">SELECT T1 IMAGE</span>
-                        <span className="text-[9px] text-muted">Max 15MB (JPG/PNG)</span>
+                      <div className="flex flex-col items-center text-center gap-1.5 text-slate-400">
+                        <span className="material-symbols-outlined text-[28px] text-slate-400">image</span>
+                        <span className="text-[11px] font-medium text-slate-600 font-mono">SELECT T1 IMAGE</span>
+                        <span className="text-[10px] text-slate-400 font-mono">Max 15MB (JPG/PNG)</span>
                       </div>
                     )}
                   </div>
-                  {postFile && <span className="text-[10px] text-paper truncate">{postFile.name}</span>}
+                  {postFile && <span className="text-[10px] text-slate-700 font-mono truncate">{postFile.name}</span>}
                 </div>
               </div>
 
               {/* Bi-Temporal Pair Preflight Validation Card */}
               {preFile && postFile && (
-                <div className={`p-2.5 rounded border text-[11px] flex flex-col gap-1 transition-all ${
+                <div className={`p-3 rounded-lg border text-[11px] flex flex-col gap-1 transition-all ${
                   pairValidationStatus.isValidating
-                    ? 'bg-elevated/40 border-white/[0.1] text-muted'
+                    ? 'bg-slate-50 border-slate-200 text-slate-600'
                     : pairValidationStatus.isCompatible === true
-                    ? 'bg-status-success/10 border-status-success/30 text-status-success'
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                     : pairValidationStatus.isCompatible === false
-                    ? 'bg-status-critical/10 border-status-critical/30 text-status-critical'
-                    : 'bg-elevated/40 border-white/[0.1] text-muted'
+                    ? 'bg-rose-50 border-rose-300 text-rose-800'
+                    : 'bg-slate-50 border-slate-200 text-slate-600'
                 }`}>
                   <div className="flex items-center justify-between font-mono font-bold tracking-wider">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`material-symbols-outlined text-[16px] ${pairValidationStatus.isValidating ? 'animate-spin' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`material-symbols-outlined text-[18px] ${pairValidationStatus.isValidating ? 'animate-spin' : ''}`}>
                         {pairValidationStatus.isValidating ? 'sync' : pairValidationStatus.isCompatible ? 'check_circle' : 'cancel'}
                       </span>
                       <span>PAIR VALIDATION: {pairValidationStatus.isValidating ? 'EVALUATING SCENE CORRESPONDENCE...' : pairValidationStatus.isCompatible ? 'STRUCTURALLY_COMPATIBLE' : (pairValidationStatus.status || 'PAIR_MISMATCH')}</span>
                     </div>
                   </div>
                   {pairValidationStatus.isValidating ? (
-                    <span className="text-[10px] text-muted">Analyzing geometric keypoint correspondence, phase correlation & reliable GPS...</span>
+                    <span className="text-[10px] text-slate-500 font-mono">Analyzing geometric keypoint correspondence, phase correlation & reliable GPS...</span>
                   ) : pairValidationStatus.isCompatible === true ? (
-                    <span className="text-[10px] text-status-success/80">✓ Same-scene evidence confirmed. Valid bi-temporal pair for change detection.</span>
+                    <span className="text-[10px] text-emerald-700 font-mono">✓ Same-scene evidence confirmed. Valid bi-temporal pair for change detection.</span>
                   ) : pairValidationStatus.isCompatible === false ? (
-                    <div className="flex flex-col gap-0.5 text-[10px]">
-                      <span className="font-semibold text-status-critical">✕ Incompatible imagery pair: {pairValidationStatus.reason || 'Insufficient scene correspondence'}.</span>
-                      <span className="text-muted">Siamese change detection will be halted server-side to prevent false damage attribution.</span>
+                    <div className="flex flex-col gap-0.5 text-[10px] font-mono">
+                      <span className="font-semibold text-rose-700">✕ Incompatible imagery pair: {pairValidationStatus.reason || 'Insufficient scene correspondence'}.</span>
+                      <span className="text-slate-600">Siamese change detection will be halted server-side to prevent false damage attribution.</span>
                     </div>
                   ) : null}
                 </div>
@@ -553,7 +648,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             </>
           ) : (
             <div className="flex flex-col gap-2">
-              <span className="text-[11px] text-muted uppercase">
+              <span className="text-[11px] font-mono text-slate-600 uppercase font-semibold">
                 {mode === 'border_video' ? 'SELECT SURVEILLANCE FOOTAGE' : 'SELECT IMAGERY ASSET'}
               </span>
               <input
@@ -565,52 +660,55 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               />
               <div
                 onClick={() => !isProcessing && fileInputRef.current?.click()}
-                className="h-44 border border-dashed border-white/[0.15] rounded flex flex-col items-center justify-center p-4 cursor-pointer hover:border-accent/60 bg-elevated/20 transition-all overflow-hidden relative"
+                className="h-44 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center p-4 cursor-pointer hover:border-accent bg-slate-50/60 hover:bg-slate-50 transition-all overflow-hidden relative shadow-sm"
               >
                 {filePreview && mode !== 'border_video' ? (
-                  <img src={filePreview} alt="Selected" className="w-full h-full object-contain" />
+                  <img src={filePreview} alt="Selected" className="w-full h-full object-contain rounded" />
                 ) : selectedFile && mode === 'border_video' ? (
                   <div className="flex flex-col items-center gap-2 text-accent">
-                    <span className="material-symbols-outlined text-[32px]">videocam</span>
-                    <span className="text-paper text-xs">{selectedFile.name}</span>
-                    <span className="text-[10px] text-muted">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+                    <span className="material-symbols-outlined text-[36px]">videocam</span>
+                    <span className="text-slate-800 text-xs font-mono font-medium">{selectedFile.name}</span>
+                    <span className="text-[11px] text-slate-500 font-mono">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</span>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center text-center gap-2 text-faint">
-                    <span className="material-symbols-outlined text-[32px]">
+                  <div className="flex flex-col items-center text-center gap-2 text-slate-400">
+                    <span className="material-symbols-outlined text-[36px] text-slate-400">
                       {mode === 'border_video' ? 'movie' : 'add_photo_alternate'}
                     </span>
-                    <span className="text-xs text-paper">CLICK TO CHOOSE FILE</span>
-                    <span className="text-[10px] text-muted">
+                    <span className="text-xs font-medium text-slate-700 font-mono">CLICK TO CHOOSE FILE</span>
+                    <span className="text-[10px] text-slate-400 font-mono">
                       {mode === 'border_video' ? 'MP4 / AVI (Max 25MB)' : 'JPG / PNG / TIFF (Max 15MB)'}
                     </span>
                   </div>
                 )}
               </div>
               {selectedFile && mode !== 'border_video' && (
-                <span className="text-[10px] text-paper truncate">{selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                <span className="text-[10px] text-slate-700 font-mono truncate">{selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)</span>
               )}
             </div>
           )}
 
           {/* Model & Runtime Parameters */}
           {mode === 'drone_image' && (
-            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/[0.06]">
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-muted uppercase">DRONE DETECTOR MODEL</label>
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-mono text-slate-600 uppercase font-semibold">DRONE DETECTOR MODEL</label>
                 <select
                   value={droneModel}
                   onChange={(e) => setDroneModel(e.target.value as any)}
                   disabled={isProcessing}
-                  className="bg-elevated border border-white/[0.1] rounded px-2 py-1 text-paper text-xs outline-none"
+                  className="bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-800 text-xs outline-none focus:border-accent shadow-sm"
                 >
                   <option value="visdrone_only">VisDrone YOLOv8 (Frozen baseline)</option>
                   <option value="unified">Unified Drone 20ep (Multi-dataset)</option>
                 </select>
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-muted uppercase">CONFIDENCE THRESHOLD ({confidenceThreshold.toFixed(2)})</label>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex justify-between items-center text-[10px] font-mono text-slate-600 uppercase font-semibold">
+                  <span>CONFIDENCE THRESHOLD</span>
+                  <span className="text-accent font-bold">{(confidenceThreshold * 100).toFixed(0)}%</span>
+                </div>
                 <input
                   type="range"
                   min="0.10"
@@ -619,16 +717,19 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   value={confidenceThreshold}
                   onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
                   disabled={isProcessing}
-                  className="accent-accent"
+                  className="accent-accent mt-1.5"
                 />
               </div>
             </div>
           )}
 
           {mode === 'border_video' && (
-            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/[0.06]">
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-muted uppercase">FRAME STRIDE: {frameStride}</label>
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex justify-between items-center text-[10px] font-mono text-slate-600 uppercase font-semibold">
+                  <span>FRAME STRIDE</span>
+                  <span className="text-accent font-bold">{frameStride}</span>
+                </div>
                 <input
                   type="range"
                   min="1"
@@ -637,12 +738,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   value={frameStride}
                   onChange={(e) => setFrameStride(parseInt(e.target.value))}
                   disabled={isProcessing}
-                  className="accent-accent"
+                  className="accent-accent mt-1.5"
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-muted uppercase">MAX FRAMES TO PROCESS: {maxFrames}</label>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex justify-between items-center text-[10px] font-mono text-slate-600 uppercase font-semibold">
+                  <span>MAX FRAMES TO PROCESS</span>
+                  <span className="text-accent font-bold">{maxFrames}</span>
+                </div>
                 <input
                   type="range"
                   min="10"
@@ -651,7 +755,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   value={maxFrames}
                   onChange={(e) => setMaxFrames(parseInt(e.target.value))}
                   disabled={isProcessing}
-                  className="accent-accent"
+                  className="accent-accent mt-1.5"
                 />
               </div>
             </div>
@@ -659,27 +763,40 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
           {/* Error and Status Displays */}
           {fileError && (
-            <div className="p-3 rounded bg-status-critical/10 border border-status-critical/30 text-status-critical text-[11px] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px]">warning</span>
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-800 text-[11px] font-mono flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-rose-600 shrink-0">warning</span>
               <span>{fileError}</span>
             </div>
           )}
 
           {errorMessage && (
-            <div className="p-3 rounded bg-status-critical/10 border border-status-critical/30 text-status-critical text-[11px] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px]">error</span>
-              <span>{errorMessage}</span>
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-800 text-[11px] font-mono flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-rose-600 shrink-0">error</span>
+                <span>{errorMessage}</span>
+              </div>
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="text-rose-500 hover:text-rose-800 text-[10px] font-bold underline"
+              >
+                DISMISS
+              </button>
             </div>
           )}
 
           {isProcessing && (
-            <div className="p-3 rounded bg-status-ai/10 border border-status-ai/20 text-status-ai text-[11px] space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
-                <span className="font-semibold tracking-wide">{statusMessage}</span>
+            <div className="p-3.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 text-[11px] font-mono space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-sky-600 animate-spin">progress_activity</span>
+                  <span className="font-semibold tracking-wide">{statusMessage}</span>
+                </div>
+                <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-2 py-0.5 rounded">
+                  {progressPercent > 0 ? `${progressPercent}%` : 'IN PROGRESS'}
+                </span>
               </div>
               {progressPercent > 0 && (
-                <div className="w-full bg-graphite rounded-full h-1.5 overflow-hidden border border-white/[0.08]">
+                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                   <div
                     className="bg-accent h-full transition-all duration-300 ease-out"
                     style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
@@ -691,19 +808,30 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="h-14 px-6 flex items-center justify-between border-t border-white/[0.08] bg-[#0B0F14]">
-          <button
-            onClick={onClose}
-            disabled={isProcessing}
-            className="px-4 py-1.5 rounded border border-white/[0.1] text-muted hover:text-paper transition-all disabled:opacity-40"
-          >
-            CANCEL
-          </button>
+        <div className="h-16 px-6 flex items-center justify-between border-t border-slate-200 bg-slate-50">
+          {/* Always-interactive Cancel / Abort button */}
+          {isProcessing ? (
+            <button
+              onClick={() => handleCancelOrClose(false)}
+              className="px-4 py-2 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 font-mono font-bold hover:bg-rose-100 transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+              title="Interrupt and abort in-flight inference safely"
+            >
+              <span className="material-symbols-outlined text-[16px] text-rose-600">cancel</span>
+              <span>CANCEL INFERENCE</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => handleCancelOrClose(true)}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-mono hover:bg-slate-100 transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              CANCEL
+            </button>
+          )}
 
           <button
             onClick={handleExecute}
             disabled={isProcessing || (mode === 'damage_pair' && (pairValidationStatus.isCompatible === false || pairValidationStatus.isValidating))}
-            className="px-5 py-1.5 rounded bg-accent text-graphite font-bold tracking-wider hover:bg-accent/90 transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-5 py-2 rounded-lg bg-accent text-white font-mono font-bold tracking-wider hover:bg-accent-hover transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer"
             title={
               mode === 'damage_pair' && pairValidationStatus.isCompatible === false
                 ? 'Execution blocked: Bi-temporal imagery pair mismatch (PAIR_MISMATCH)'
@@ -717,7 +845,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                <span className="material-symbols-outlined text-[18px]">play_arrow</span>
                 <span>EXECUTE INFERENCE</span>
               </>
             )}

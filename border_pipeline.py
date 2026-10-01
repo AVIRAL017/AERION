@@ -38,14 +38,15 @@ class BorderPipeline:
             history_length=history_length
         )
 
-        # --------------------------------------------------
-        # Zone analyzer
-        # --------------------------------------------------
-
-        self.zone_analyzer = BorderZoneAnalyzer(
-            zone_polygon=zone_polygon,
-            dwell_threshold=dwell_threshold
-        )
+        if zone_polygon and len(zone_polygon) >= 3:
+            self.zone_analyzer = BorderZoneAnalyzer(
+                zone_polygon=zone_polygon,
+                dwell_threshold=dwell_threshold
+            )
+            self.zone_polygon = zone_polygon
+        else:
+            self.zone_analyzer = None
+            self.zone_polygon = None
 
         # --------------------------------------------------
         # Border intelligence
@@ -58,8 +59,6 @@ class BorderPipeline:
         # --------------------------------------------------
 
         self.event_filter = BorderEventFilter()
-
-        self.zone_polygon = zone_polygon
 
     # ======================================================
     # PROCESS FRAME
@@ -170,67 +169,84 @@ class BorderPipeline:
             if detection.get("track_id") is None:
                 continue
 
-            # --------------------------------------------------
-            # Zone analysis
-            # --------------------------------------------------
-
-            zone_result = (
-                self.zone_analyzer.analyze(
-                    detection
-                )
-            )
-
-            combined = {
-                **detection,
-                **zone_result
-            }
-
-            # --------------------------------------------------
-            # Border intelligence
-            # --------------------------------------------------
-
-            intelligence = (
-                self.intelligence.analyze(
-                    combined,
-                    self.zone_polygon
-                )
-            )
-
-            # --------------------------------------------------
-            # Event filter
-            # --------------------------------------------------
-
-            event_result = (
-                self.event_filter.evaluate(
-                    intelligence,
-                    frame_number
-                )
-            )
-
-            # --------------------------------------------------
-            # Add event information
-            # --------------------------------------------------
-
-            intelligence.update(
-                event_result
-            )
-
-            # --------------------------------------------------
-            # Register only real alerts
-            # --------------------------------------------------
-
-            if intelligence.get(
-                "border_alert",
-                False
-            ):
-
-                self.event_filter.register_alert(
-                    intelligence,
-                    frame_number
+            if self.zone_analyzer is not None:
+                zone_result = (
+                    self.zone_analyzer.analyze(
+                        detection
+                    )
                 )
 
-            enriched.append(
-                intelligence
-            )
+                combined = {
+                    **detection,
+                    **zone_result
+                }
+
+                # --------------------------------------------------
+                # Border intelligence
+                # --------------------------------------------------
+
+                intelligence = (
+                    self.intelligence.analyze(
+                        combined,
+                        self.zone_polygon
+                    )
+                )
+
+                # --------------------------------------------------
+                # Event filter
+                # --------------------------------------------------
+
+                event_result = (
+                    self.event_filter.evaluate(
+                        intelligence,
+                        frame_number
+                    )
+                )
+
+                # --------------------------------------------------
+                # Add event information
+                # --------------------------------------------------
+
+                intelligence.update(
+                    event_result
+                )
+
+                # --------------------------------------------------
+                # Register only real alerts
+                # --------------------------------------------------
+
+                if intelligence.get(
+                    "border_alert",
+                    False
+                ):
+
+                    self.event_filter.register_alert(
+                        intelligence,
+                        frame_number
+                    )
+
+                enriched.append(
+                    intelligence
+                )
+            else:
+                # No border zone configured: zone and threat are truthfully UNAVAILABLE
+                no_zone_record = {
+                    **detection,
+                    "inside_restricted_zone": False,
+                    "distance_to_zone": None,
+                    "previous_distance_to_zone": None,
+                    "approach_score": 0.0,
+                    "direction_relation": "no_zone_configured",
+                    "direction_alignment": 0.0,
+                    "zone_entry": False,
+                    "zone_exit": False,
+                    "zone_status": "NO_ZONE_CONFIGURED",
+                    "border_priority": "UNAVAILABLE",
+                    "border_activity_score": None,
+                    "border_alert": False,
+                    "threat_level": "UNAVAILABLE",
+                    "threat_reason": "No border zone configured.",
+                }
+                enriched.append(no_zone_record)
 
         return enriched

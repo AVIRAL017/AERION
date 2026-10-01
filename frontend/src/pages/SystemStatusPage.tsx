@@ -40,70 +40,74 @@ export const SystemStatusPage: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full w-full overflow-y-auto custom-scrollbar bg-graphite p-8">
-      <div className="max-w-4xl mx-auto w-full space-y-6">
-        <div className="border-b border-white/[0.06] pb-4">
-          <h1 className="text-base font-semibold text-white tracking-wide uppercase font-sans">
-            SYSTEM STATUS & ORCHESTRATION PROBES
-          </h1>
-          <p className="text-xs text-muted font-mono">
-            FASTAPI /HEALTH AND /READY PROBE TELEMETRY
+    <div className="flex-1 flex flex-col h-full w-full overflow-y-auto custom-scrollbar bg-slate-50 p-6 sm:p-8">
+      <div className="max-w-5xl mx-auto w-full space-y-6">
+        <div className="border-b border-slate-200 pb-5">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-accent text-[22px]">monitor_heart</span>
+            <h1 className="text-lg font-bold text-slate-900 tracking-wide uppercase font-sans">
+              SYSTEM STATUS & ORCHESTRATION PROBES
+            </h1>
+          </div>
+          <p className="text-xs text-slate-500 font-mono mt-0.5">
+            FASTAPI AUTOMATED HEALTHCHECK AND SUBSYSTEM RUNTIME TELEMETRY
           </p>
         </div>
 
         {/* Liveness Card */}
-        <div className="p-5 bg-panel border border-white/[0.06] rounded-lg">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-mono text-muted uppercase">LIVENESS PROBE (GET /HEALTH)</span>
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-status-success/10 text-status-success border border-status-success/20">
+        <div className="card-3d p-6 bg-white border border-slate-200 rounded-xl space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <span className="text-xs font-mono text-slate-700 uppercase font-bold">LIVENESS PROBE (GET /HEALTH)</span>
+            <span className="px-3 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
               {health?.status?.toUpperCase() || 'UNKNOWN'}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-4 text-xs font-mono">
-            <div>
-              <span className="text-faint block">API VERSION:</span>
-              <span className="text-paper">{health?.version || 'v1'}</span>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-mono">
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-slate-400 block text-[10px] uppercase">API VERSION</span>
+              <span className="text-slate-900 font-bold">{health?.version || 'v1'}</span>
             </div>
-            <div>
-              <span className="text-faint block">ENVIRONMENT:</span>
-              <span className="text-paper">{health?.environment || 'development'}</span>
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-slate-400 block text-[10px] uppercase">ENVIRONMENT</span>
+              <span className="text-slate-900 font-bold">{health?.environment || 'development'}</span>
             </div>
-            <div className="col-span-2">
-              <span className="text-faint block">PROBE TIMESTAMP:</span>
-              <span className="text-paper">{health?.timestamp || '--'}</span>
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 col-span-2 md:col-span-1">
+              <span className="text-slate-400 block text-[10px] uppercase">PROBE TIMESTAMP</span>
+              <span className="text-slate-900 font-bold">{health?.timestamp || '--'}</span>
             </div>
           </div>
         </div>
 
         {/* Readiness Card */}
-        <div className="p-5 bg-panel border border-white/[0.06] rounded-lg">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-mono text-muted uppercase">READINESS SUBSYSTEMS (GET /READY)</span>
+        <div className="card-3d p-6 bg-white border border-slate-200 rounded-xl space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <span className="text-xs font-mono text-slate-700 uppercase font-bold">READINESS SUBSYSTEMS (GET /READY)</span>
+            <span className="text-[11px] font-mono text-slate-400">POSTGRES • REDIS • ONNX • ML INFERENCE</span>
           </div>
 
           {readyData?.components ? (
             <div className="space-y-3 font-mono text-xs">
               {Object.entries(readyData.components).map(([key, value]: [string, any]) => (
-                <div key={key} className="p-3 bg-graphite/40 rounded border border-white/[0.04]">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-paper uppercase">{key}</span>
+                <div key={key} className="card-3d-interactive p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-slate-900 font-bold uppercase tracking-wider">{key}</span>
                     <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${
                         value.status === 'ready'
-                          ? 'bg-status-success/10 text-status-success'
-                          : 'bg-status-warning/10 text-status-warning'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
                       }`}
                     >
                       {value.status}
                     </span>
                   </div>
-                  <p className="text-[11px] text-faint">{value.details}</p>
+                  <p className="text-[11px] text-slate-500">{value.details}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-xs font-mono text-faint">
-              READINESS DATA PENDING INSPECTION
+            <div className="text-xs font-mono text-slate-400 py-4 text-center">
+              READINESS DATA PENDING QUERY EXECUTION
             </div>
           )}
         </div>

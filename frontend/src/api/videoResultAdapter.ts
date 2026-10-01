@@ -115,6 +115,11 @@ export function normalizeVideoAnalysisResponse(
     processed_frames: processedFrames,
     total_video_frames: totalFrames,
     potential_unauthorized_crossing_indicators: crossingIndicators,
+    threat_timeline: rawResponse.threat_timeline || report.threat_timeline || null,
+    vehicle_summary: rawResponse.vehicle_summary || report.vehicle_summary || null,
+    demo_zone_activity: rawResponse.demo_zone_activity || report.demo_zone_activity || null,
+    threat_level_changes: rawResponse.threat_level_changes || report.threat_level_changes || null,
+    evidence_frames: rawResponse.evidence_frames || report.evidence_frames || null,
     report,
   };
 }
@@ -142,6 +147,11 @@ function createEmptyVideoResult(id: string): AERIONAnalysisResultData {
     processed_frames: 0,
     total_video_frames: 0,
     potential_unauthorized_crossing_indicators: [],
+    threat_timeline: null,
+    vehicle_summary: null,
+    demo_zone_activity: null,
+    threat_level_changes: null,
+    evidence_frames: null,
     report: null,
   };
 }

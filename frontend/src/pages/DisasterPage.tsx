@@ -74,6 +74,8 @@ export const DisasterPage: React.FC = () => {
   const [routeLoading, setRouteLoading] = useState<boolean>(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [activeGeoJson, setActiveGeoJson] = useState<any | null>(null);
+  const [routeCriterion, setRouteCriterion] = useState<'fastest' | 'shortest'>('fastest');
+  const [mobileTab, setMobileTab] = useState<'imagery' | 'intelligence'>('imagery');
 
   // Map Refs for Route Leaflet Map
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -269,7 +271,8 @@ export const DisasterPage: React.FC = () => {
           operatorLocation.longitude,
           shelterLat,
           shelterLon,
-          'driving-car'
+          'driving-car',
+          routeCriterion
         );
 
         if (resp.success && resp.data && resp.data.status === 'AVAILABLE') {
@@ -292,7 +295,7 @@ export const DisasterPage: React.FC = () => {
     };
 
     fetchRoute();
-  }, [operatorLocation, selectedShelter]);
+  }, [operatorLocation, selectedShelter, routeCriterion]);
 
   // Initialize and maintain inline Leaflet Route Map
   useEffect(() => {
@@ -631,11 +634,35 @@ export const DisasterPage: React.FC = () => {
   const postImgUrl = customPostUrl || damage?.post_image_url;
 
   return (
-    <div className="flex-1 flex h-full w-full overflow-hidden bg-graphite">
-      {/* ============================================================ */}
-      {/* 1. CENTRAL BI-TEMPORAL SPLIT-CURTAIN WORKSPACE                  */}
-      {/* ============================================================ */}
-      <section className="flex-1 relative flex flex-col border-r border-white/[0.06] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full w-full overflow-hidden bg-graphite">
+      {/* Mobile / Tablet Responsive Tab Switcher (<lg) */}
+      <div className="lg:hidden flex items-center justify-between border-b border-white/[0.08] bg-panel px-3 py-1.5 shrink-0 z-30">
+        <div className="flex rounded bg-elevated/80 border border-white/[0.08] p-0.5">
+          <button
+            onClick={() => setMobileTab('imagery')}
+            className={`px-3 py-1 rounded text-xs font-mono font-medium transition-all ${
+              mobileTab === 'imagery' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+            }`}
+          >
+            IMAGERY & DAMAGE
+          </button>
+          <button
+            onClick={() => setMobileTab('intelligence')}
+            className={`px-3 py-1 rounded text-xs font-mono font-medium transition-all ${
+              mobileTab === 'intelligence' ? 'bg-accent text-graphite font-bold shadow' : 'text-muted hover:text-paper'
+            }`}
+          >
+            INTELLIGENCE (1-7)
+          </button>
+        </div>
+        <span className="text-[10px] font-mono text-muted uppercase">DISASTER RESPONSE</span>
+      </div>
+
+      <div className="flex-1 flex flex-col lg:flex-row h-full w-full overflow-hidden">
+        {/* ============================================================ */}
+        {/* 1. CENTRAL BI-TEMPORAL SPLIT-CURTAIN WORKSPACE                  */}
+        {/* ============================================================ */}
+        <section className={`${mobileTab === 'imagery' ? 'flex' : 'hidden lg:flex'} flex-1 relative flex-col border-r border-white/[0.06] overflow-hidden`}>
         {/* Workspace Toolbar */}
         <div className="min-h-11 px-4 py-1.5 flex items-center justify-between gap-3 border-b border-white/[0.06] bg-panel/80 backdrop-blur z-20 overflow-x-auto custom-scrollbar">
           <div className="flex items-center gap-2.5 font-mono text-[11px] shrink-0">
@@ -741,7 +768,7 @@ export const DisasterPage: React.FC = () => {
         <div
           ref={containerRef}
           onMouseMove={displayMode === 'split' ? handleMouseMove : undefined}
-          className={`flex-1 relative bg-[#07090C] telemetry-grid overflow-hidden select-none ${displayMode === 'split' ? 'cursor-ew-resize' : ''}`}
+          className={`flex-1 relative bg-canvas telemetry-grid overflow-hidden select-none ${displayMode === 'split' ? 'cursor-ew-resize' : ''}`}
         >
           {preImgUrl && postImgUrl ? (
             <div className="relative w-full h-full">
@@ -923,7 +950,7 @@ export const DisasterPage: React.FC = () => {
       {/* ============================================================ */}
       {/* 1–7. COMPREHENSIVE RIGHT INTELLIGENCE PANEL (7-STEP WORKFLOW) */}
       {/* ============================================================ */}
-      <aside className="w-[440px] flex-shrink-0 bg-panel flex flex-col overflow-y-auto custom-scrollbar border-l border-white/[0.06]">
+      <aside className={`${mobileTab === 'intelligence' ? 'flex' : 'hidden lg:flex'} w-full lg:w-[440px] flex-shrink-0 bg-panel flex flex-col overflow-y-auto custom-scrollbar border-l border-white/[0.06]`}>
         {/* Panel Header */}
         <div className="p-4 border-b border-white/[0.06] bg-graphite/40">
           <div className="flex items-center justify-between">
@@ -1449,24 +1476,53 @@ export const DisasterPage: React.FC = () => {
               6. EVACUATION ROUTE
             </span>
             <span className="text-[9px] font-mono text-accent">
-              OPENROUTESERVICE
+              {routeData?.provider_name ? routeData.provider_name.toUpperCase() : 'MAPBOX / OPENROUTESERVICE'}
             </span>
+          </div>
+
+          {/* Route Criterion Selector (Shortest vs Fastest) */}
+          <div className="flex items-center justify-between bg-elevated/60 p-1.5 rounded border border-white/[0.06]">
+            <span className="text-[10px] font-mono text-muted">CRITERION:</span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setRouteCriterion('fastest')}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                  routeCriterion === 'fastest'
+                    ? 'bg-accent text-graphite font-bold shadow'
+                    : 'text-muted hover:text-paper'
+                }`}
+                title="Select fastest travel time trajectory"
+              >
+                FASTEST
+              </button>
+              <button
+                onClick={() => setRouteCriterion('shortest')}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                  routeCriterion === 'shortest'
+                    ? 'bg-accent text-graphite font-bold shadow'
+                    : 'text-muted hover:text-paper'
+                }`}
+                title="Select shortest distance trajectory"
+              >
+                SHORTEST
+              </button>
+            </div>
           </div>
 
           {/* Route Status Card */}
           {routeLoading ? (
             <div className="p-3 bg-graphite/40 rounded text-[11px] font-mono text-muted flex items-center justify-center gap-2">
               <span className="material-symbols-outlined text-accent animate-spin text-[16px]">progress_activity</span>
-              <span>CALCULATING REAL ROAD GRAPH TRAJECTORY...</span>
+              <span>EVALUATING REAL ROAD GRAPH ALTERNATIVES ({routeCriterion.toUpperCase()})...</span>
             </div>
           ) : selectedShelter && routeData && routeData.status === 'AVAILABLE' ? (
-            <div className="p-2.5 bg-graphite/60 border border-accent/40 rounded font-mono text-[11px] space-y-1.5">
+            <div className="p-2.5 bg-graphite/60 border border-accent/40 rounded font-mono text-[11px] space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-paper font-bold flex items-center gap-1">
+                <span className="text-paper font-bold flex items-center gap-1 truncate max-w-[240px]">
                   <span className="material-symbols-outlined text-accent text-[14px]">alt_route</span>
-                  <span>{selectedShelter.name} Corridor</span>
+                  <span className="truncate">{selectedShelter.name} Corridor</span>
                 </span>
-                <span className="px-1.5 py-0.2 rounded bg-status-success/15 text-status-success border border-status-success/30 text-[9px] font-bold">
+                <span className="px-1.5 py-0.2 rounded bg-status-success/15 text-status-success border border-status-success/30 text-[9px] font-bold shrink-0">
                   VIABLE ROAD
                 </span>
               </div>
@@ -1484,10 +1540,21 @@ export const DisasterPage: React.FC = () => {
                   </span>
                 </div>
                 <div>
-                  <span className="text-faint block">PROVIDER:</span>
-                  <span className="text-paper font-semibold">{routeData.provider_name || 'OpenRouteService'}</span>
+                  <span className="text-faint block">CRITERION:</span>
+                  <span className="text-accent uppercase font-semibold">
+                    {routeData.criterion || routeCriterion}
+                  </span>
                 </div>
               </div>
+              <div className="flex items-center justify-between text-[9px] text-faint pt-1 border-t border-white/[0.04]">
+                <span>PROVIDER: <span className="text-paper">{routeData.provider_name || 'Mapbox'}</span></span>
+                <span>ALTERNATIVES EVALUATED: <span className="text-accent">{routeData.alternative_routes_count || 1}</span></span>
+              </div>
+              {routeData.elevation_ascent_meters !== null && routeData.elevation_ascent_meters !== undefined && (
+                <div className="text-[9px] text-faint">
+                  ELEVATION ASCENT: <span className="text-paper">{routeData.elevation_ascent_meters} m</span>
+                </div>
+              )}
             </div>
           ) : routeError ? (
             <div className="p-2.5 bg-graphite/40 border border-status-warning/30 rounded font-mono text-[10px] space-y-1">
@@ -1520,7 +1587,7 @@ export const DisasterPage: React.FC = () => {
             </div>
             <div
               ref={mapContainerRef}
-              className="w-full h-52 rounded border border-white/[0.1] bg-[#07090C] overflow-hidden z-0"
+              className="w-full h-52 rounded-lg border border-border bg-slate-100 overflow-hidden z-0 shadow-xs"
             />
           </div>
         </div>
@@ -1567,6 +1634,7 @@ export const DisasterPage: React.FC = () => {
           </div>
         </div>
       </aside>
+      </div>
 
       {/* Upload Damage Pair Modal */}
       <UploadModal

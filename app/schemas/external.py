@@ -114,6 +114,9 @@ class NormalizedRouteRecord(BaseModel):
     is_evacuation_evaluated: bool = Field(default=False, description="True only if evaluated against hazard polygons")
     cached: bool = False
     evidence: Optional[EvidenceRecord] = None
+    criterion: str = Field(default="fastest", description="Route selection criterion: fastest or shortest")
+    alternative_routes_count: int = Field(default=1, description="Number of evaluated routes from provider")
+    alternatives_comparison: Optional[List[Dict[str, Any]]] = Field(default=None, description="Evaluated alternative routes metrics")
 
 
 # ============================================================================

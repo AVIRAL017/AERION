@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -41,10 +41,13 @@ class GoogleLoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: str
     organization_id: str
+    organization_name: Optional[str] = None
     email: str
     role: str
     auth_provider: str = "local"
     display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    preferences: Optional[Dict[str, Any]] = None
     is_active: bool
     created_at: datetime
 
@@ -78,4 +81,25 @@ class ResetPasswordRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str = Field(min_length=16, description="Cryptographic single-use reset token")
     new_password: str = Field(min_length=8, description="Minimum 8 characters")
+
+
+class UpdateProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: Optional[str] = Field(default=None, max_length=100)
+
+
+class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str = Field(min_length=1, description="Current password")
+    new_password: str = Field(min_length=8, description="Minimum 8 characters")
+
+
+class AvatarUploadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    avatar_base64: str = Field(description="Base64 encoded avatar image data")
+
+
+class UpdatePreferencesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preferences: Dict[str, Any] = Field(default_factory=dict, description="User preference key-value mapping")
 

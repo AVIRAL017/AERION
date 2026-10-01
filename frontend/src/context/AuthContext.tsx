@@ -10,6 +10,8 @@ interface AuthContextType {
   loginWithGoogle: (idToken: string) => Promise<boolean>;
   register: (payload: RegisterPayload) => Promise<boolean>;
   logout: () => void;
+  updateUser: (updatedUser: Partial<User>) => void;
+  refreshUser: () => Promise<void>;
   error: string | null;
 }
 
@@ -168,6 +170,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateUser = (updatedUser: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...updatedUser } : null));
+  };
+
+  const refreshUser = async () => {
+    try {
+      const res = await authApi.getMe();
+      if (res.success && res.data) {
+        setUser(res.data);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const logout = () => {
     authApi.logout().catch(() => {});
     localStorage.removeItem('aerion_access_token');
@@ -184,6 +201,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithGoogle,
         register,
         logout,
+        updateUser,
+        refreshUser,
         error,
       }}
     >

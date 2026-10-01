@@ -193,7 +193,7 @@ class TestBatch2GroundedIntelligenceAndE2E(unittest.IsolatedAsyncioTestCase):
         self.assertIn("seismic_events", res["geospatial_context"])
         # Weather context
         weather = res["external_context"]["weather"]
-        self.assertIn(weather.get("status"), ("AVAILABLE", "UNAVAILABLE", "RATE_LIMITED"))
+        self.assertIn(weather.get("status"), ("AVAILABLE", "UNAVAILABLE", "RATE_LIMITED", "TIMEOUT"))
         # Routing context
         routing = res["external_context"]["routing"]
         self.assertIn(routing.get("status"), ("AVAILABLE", "UNAVAILABLE", "AUTH_REQUIRED"))

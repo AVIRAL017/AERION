@@ -30,6 +30,7 @@ export const App: React.FC = () => {
             <Route path="/usage" element={<UsagePage />} />
             <Route path="/status" element={<SystemStatusPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/settings" element={<AccountPage />} />
           </Route>
 
 

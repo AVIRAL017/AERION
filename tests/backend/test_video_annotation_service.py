@@ -245,7 +245,7 @@ class TestVideoAnnotationService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.height, self.video_h)
         self.assertEqual(result.frame_count, 5)
         self.assertEqual(result.source_frame_count, 10)
-        self.assertEqual(result.codec, "mp4v")
+        self.assertEqual(result.codec, "avc1")
 
         # Verify disk artifact exists in storage
         stored_path = Path(self.temp_dir) / result.artifact_key

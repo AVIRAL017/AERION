@@ -89,6 +89,7 @@ async def calculate_route(
     dest_lat: float = Query(..., ge=-90.0, le=90.0, description="Destination WGS84 latitude"),
     dest_lon: float = Query(..., ge=-180.0, le=180.0, description="Destination WGS84 longitude"),
     profile: RouteProfile = Query(default=RouteProfile.DRIVING_CAR, description="Routing mode profile"),
+    criterion: str = Query(default="fastest", pattern="^(fastest|shortest)$", description="Route selection criterion: fastest or shortest"),
     service: ExternalRoutingService = Depends(get_routing_service),
     _user: dict = Depends(get_current_user_payload),
 ) -> ResponseEnvelope[NormalizedRouteRecord]:
@@ -102,6 +103,7 @@ async def calculate_route(
         dest_lat=dest_lat,
         dest_lon=dest_lon,
         profile=profile,
+        criterion=criterion,
     )
     meta = MetaBlock(
         timestamp=utc_now_iso(),
