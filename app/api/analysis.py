@@ -1419,6 +1419,9 @@ class CreateBorderJobRequest(BaseModel):
     latitude: Optional[float] = Field(default=None, ge=-90.0, le=90.0)
     longitude: Optional[float] = Field(default=None, ge=-180.0, le=180.0)
     generate_annotated_video: bool = Field(default=True)
+    zone_polygon: Optional[List[List[float]]] = Field(default=None, description="Explicit user-configured border/demo zone polygon [(x1,y1), (x2,y2), ...]")
+    sector_id: Optional[str] = Field(default=None, description="Explicit sector ID")
+    sector_name: Optional[str] = Field(default=None, description="Explicit sector title/label")
     idempotency_key: Optional[str] = Field(default=None, description="Client-provided key to guarantee idempotent submission")
 
 
@@ -1782,9 +1785,9 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                 frame_stride=req.frame_stride,
                 terrain_context=req.terrain_context,
                 generate_annotated_video=req.generate_annotated_video,
-                zone_polygon=req.zone_polygon,
-                sector_id=req.sector_id,
-                sector_name=req.sector_name,
+                zone_polygon=getattr(req, "zone_polygon", None),
+                sector_id=getattr(req, "sector_id", None),
+                sector_name=getattr(req, "sector_name", None),
             )
             annotated_video_res = report_data.get("annotated_video_artifact") or report_data.get("annotated_video")
             if annotated_video_res:

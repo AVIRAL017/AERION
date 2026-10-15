@@ -280,6 +280,9 @@ export const analysisApi = {
     latitude?: number;
     longitude?: number;
     generate_annotated_video?: boolean;
+    zone_polygon?: number[][];
+    sector_id?: string;
+    sector_name?: string;
     idempotency_key?: string;
   }, options?: RequestInit): Promise<APIEnvelope<any>> => {
     return apiClient.post('/analysis/jobs/border', payload, options);

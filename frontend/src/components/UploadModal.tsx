@@ -417,14 +417,18 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 onClose();
                 return;
               } else if (job.status === 'CANCELLED' || job.status === 'cancelled') {
-                throw new Error('Analysis job was cancelled.');
+                const cancelErr = new Error('Analysis job was cancelled.');
+                (cancelErr as any).isJobTerminal = true;
+                throw cancelErr;
               } else if (job.status === 'FAILED' || job.status === 'PROCESSING_FAILED' || job.status === 'failed') {
-                throw new Error(job.error || `Analysis job failed with status: ${job.status}`);
+                const failErr = new Error(job.error ? `Analysis job failed: ${job.error}` : `Analysis job failed with status: ${job.status}`);
+                (failErr as any).isJobTerminal = true;
+                throw failErr;
               }
             }
           } catch (pollErr: any) {
             if (controller.signal.aborted) return;
-            if (pollErr.message && (pollErr.message.includes('failed') || pollErr.message.includes('cancelled'))) {
+            if (pollErr.isJobTerminal || (pollErr.message && (pollErr.message.toLowerCase().includes('failed') || pollErr.message.toLowerCase().includes('cancelled')))) {
               throw pollErr;
             }
           }

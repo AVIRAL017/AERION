@@ -235,5 +235,40 @@ class TestBatch3JobsAndResilience(unittest.IsolatedAsyncioTestCase):
         self.assertIn("exceeds maximum permitted limit", error["message"])
 
 
+    def test_api_submit_border_job_fields(self):
+        """Test POST /api/v1/analysis/jobs/border accepts zone_polygon and sector metadata."""
+        import cv2
+        import numpy as np
+        import tempfile
+
+        # Generate a minimal 2-frame video
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_vid:
+            tmp_path = Path(tmp_vid.name)
+        
+        writer = cv2.VideoWriter(str(tmp_path), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (160, 120))
+        for _ in range(2):
+            writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+        writer.release()
+
+        try:
+            payload = {
+                "project_id": "00000000-0000-0000-0000-000000000001",
+                "video_path": str(tmp_path),
+                "zone_polygon": [[10.0, 10.0], [50.0, 10.0], [50.0, 50.0], [10.0, 50.0]],
+                "sector_id": "TEST-SECTOR-1",
+                "sector_name": "Test Border Sector",
+                "max_frames": 2,
+                "frame_stride": 1,
+                "generate_annotated_video": False,
+            }
+            res = self.client.post("/api/v1/analysis/jobs/border", json=payload, headers=self.headers)
+            self.assertEqual(res.status_code, 202)
+            job_id = res.json()["data"]["job_id"]
+            self.assertIsNotNone(job_id)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()
+
