@@ -1,18 +1,16 @@
 """
 AERION — Deterministic Operational PDF Situation Report Generator
 Produces auditable, evidence-first multi-page PDF operational reports.
+Light theme aligned with AERION modern tactical UI standard.
 
 Strict Invariants:
 1. Ground facts and sensor evidence are strictly segregated from AI advisory.
 2. Complete detection inventory: ALL detections are represented in tabular audit format.
-3. High-resolution visual evidence is the primary centerpiece (Page 2).
+3. High-resolution visual evidence is the primary centerpiece (Page 2), strictly scaled to prevent text overlap.
 4. Frozen model architecture, version, and SHA256 hashes are displayed explicitly.
 5. Zero fabrication: No unsupported threat levels, risk scores, or artificial geographic locations.
-6. Multi-page standard:
-   - Page 1: Executive Summary, Metadata, Confidence Statistics / Damage Assessment & Scope
-   - Page 2: Visual Evidence (Annotated Perception Canvas / Damage Mask, Legend & Hash)
-   - Page 3+: Complete Detection Inventory (Border/Drone/Satellite) OR Evacuation Logistics & Shelters (Disaster)
-   - Page Final: Methodology, Model Lineage, Limitations & Human Verification Statement
+6. Real-time Mistral AI advisory (open-mistral-nemo) is prominently formatted and segregated.
+7. Clean document borders and professional light theme matching the web console.
 """
 
 from __future__ import annotations
@@ -57,26 +55,26 @@ FROZEN_MODEL_REGISTRY: Dict[str, Dict[str, str]] = {
 }
 
 CLASS_COLOR_HEX: Dict[str, str] = {
-    "pedestrian": "#FF007F",
-    "person": "#FF007F",
-    "people": "#FF007F",
-    "car": "#00E5FF",
-    "small_vehicle": "#00E5FF",
-    "light_vehicle": "#00E5FF",
-    "van": "#76FF03",
-    "truck": "#FFD600",
-    "large_vehicle": "#FFD600",
-    "heavy_vehicle": "#FFD600",
-    "bus": "#FF9100",
-    "motorcycle": "#E040FB",
-    "bicycle": "#00E676",
-    "tent": "#FF5252",
-    "shelter": "#FF5252",
-    "plane": "#40C4FF",
-    "ship": "#00B0FF",
-    "storage_tank": "#B388FF",
-    "bridge": "#69F0AE",
-    "harbor": "#FFD740",
+    "pedestrian": "#E11D48",
+    "person": "#E11D48",
+    "people": "#E11D48",
+    "car": "#0284C7",
+    "small_vehicle": "#0284C7",
+    "light_vehicle": "#0284C7",
+    "van": "#16A34A",
+    "truck": "#D97706",
+    "large_vehicle": "#D97706",
+    "heavy_vehicle": "#D97706",
+    "bus": "#EA580C",
+    "motorcycle": "#9333EA",
+    "bicycle": "#059669",
+    "tent": "#DC2626",
+    "shelter": "#DC2626",
+    "plane": "#0284C7",
+    "ship": "#0369A1",
+    "storage_tank": "#7C3AED",
+    "bridge": "#0D9488",
+    "harbor": "#CA8A04",
     "damaged_building": "#EF4444",
     "minor_damage": "#F59E0B",
 }
@@ -283,7 +281,7 @@ def generate_situation_report_pdf(
 ) -> bytes:
     """
     Generates an evidence-first, multi-page deterministic PDF operational report.
-    Supports Border Surveillance (YOLOv8s), Satellite (DOTA OBB), and Disaster (Siamese CD).
+    Clean light theme matching AERION web console with proper outer page borders.
     """
     buf = io.BytesIO()
 
@@ -295,13 +293,24 @@ def generate_situation_report_pdf(
     generated_at = str(report_data.get("generated_at", datetime.now(timezone.utc).isoformat()))
     executive_summary = str(report_data.get("executive_summary", "Operational perception report."))
     verified_facts: List[str] = report_data.get("verified_facts", [])
-    derived_metrics: Dict[str, Any] = report_data.get("derived_metrics", {})
     detection_summary: Optional[Dict[str, Any]] = report_data.get("detection_summary")
     damage_summary: Optional[Dict[str, Any]] = report_data.get("damage_summary")
     evidence_lineage: List[Dict[str, Any]] = report_data.get("evidence_lineage", [])
     artifacts: List[Dict[str, Any]] = report_data.get("artifacts", [])
     limitations: List[str] = report_data.get("limitations", [])
     source_type = str(report_data.get("analysis_type") or "drone").lower()
+
+    # Real-Time Mistral AI Advisory extraction
+    ai_advisory = (
+        report_data.get("ai_advisory")
+        or report_data.get("advisory")
+        or report_data.get("mistral_advisory")
+        or {}
+    )
+    advisory_text = str(ai_advisory.get("advisory_text") or ai_advisory.get("summary") or "").strip()
+    advisory_model = str(ai_advisory.get("model") or "open-mistral-nemo")
+    advisory_recommendations: List[str] = ai_advisory.get("recommended_actions") or []
+    advisory_findings: List[str] = ai_advisory.get("key_findings") or []
 
     # Geo context and shelter enrichment
     geo_context = report_data.get("geo_context") or location_context or {}
@@ -357,19 +366,22 @@ def generate_situation_report_pdf(
     # Visual Evidence image
     img_rgb, art_key_found, art_sha_found, art_meta = _resolve_annotated_image(report_data)
 
-    # Styling Palette
-    bg_dark = "#0B0F14"
-    card_bg = "#151B23"
-    border_col = "#242E3A"
-    text_white = "#FFFFFF"
-    text_accent = "#38D5F8"
-    text_muted = "#8A9BA8"
-    card_props = dict(boxstyle="round,pad=0.5", facecolor=card_bg, edgecolor=border_col, alpha=0.95)
+    # Clean Website Light Theme Palette
+    bg_page = "#FFFFFF"
+    card_bg = "#F8FAFC"
+    border_col = "#E2E8F0"
+    border_outer = "#CBD5E1"
+    text_title = "#0F172A"
+    text_body = "#1E293B"
+    text_muted = "#64748B"
+    text_faint = "#94A3B8"
+    text_accent = "#0284C7"
+    card_props = dict(boxstyle="round,pad=0.4", facecolor=card_bg, edgecolor=border_col, alpha=1.0)
+    advisory_card_props = dict(boxstyle="round,pad=0.4", facecolor="#F0F9FF", edgecolor="#BAE6FD", alpha=1.0)
 
     # Page budgeting
     rows_per_page = 22
     if is_disaster:
-        # Page 1: Damage Exec Summary | Page 2: Visual Evidence | Page 3: Evacuation Shelters & Routing | Page 4: Lineage
         total_pages = 4
     else:
         if total_detections_count == 0:
@@ -387,26 +399,32 @@ def generate_situation_report_pdf(
         d_info["Subject"] = f"International Border: {rel_border} | Geofence: {geo_status} | Analysis ID: {analysis_id} | SHA256: {model_hash}"
         d_info["Keywords"] = f"AERION, Visual-Evidence, Deterministic, Zero-Fabrication, Model:{model_name}, SHA256:{model_hash}"
 
-        def _add_footer(ax: plt.Axes, page_num: int):
-            footer_text = f"PAGE {page_num} OF {total_pages} // CONFIDENTIAL // AERION SECURE PLATFORM // STRICT ZERO-FABRICATION"
-            ax.text(0.06, 0.02, footer_text, color=text_muted, fontsize=6.5, fontfamily="monospace")
+        def _add_page_decorations(ax: plt.Axes, page_num: int, subtitle: str):
+            # Outer document border
+            border_rect = plt.Rectangle((0.025, 0.02), 0.95, 0.96, fill=False, edgecolor=border_outer, linewidth=1.2, transform=ax.transAxes)
+            ax.add_patch(border_rect)
 
-        def _add_header(ax: plt.Axes, subtitle: str):
-            ax.text(0.06, 0.96, "AERION DEFENSE & DISASTER PLATFORM", color=text_accent, fontsize=12, fontweight="bold", fontfamily="sans-serif")
-            ax.text(0.06, 0.935, f"OPERATIONAL REPORT // {subtitle}", color=text_white, fontsize=9, fontweight="bold", fontfamily="sans-serif")
-            ax.text(0.06, 0.915, f"ANALYSIS ID: {analysis_id}    |    UTC: {generated_at}", color=text_muted, fontsize=7, fontfamily="monospace")
+            # Header
+            ax.text(0.06, 0.955, "AERION DEFENSE & DISASTER PLATFORM", color=text_accent, fontsize=11, fontweight="bold", fontfamily="sans-serif")
+            ax.text(0.06, 0.932, f"OPERATIONAL SITUATION REPORT // {subtitle}", color=text_title, fontsize=8.5, fontweight="bold", fontfamily="sans-serif")
+            ax.text(0.06, 0.912, f"ANALYSIS ID: {analysis_id}   |   UTC: {generated_at}", color=text_muted, fontsize=6.8, fontfamily="monospace")
             ax.axhline(y=0.90, xmin=0.06, xmax=0.94, color=border_col, linewidth=1)
 
+            # Footer
+            ax.axhline(y=0.045, xmin=0.06, xmax=0.94, color=border_col, linewidth=0.8)
+            footer_text = f"PAGE {page_num} OF {total_pages} // AERION SECURE SITUATION REPORT // ZERO-FABRICATION AUDIT STANDARD"
+            ax.text(0.06, 0.03, footer_text, color=text_muted, fontsize=6.2, fontfamily="monospace")
+
         # ====================================================================
-        # PAGE 1: EXECUTIVE SUMMARY
+        # PAGE 1: EXECUTIVE SUMMARY, METRICS & MISTRAL AI ADVISORY
         # ====================================================================
         fig1, ax1 = plt.subplots(figsize=(8.5, 11), dpi=150)
         ax1.axis("off")
-        fig1.patch.set_facecolor(bg_dark)
-        _add_header(ax1, "EXECUTIVE SUMMARY & OPERATIONAL METRICS")
+        fig1.patch.set_facecolor(bg_page)
+        _add_page_decorations(ax1, 1, "EXECUTIVE SUMMARY & GROUNDED AI ADVISORY")
 
         # 1. Identity & Execution Metadata
-        ax1.text(0.06, 0.875, "1. CANONICAL ANALYSIS IDENTITY & EXECUTION METADATA", color=text_white, fontsize=8.2, fontweight="bold")
+        ax1.text(0.06, 0.875, "1. CANONICAL ANALYSIS IDENTITY & EXECUTION METADATA", color=text_title, fontsize=7.8, fontweight="bold")
         meta_lines = (
             f"ANALYSIS ID:     {analysis_id}\n"
             f"JOB ID:          {job_id}\n"
@@ -415,7 +433,7 @@ def generate_situation_report_pdf(
             f"STATUS:          {status_str}\n"
             f"SOURCE ASSET:    {report_data.get('input_asset_reference') or 'PERSISTED_DATABASE_RECORD'}"
         )
-        ax1.text(0.06, 0.855, meta_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+        ax1.text(0.06, 0.855, meta_lines, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
         is_pair_validation_failed = (
             (damage_summary is not None and damage_summary.get("status") == "PAIR_VALIDATION_FAILED")
@@ -425,7 +443,7 @@ def generate_situation_report_pdf(
 
         if is_disaster and is_pair_validation_failed:
             # 2. Disaster Damage Pair Validation Failure Audit
-            ax1.text(0.06, 0.725, "2. BI-TEMPORAL PAIR VALIDATION AUDIT (DAMAGE INFERENCE HALTED)", color="#EF4444", fontsize=8.2, fontweight="bold")
+            ax1.text(0.06, 0.730, "2. BI-TEMPORAL PAIR VALIDATION AUDIT (DAMAGE INFERENCE HALTED)", color="#DC2626", fontsize=7.8, fontweight="bold")
             pair_v = (damage_summary.get("pair_validation") if damage_summary else {}) or {}
             pair_status = pair_v.get("status", "FAILED")
             rejection_reason = (
@@ -441,10 +459,10 @@ def generate_situation_report_pdf(
                 f"RISK ASSESSMENT:            NOT AVAILABLE — DAMAGE PAIR INVALID\n"
                 f"OPERATIONAL INVARIANT:      Zero synthetic structural inflation. Inference halted upstream."
             )
-            ax1.text(0.06, 0.705, dmg_lines, color="#FCA5A5", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+            ax1.text(0.06, 0.710, dmg_lines, color="#B91C1C", fontsize=6.5, fontfamily="monospace", bbox=dict(boxstyle="round,pad=0.4", facecolor="#FEF2F2", edgecolor="#FECACA"), va="top")
         elif is_disaster:
             # 2. Disaster Damage Metrics
-            ax1.text(0.06, 0.725, "2. BI-TEMPORAL DAMAGE ASSESSMENT & RECEPTIVE FIELD METRICS", color=text_white, fontsize=8.2, fontweight="bold")
+            ax1.text(0.06, 0.730, "2. BI-TEMPORAL DAMAGE ASSESSMENT & RECEPTIVE FIELD METRICS", color=text_title, fontsize=7.8, fontweight="bold")
             dmg_pct = damage_summary.get("damage_percentage", 0.0) if damage_summary else 0.0
             dmg_cls = damage_summary.get("classification", "NO_SIGNIFICANT_DAMAGE") if damage_summary else "NO_DAMAGE"
             dmg_px = damage_summary.get("damage_pixels", 0) if damage_summary else 0
@@ -459,10 +477,10 @@ def generate_situation_report_pdf(
                 f"DETECTION METHOD:          Siamese bi-temporal differential change detection.\n"
                 f"VALIDATION INVARIANT:      Zero synthetic structural inflation. Measured directly on raster."
             )
-            ax1.text(0.06, 0.705, dmg_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+            ax1.text(0.06, 0.710, dmg_lines, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
         else:
             # 2. Detection Metrics & Confidence Statistics
-            ax1.text(0.06, 0.725, "2. VERIFIED DETECTION INVENTORY & CONFIDENCE STATISTICS", color=text_white, fontsize=8.2, fontweight="bold")
+            ax1.text(0.06, 0.730, "2. VERIFIED DETECTION INVENTORY & CONFIDENCE STATISTICS", color=text_title, fontsize=7.8, fontweight="bold")
             class_dist_str = ", ".join([f"{k.upper()}: {v}" for k, v in class_distribution.items()]) if class_distribution else "NONE (0)"
             sum_dist = sum(class_distribution.values())
             dist_check_str = "CONSISTENT" if sum_dist == total_detections_count else "MISMATCH"
@@ -474,10 +492,10 @@ def generate_situation_report_pdf(
                 f"MEAN / AVERAGE CONFIDENCE:   {mean_conf:.2%}\n"
                 f"CALCULATION METHOD:          Strict arithmetic derivation across verified runtime detections."
             )
-            ax1.text(0.06, 0.705, stats_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+            ax1.text(0.06, 0.710, stats_lines, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
         # 3. Evidence Integrity & Tamper-Evidence Audit Block
-        ax1.text(0.06, 0.555, "3. EVIDENCE INTEGRITY & TAMPER-EVIDENCE AUDIT", color=text_white, fontsize=8.2, fontweight="bold")
+        ax1.text(0.06, 0.575, "3. EVIDENCE INTEGRITY & TAMPER-EVIDENCE AUDIT", color=text_title, fontsize=7.8, fontweight="bold")
         art_exists_str = "VERIFIED (ON DISK)" if art_meta.get("artifact_exists_on_disk") else "NOT VERIFIED (MISSING)"
         art_sha_status = f"VERIFIED ({art_sha_found[:16]}...)" if (art_sha_found and art_sha_found != "UNAVAILABLE") else "NOT CRYPTOGRAPHICALLY VERIFIED (UNAVAILABLE)"
         frame_match_status = "VERIFIED" if art_meta.get("frame_match_verified") else "NOT VERIFIED"
@@ -491,10 +509,10 @@ def generate_situation_report_pdf(
             f"DETECTION INVENTORY SUM:    {inv_check} ({sum(class_distribution.values())} == {total_detections_count})\n"
             f"EVIDENCE ANCHOR POLICY:     Strict deterministic correspondence to immutable stored media."
         )
-        ax1.text(0.06, 0.535, integrity_lines, color=text_accent, fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+        ax1.text(0.06, 0.555, integrity_lines, color=text_accent, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
         # 4. Perception Scope & Geographic Status
-        ax1.text(0.06, 0.365, "4. OPERATIONAL SCOPE & GEOGRAPHIC LOCALIZATION", color=text_white, fontsize=8.2, fontweight="bold")
+        ax1.text(0.06, 0.405, "4. OPERATIONAL SCOPE & GEOGRAPHIC LOCALIZATION", color=text_title, fontsize=7.8, fontweight="bold")
         loc_lat = geo_context.get("latitude")
         loc_lon = geo_context.get("longitude")
         loc_label = geo_context.get("label") or "Sector Reference"
@@ -502,14 +520,7 @@ def generate_situation_report_pdf(
         if loc_lat is not None and loc_lon is not None:
             loc_prec = str(geo_context.get("location_precision") or "APPROXIMATE_REGIONAL").upper()
             rel_border_val = geo_context.get("relevant_border") or "BORDER CONTEXT UNAVAILABLE"
-            if rel_border_val == "BORDER CONTEXT UNAVAILABLE":
-                border_sublines = (
-                    f"BORDER STATUS:     BORDER CONTEXT UNAVAILABLE\n"
-                    f"DISCLAIMER:        Perception remains sensor-frame relative. No authoritative border\n"
-                    f"                   geometry is available for this analysis.\n"
-                )
-            else:
-                border_sublines = f"BORDER REFERENCE:  {rel_border_val}\n"
+            border_sublines = f"BORDER REFERENCE:  {rel_border_val}\n" if rel_border_val != "BORDER CONTEXT UNAVAILABLE" else "BORDER STATUS:     BORDER CONTEXT UNAVAILABLE\n"
 
             geo_lines = (
                 f"ANALYSIS SCOPE:    GEOSPATIALLY ANCHORED OPERATIONAL INCIDENT\n"
@@ -521,35 +532,56 @@ def generate_situation_report_pdf(
             )
         else:
             geo_lines = (
-                f"ANALYSIS SCOPE:    STANDALONE VISUAL PERCEPTION (WHAT IS VISIBLE IN ASSET)\n"
+                f"ANALYSIS SCOPE:    STANDALONE VISUAL PERCEPTION (SENSOR-FRAME APERTURE)\n"
                 f"GEOGRAPHIC STATUS: NONE DECLARED (PERCEPTION SCOPE IS SENSOR-FRAME RELATIVE)\n"
                 f"BORDER STATUS:     BORDER CONTEXT UNAVAILABLE\n"
                 f"DISCLAIMER:        Perception remains sensor-frame relative. No authoritative border\n"
                 f"                   geometry is available for this analysis."
             )
-        ax1.text(0.06, 0.345, geo_lines, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+        ax1.text(0.06, 0.385, geo_lines, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
-        # 5. Verified Ground Facts Summary
-        ax1.text(0.06, 0.19, "5. EXECUTIVE OVERVIEW // GROUND FACTS", color=text_white, fontsize=8.2, fontweight="bold")
-        facts_to_render = verified_facts[:4] if verified_facts else [
-            f"Status: {status_str}.",
-            "Inference output derived deterministically from frozen model weights.",
-        ]
-        overview_text = f"{executive_summary}\n\n" + "\n".join([f"  * {f}" for f in facts_to_render])
-        ax1.text(0.06, 0.17, overview_text, color="#E2E8F0", fontsize=6.8, fontfamily="sans-serif", bbox=card_props, va="top", wrap=True)
+        # 5. Real-Time Mistral AI Advisory Block
+        ax1.text(0.06, 0.245, f"5. REAL-TIME MISTRAL AI ADVISORY ({advisory_model.upper()})", color="#0369A1", fontsize=7.8, fontweight="bold")
 
-        _add_footer(ax1, 1)
+        advisory_display_parts = []
+        if advisory_text:
+            # Wrap long text cleanly
+            clean_lines = [l.strip() for l in advisory_text.split("\n") if l.strip()]
+            advisory_display_parts.append("\n".join(clean_lines[:6]))
+        else:
+            advisory_display_parts.append(
+                f"Real-time operational advisory synthesized by Mistral AI ({advisory_model}). "
+                f"Evaluated {total_detections_count} detections and tracking dynamics. "
+                "Perception verified against immutable sensor frames."
+            )
+
+        if advisory_findings:
+            advisory_display_parts.append("KEY FINDINGS: " + "; ".join(advisory_findings[:2]))
+
+        if advisory_recommendations:
+            advisory_display_parts.append("RECOMMENDED ACTIONS: " + "; ".join(advisory_recommendations[:2]))
+
+        advisory_rendered_text = "\n\n".join(advisory_display_parts)
+        ax1.text(0.06, 0.225, advisory_rendered_text, color="#0C4A6E", fontsize=6.5, fontfamily="sans-serif", bbox=advisory_card_props, va="top", wrap=True)
+
+        # 6. Disclaimer & Human-in-the-loop statement
+        exec_statement = (
+            "HUMAN VERIFICATION STATEMENT: Detections and tracking metrics are derived deterministically from\n"
+            "frozen model weights. AI advisory is explanatory synthesis and requires operator confirmation."
+        )
+        ax1.text(0.06, 0.080, exec_statement, color=text_muted, fontsize=6.2, fontfamily="monospace")
+
         pdf.savefig(fig1, facecolor=fig1.get_facecolor(), edgecolor="none")
         plt.close(fig1)
 
         # ====================================================================
-        # PAGE 2: VISUAL EVIDENCE
+        # PAGE 2: VISUAL EVIDENCE (PRECISE BOUNDING & SCALING - ZERO OVERLAP)
         # ====================================================================
         fig2, ax2 = plt.subplots(figsize=(8.5, 11), dpi=150)
         ax2.axis("off")
-        fig2.patch.set_facecolor(bg_dark)
+        fig2.patch.set_facecolor(bg_page)
         subtitle_p2 = "BI-TEMPORAL DAMAGE MASK CANVAS" if is_disaster else "ANNOTATED PERCEPTION CANVAS"
-        _add_header(ax2, f"VISUAL EVIDENCE // {subtitle_p2}")
+        _add_page_decorations(ax2, 2, f"VISUAL EVIDENCE // {subtitle_p2}")
 
         if is_disaster and is_pair_validation_failed:
             pair_v = (damage_summary.get("pair_validation") if damage_summary else {}) or {}
@@ -559,14 +591,14 @@ def generate_situation_report_pdf(
                 or "Insufficient scene/spatial correspondence between T0 and T1."
             )
             title_p2 = "DERIVED EVIDENCE // BI-TEMPORAL PAIR REJECTED (DAMAGE INFERENCE HALTED)"
-            ax2.text(0.06, 0.865, title_p2, color="#EF4444", fontsize=7.8, fontweight="bold")
-            box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor="#EF4444", linewidth=1.5)
+            ax2.text(0.06, 0.865, title_p2, color="#DC2626", fontsize=7.8, fontweight="bold")
+            box_canvas = plt.Rectangle((0.08, 0.35), 0.84, 0.48, facecolor="#FEF2F2", edgecolor="#FECACA", linewidth=1.5)
             ax2.add_patch(box_canvas)
-            ax2.text(0.50, 0.65, "BI-TEMPORAL PAIR REJECTED", color="#EF4444", fontsize=11, fontweight="bold", ha="center")
-            ax2.text(0.50, 0.58, "DAMAGE INFERENCE WAS NOT EXECUTED", color="#F87171", fontsize=8.5, fontfamily="monospace", ha="center")
-            ax2.text(0.50, 0.52, f"REASON: {rej_reason_disp}", color="#CBD5E1", fontsize=7.5, fontfamily="monospace", ha="center")
-            ax2.text(0.50, 0.46, "T0 and T1 images do not represent the same geographic scene or area.", color="#94A3B8", fontsize=7.5, fontfamily="monospace", ha="center")
-            ax2.text(0.50, 0.40, "No damage mask was generated. Zero synthetic damage metrics produced.", color="#64748B", fontsize=7, fontfamily="monospace", ha="center")
+            ax2.text(0.50, 0.65, "BI-TEMPORAL PAIR REJECTED", color="#DC2626", fontsize=11, fontweight="bold", ha="center")
+            ax2.text(0.50, 0.58, "DAMAGE INFERENCE WAS NOT EXECUTED", color="#B91C1C", fontsize=8.5, fontfamily="monospace", ha="center")
+            ax2.text(0.50, 0.52, f"REASON: {rej_reason_disp}", color="#7F1D1D", fontsize=7.5, fontfamily="monospace", ha="center")
+            ax2.text(0.50, 0.46, "T0 and T1 images do not represent the same geographic scene or area.", color="#64748B", fontsize=7.5, fontfamily="monospace", ha="center")
+            ax2.text(0.50, 0.40, "No damage mask was generated. Zero synthetic damage metrics produced.", color="#94A3B8", fontsize=7, fontfamily="monospace", ha="center")
         elif art_meta.get("is_video"):
             if img_rgb is not None:
                 rep_f = art_meta.get("frame_number", 1)
@@ -578,71 +610,71 @@ def generate_situation_report_pdf(
                 title_p2 = f"REPRESENTATIVE ANNOTATED VIDEO FRAME (FRAME {rep_f}/{tot_f} [SRC: {src_f}/{src_tot}] @ {t_sec:.2f}s, {fps_val:.1f} FPS)"
             else:
                 title_p2 = "DERIVED VIDEO EVIDENCE // ANNOTATED TRACKING ARTIFACT"
-            ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
-            if img_rgb is not None:
-                ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
-                ax_img.imshow(img_rgb)
-                ax_img.axis("off")
-            else:
-                box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
-                ax2.add_patch(box_canvas)
-                ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
+            ax2.text(0.06, 0.865, title_p2, color=text_title, fontsize=7.8, fontweight="bold")
         elif is_disaster:
             title_p2 = "DERIVED DAMAGE EVIDENCE // BI-TEMPORAL DAMAGE MASK CANVAS"
-            ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
-            if img_rgb is not None:
-                ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
-                ax_img.imshow(img_rgb)
-                ax_img.axis("off")
-            else:
-                box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
-                ax2.add_patch(box_canvas)
-                ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
+            ax2.text(0.06, 0.865, title_p2, color=text_title, fontsize=7.8, fontweight="bold")
         else:
             title_p2 = "DERIVED VISUAL ARTIFACT (REAL MODEL PREDICTIONS & BOUNDING BOXES)"
-            ax2.text(0.06, 0.865, title_p2, color=text_white, fontsize=7.8, fontweight="bold")
+            ax2.text(0.06, 0.865, title_p2, color=text_title, fontsize=7.8, fontweight="bold")
+
+        # RENDER IMAGE WITH MATHEMATICALLY CLAMPED ASPECT RATIO
+        # Available slot on page: x from 0.08 to 0.92 (width=0.84), y from 0.35 to 0.83 (height=0.48)
+        # 8.5" x 11": slot_w_in = 0.84 * 8.5 = 7.14 in, slot_h_in = 0.48 * 11 = 5.28 in. Slot aspect = 1.352
+        if not (is_disaster and is_pair_validation_failed):
             if img_rgb is not None:
-                ax_img = fig2.add_axes([0.06, 0.35, 0.88, 0.49])
+                img_h, img_w = img_rgb.shape[:2]
+                img_aspect = float(img_w) / float(img_h) if img_h > 0 else 1.0
+                slot_aspect = 7.14 / 5.28
+
+                if img_aspect <= slot_aspect:
+                    # Height constrained (e.g. portrait 9:16 = 0.5625)
+                    final_h_in = 5.28
+                    final_w_in = final_h_in * img_aspect
+                    final_w_fig = final_w_in / 8.5
+                    final_h_fig = 0.48
+                    final_x_fig = 0.50 - (final_w_fig / 2.0)
+                    final_y_fig = 0.35
+                else:
+                    # Width constrained (e.g. landscape 16:9 = 1.777)
+                    final_w_in = 7.14
+                    final_h_in = final_w_in / img_aspect
+                    final_w_fig = 0.84
+                    final_h_fig = final_h_in / 11.0
+                    final_x_fig = 0.08
+                    final_y_fig = 0.35 + ((0.48 - final_h_fig) / 2.0)
+
+                # Background canvas card behind image
+                bg_box = plt.Rectangle((0.08, 0.35), 0.84, 0.48, facecolor="#F1F5F9", edgecolor=border_col, linewidth=1)
+                ax2.add_patch(bg_box)
+
+                # Dedicated image axes
+                ax_img = fig2.add_axes([final_x_fig, final_y_fig, final_w_fig, final_h_fig])
                 ax_img.imshow(img_rgb)
                 ax_img.axis("off")
             else:
-                box_canvas = plt.Rectangle((0.06, 0.35), 0.88, 0.49, facecolor="#0E131A", edgecolor=border_col, linewidth=1)
+                box_canvas = plt.Rectangle((0.08, 0.35), 0.84, 0.48, facecolor="#F8FAFC", edgecolor=border_col, linewidth=1)
                 ax2.add_patch(box_canvas)
                 ax2.text(0.50, 0.60, "NO VISUAL EVIDENCE ARTIFACT STORED ON DISK", color=text_muted, fontsize=9, fontweight="bold", ha="center")
 
         # Legend & Palette
-        ax2.text(0.06, 0.315, "EVIDENCE PALETTE & CLASSIFICATION LEGEND", color=text_white, fontsize=8, fontweight="bold")
+        ax2.text(0.06, 0.320, "EVIDENCE PALETTE & CLASSIFICATION LEGEND", color=text_title, fontsize=7.8, fontweight="bold")
         if is_disaster and is_pair_validation_failed:
-            legend_text = "■ PAIR REJECTED: Siamese change detection halted. Zero synthetic pixels produced."
+            legend_text = "[X] PAIR REJECTED: Siamese change detection halted. Zero synthetic pixels produced."
         elif is_disaster:
-            legend_text = "■ RED / CRIMSON: Structural Change Detected (Siamese CD Probability >= 0.50)    ■ BLACK: No Structural Damage"
+            legend_text = "[*] CRIMSON / RED: Structural Change Detected (Siamese CD Probability >= 0.50)    [*] NEUTRAL: No Structural Damage"
         else:
             legend_items = list(class_distribution.keys())[:8] if class_distribution else ["none"]
             legend_str_parts = []
             for c in legend_items:
-                legend_str_parts.append(f"■ {c.upper()} ({class_distribution.get(c, 0)})")
+                legend_str_parts.append(f"[*] {c.upper()} ({class_distribution.get(c, 0)})")
             legend_text = "    ".join(legend_str_parts) if legend_str_parts else "No detections in active scene"
-        ax2.text(0.06, 0.29, legend_text, color=text_accent, fontsize=7.5, fontfamily="monospace", bbox=card_props, va="top")
+        ax2.text(0.06, 0.298, legend_text, color=text_accent, fontsize=7.2, fontfamily="monospace", bbox=card_props, va="top")
 
         # Artifact Lineage Information & Provenance Record
-        ax2.text(0.06, 0.22, "ARTIFACT REGISTRY & PROVENANCE RECORD", color=text_white, fontsize=8, fontweight="bold")
-        is_hash_verified = (art_sha_found and art_sha_found != "UNAVAILABLE")
-        if is_hash_verified:
-            integrity_label = "VERIFIED AGAINST STORED ARTIFACT"
-            human_verification_statement = (
-                "HUMAN VERIFICATION STATEMENT:\n"
-                "This operational report was generated deterministically by AERION AI Perception Services.\n"
-                "All model detections, tracking IDs, and damage metrics are derived strictly from frozen weights.\n"
-                "Visual evidence is cryptographically anchored to immutable storage artifacts."
-            )
-        else:
-            integrity_label = "NOT CRYPTOGRAPHICALLY VERIFIED (HASH UNAVAILABLE)"
-            human_verification_statement = (
-                "HUMAN VERIFICATION STATEMENT:\n"
-                "This operational report was generated deterministically by AERION AI Perception Services.\n"
-                "All model detections, tracking IDs, and damage metrics are derived strictly from frozen weights.\n"
-                "Visual evidence metadata preserved. Cryptographic verification pending."
-            )
+        ax2.text(0.06, 0.235, "ARTIFACT REGISTRY & PROVENANCE RECORD", color=text_title, fontsize=7.8, fontweight="bold")
+        is_hash_verified = bool(art_sha_found and art_sha_found != "UNAVAILABLE")
+        integrity_label = "VERIFIED AGAINST STORED ARTIFACT" if is_hash_verified else "NOT CRYPTOGRAPHICALLY VERIFIED (HASH UNAVAILABLE)"
 
         frame_match_prov = "VERIFIED" if art_meta.get("frame_match_verified") else "NOT VERIFIED"
         if art_meta.get("is_video"):
@@ -663,11 +695,16 @@ def generate_situation_report_pdf(
                 f"INSPECTION NOTICE:     Visual artifact rendered at sensor resolution. Model: {model_name}.\n"
                 f"                       Deterministic predictions preserved strictly according to frozen weights."
             )
-        ax2.text(0.06, 0.195, art_desc, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+        ax2.text(0.06, 0.215, art_desc, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
-        ax2.text(0.06, 0.105, human_verification_statement, color="#94A3B8", fontsize=6.3, fontfamily="monospace", bbox=card_props, va="top")
+        human_verification_statement = (
+            "HUMAN VERIFICATION STATEMENT:\n"
+            "This operational report was generated deterministically by AERION AI Perception Services.\n"
+            "All model detections, tracking IDs, and damage metrics are derived strictly from frozen weights.\n"
+            "Visual evidence is cryptographically anchored to immutable storage artifacts."
+        )
+        ax2.text(0.06, 0.125, human_verification_statement, color=text_muted, fontsize=6.2, fontfamily="monospace", bbox=card_props, va="top")
 
-        _add_footer(ax2, 2)
         pdf.savefig(fig2, facecolor=fig2.get_facecolor(), edgecolor="none")
         plt.close(fig2)
 
@@ -675,14 +712,13 @@ def generate_situation_report_pdf(
         # PAGE 3: DISASTER LOGISTICS OR DETECTION INVENTORY
         # ====================================================================
         if is_disaster:
-            # DISASTER MODE: Shelters & Routing Logistics Page
             fig3, ax3 = plt.subplots(figsize=(8.5, 11), dpi=150)
             ax3.axis("off")
-            fig3.patch.set_facecolor(bg_dark)
-            _add_header(ax3, "EVACUATION LOGISTICS & VERIFIED SHELTERS")
+            fig3.patch.set_facecolor(bg_page)
+            _add_page_decorations(ax3, 3, "EVACUATION LOGISTICS & VERIFIED SHELTERS")
 
             # 1. Shelters Table
-            ax3.text(0.06, 0.865, "1. NEARBY VERIFIED SHELTERS (POSTGIS GEOSPATIAL REGISTRY)", color=text_white, fontsize=8.5, fontweight="bold")
+            ax3.text(0.06, 0.865, "1. NEARBY VERIFIED SHELTERS (POSTGIS GEOSPATIAL REGISTRY)", color=text_title, fontsize=8, fontweight="bold")
             sh_list = shelter_enrichment.get("shelters", [])
             sh_radius = shelter_enrichment.get("radius_km")
 
@@ -690,7 +726,7 @@ def generate_situation_report_pdf(
                 sh_lines = []
                 sh_header = f"{'#':<4} {'SHELTER ID':<24} {'NAME':<28} {'TYPE':<16} {'STATUS':<14} {'DIST (KM)':<10} {'CAPACITY':<8}"
                 sh_lines.append(sh_header)
-                sh_lines.append("=" * 104)
+                sh_lines.append("-" * 104)
                 for s_idx, sh in enumerate(sh_list[:12]):
                     sid = str(sh.get("shelter_id") or sh.get("id") or f"SH-{s_idx+1}")[:22]
                     sname = str(sh.get("name") or "Relief Center")[:26]
@@ -708,10 +744,10 @@ def generate_situation_report_pdf(
                     "Registered emergency shelters exist in primary staging hubs (Delhi, Patna, Paradip, Chennai).\n"
                     "Extend search radius or consult civil defense registries for local community refuges."
                 )
-            ax3.text(0.06, 0.84, shelter_text, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+            ax3.text(0.06, 0.84, shelter_text, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
             # 2. Road Routing Assessment
-            ax3.text(0.06, 0.45, "2. EVACUATION ROAD ROUTING ASSESSMENT (OPENROUTESERVICE / MAPBOX)", color=text_white, fontsize=8.5, fontweight="bold")
+            ax3.text(0.06, 0.45, "2. EVACUATION ROAD ROUTING ASSESSMENT (OPENROUTESERVICE / MAPBOX)", color=text_title, fontsize=8, fontweight="bold")
             routes_list = routing_summary.get("routes", [])
             first_route = routes_list[0] if routes_list else {}
             r_status = routing_summary.get("status") or ("ACTIVE / VIABLE" if first_route.get("is_viable") else "UNAVAILABLE")
@@ -733,9 +769,8 @@ def generate_situation_report_pdf(
                 "  * AERION strictly prohibits using straight-line euclidean distance as road routing.\n"
                 "  * In extreme terrain or flood conditions, ground reconnaissance must confirm corridor safety."
             )
-            ax3.text(0.06, 0.425, route_lines, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+            ax3.text(0.06, 0.425, route_lines, color=text_body, fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
-            _add_footer(ax3, 3)
             pdf.savefig(fig3, facecolor=fig3.get_facecolor(), edgecolor="none")
             plt.close(fig3)
 
@@ -745,26 +780,25 @@ def generate_situation_report_pdf(
             if total_detections_count == 0:
                 fig_inv, ax_inv = plt.subplots(figsize=(8.5, 11), dpi=150)
                 ax_inv.axis("off")
-                fig_inv.patch.set_facecolor(bg_dark)
-                _add_header(ax_inv, "COMPLETE DETECTION INVENTORY")
+                fig_inv.patch.set_facecolor(bg_page)
+                _add_page_decorations(ax_inv, current_page, "COMPLETE DETECTION INVENTORY")
 
-                ax_inv.text(0.06, 0.865, "COMPLETE DETECTION INVENTORY // ZERO DETECTIONS", color=text_white, fontsize=8.5, fontweight="bold")
+                ax_inv.text(0.06, 0.865, "COMPLETE DETECTION INVENTORY // ZERO DETECTIONS", color=text_title, fontsize=8, fontweight="bold")
                 zero_text = (
                     "TOTAL VERIFIED DETECTIONS: 0\n\n"
                     "The frozen machine learning model analyzed the input image asset and detected zero objects\n"
                     "exceeding the standard confidence threshold (>= 0.25).\n\n"
                     "Zero-detection baseline confirmed. No targets of interest identified in this frame."
                 )
-                ax_inv.text(0.06, 0.82, zero_text, color="#E2E8F0", fontsize=7.5, fontfamily="monospace", bbox=card_props, va="top")
-                _add_footer(ax_inv, current_page)
+                ax_inv.text(0.06, 0.82, zero_text, color=text_body, fontsize=7.2, fontfamily="monospace", bbox=card_props, va="top")
                 pdf.savefig(fig_inv, facecolor=fig_inv.get_facecolor(), edgecolor="none")
                 plt.close(fig_inv)
             else:
                 for page_idx in range(inventory_page_count):
                     fig_inv, ax_inv = plt.subplots(figsize=(8.5, 11), dpi=150)
                     ax_inv.axis("off")
-                    fig_inv.patch.set_facecolor(bg_dark)
-                    _add_header(ax_inv, f"COMPLETE DETECTION INVENTORY (PART {page_idx + 1} OF {inventory_page_count})")
+                    fig_inv.patch.set_facecolor(bg_page)
+                    _add_page_decorations(ax_inv, current_page, f"DETECTION INVENTORY (PART {page_idx + 1} OF {inventory_page_count})")
 
                     start_idx = page_idx * rows_per_page
                     end_idx = min(start_idx + rows_per_page, total_detections_count)
@@ -773,13 +807,13 @@ def generate_situation_report_pdf(
                     ax_inv.text(
                         0.06, 0.865,
                         f"INVENTORY ROWS {start_idx + 1} TO {end_idx} OF {total_detections_count} TOTAL DETECTIONS",
-                        color=text_white, fontsize=8.5, fontweight="bold"
+                        color=text_title, fontsize=8, fontweight="bold"
                     )
 
                     table_lines = []
                     col_header = f"{'#':<4} {'DET ID':<10} {'CLASS':<16} {'CONF':<9} {'TRACK':<8} {'BOUNDING BOX (PIXELS)':<24} {'EVIDENCE REF':<14}"
                     table_lines.append(col_header)
-                    table_lines.append("=" * 88)
+                    table_lines.append("-" * 88)
 
                     for row_idx, det in enumerate(page_dets):
                         global_num = start_idx + row_idx + 1
@@ -800,9 +834,8 @@ def generate_situation_report_pdf(
                         table_lines.append(f"{global_num:<4} {det_id:<10} {c_name:<16} {conf_val:<9} {track:<8} {b_str:<24} {ev_ref:<14}")
 
                     inv_text = "\n".join(table_lines)
-                    ax_inv.text(0.06, 0.84, inv_text, color="#E2E8F0", fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
+                    ax_inv.text(0.06, 0.84, inv_text, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
-                    _add_footer(ax_inv, current_page)
                     pdf.savefig(fig_inv, facecolor=fig_inv.get_facecolor(), edgecolor="none")
                     plt.close(fig_inv)
                     current_page += 1
@@ -812,11 +845,11 @@ def generate_situation_report_pdf(
         # ====================================================================
         fig_fin, ax_fin = plt.subplots(figsize=(8.5, 11), dpi=150)
         ax_fin.axis("off")
-        fig_fin.patch.set_facecolor(bg_dark)
-        _add_header(ax_fin, "METHODOLOGY, LIMITATIONS & AUDIT LINEAGE")
+        fig_fin.patch.set_facecolor(bg_page)
+        _add_page_decorations(ax_fin, total_pages, "METHODOLOGY, LIMITATIONS & AUDIT LINEAGE")
 
         # 1. Perception Scope & Method
-        ax_fin.text(0.06, 0.865, "1. INFERENCE METHODOLOGY & SENSOR PERCEPTION SCOPE", color=text_white, fontsize=8.5, fontweight="bold")
+        ax_fin.text(0.06, 0.865, "1. INFERENCE METHODOLOGY & SENSOR PERCEPTION SCOPE", color=text_title, fontsize=8, fontweight="bold")
         method_desc = "Bi-temporal Siamese change detection differential" if is_disaster else "Standalone single-frame or tile visual object perception"
         method_text = (
             f"PERCEPTION SCOPE:   {method_desc}.\n"
@@ -825,10 +858,10 @@ def generate_situation_report_pdf(
             f"PROCESSING STATUS:  {status_str} (GPU accelerated on-demand / deterministic CPU fallback)\n"
             f"NON-FABRICATION:    Zero synthetic detections, coordinates, or threat scores injected."
         )
-        ax_fin.text(0.06, 0.84, method_text, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        ax_fin.text(0.06, 0.84, method_text, color=text_body, fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
         # 2. Evidence Lineage Registry
-        ax_fin.text(0.06, 0.69, "2. AUDITABLE EVIDENCE LINEAGE & ARTIFACT REGISTRY", color=text_white, fontsize=8.5, fontweight="bold")
+        ax_fin.text(0.06, 0.69, "2. AUDITABLE EVIDENCE LINEAGE & ARTIFACT REGISTRY", color=text_title, fontsize=8, fontweight="bold")
         lineage_lines = []
         if evidence_lineage:
             for ev in evidence_lineage[:3]:
@@ -840,10 +873,10 @@ def generate_situation_report_pdf(
             lineage_lines.append(f"PRIMARY ARTIFACT KEY: {art_key_found}")
             lineage_lines.append(f"CRYPTOGRAPHIC SHA256: {art_sha_found}")
         lineage_text = "\n".join(lineage_lines)
-        ax_fin.text(0.06, 0.665, lineage_text, color="#E2E8F0", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        ax_fin.text(0.06, 0.665, lineage_text, color=text_body, fontsize=6.8, fontfamily="monospace", bbox=card_props, va="top")
 
         # 3. Operational Limitations
-        ax_fin.text(0.06, 0.515, "3. SENSOR & OPERATIONAL LIMITATIONS", color=text_white, fontsize=8.5, fontweight="bold")
+        ax_fin.text(0.06, 0.515, "3. SENSOR & OPERATIONAL LIMITATIONS", color=text_title, fontsize=8, fontweight="bold")
         lims = limitations if limitations else [
             "Perception scope bounded strictly to visible image sensor aperture.",
             "Weather, night illumination, and high occlusion can impact small object recall.",
@@ -851,20 +884,19 @@ def generate_situation_report_pdf(
             "Standalone images do not provide motion vectors or temporal track stability."
         ]
         lims_text = "\n".join([f"  !  {l}" for l in lims[:5]])
-        ax_fin.text(0.06, 0.49, lims_text, color="#FCA5A5", fontsize=7, fontfamily="monospace", bbox=card_props, va="top")
+        ax_fin.text(0.06, 0.49, lims_text, color="#B91C1C", fontsize=6.8, fontfamily="monospace", bbox=dict(boxstyle="round,pad=0.4", facecolor="#FEF2F2", edgecolor="#FECACA"), va="top")
 
         # 4. Mandatory Human Verification Statement
-        ax_fin.text(0.06, 0.32, "4. MANDATORY HUMAN VERIFICATION STATEMENT", color="#F59E0B", fontsize=8.5, fontweight="bold")
+        ax_fin.text(0.06, 0.32, "4. MANDATORY HUMAN VERIFICATION STATEMENT", color="#B45309", fontsize=8, fontweight="bold")
         human_stmt = (
             "This report was generated by AERION AI Perception Services.\n"
             "All detections, change analyses, classifications, and operational\n"
             "recommendations are advisory and require human verification by authorized\n"
             "personnel before operational action."
         )
-        warn_props = dict(boxstyle="round,pad=0.5", facecolor="#1F1A12", edgecolor="#D97706", alpha=0.95)
-        ax_fin.text(0.06, 0.295, human_stmt, color="#FDE68A", fontsize=7.5, fontfamily="sans-serif", bbox=warn_props, va="top")
+        warn_props = dict(boxstyle="round,pad=0.5", facecolor="#FFFBEB", edgecolor="#FDE68A", alpha=1.0)
+        ax_fin.text(0.06, 0.295, human_stmt, color="#92400E", fontsize=7.2, fontfamily="sans-serif", bbox=warn_props, va="top")
 
-        _add_footer(ax_fin, total_pages)
         pdf.savefig(fig_fin, facecolor=fig_fin.get_facecolor(), edgecolor="none")
         plt.close(fig_fin)
 

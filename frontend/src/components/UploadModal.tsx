@@ -21,6 +21,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   onError,
 }) => {
   const [mode, setMode] = useState<UploadMode>(defaultMode);
+
+  // Synchronize active mode whenever modal is opened or defaultMode prop changes
+  useEffect(() => {
+    if (isOpen) {
+      setMode(defaultMode);
+      setSelectedFile(null);
+      setFilePreview(null);
+      setPreFile(null);
+      setPostFile(null);
+      setPrePreview(null);
+      setPostPreview(null);
+      setErrorMessage(null);
+      setFileError(null);
+    }
+  }, [isOpen, defaultMode]);
   
   // Single image / video state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);

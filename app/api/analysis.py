@@ -1914,10 +1914,14 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
         await mgr.update_progress(job_id, stage=JobStatus.PERSISTING.value, progress_percent=92, status=JobStatus.PERSISTING)
         persist_info: Optional[Dict[str, Any]] = None
         if last_result is not None:
-            raw_override = None
+            adv_dict = advisory.model_dump() if hasattr(advisory, "model_dump") else (advisory if isinstance(advisory, dict) else {})
+            raw_override = {
+                **last_result.to_dict(),
+                "advisory": adv_dict,
+                "mistral_advisory": adv_dict,
+            }
             if is_video and 'report_data' in locals() and isinstance(report_data, dict):
-                raw_override = {
-                    **last_result.to_dict(),
+                raw_override.update({
                     "annotated_artifact": annotated_artifact_info,
                     "annotated_video_artifact": annotated_artifact_info,
                     "processed_frames": report_data.get("processed_frames"),
@@ -1931,7 +1935,7 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                     "evidence_frames": report_data.get("evidence_frames", []),
                     "vehicle_summary": report_data.get("vehicle_summary"),
                     "demo_zone_activity": report_data.get("demo_zone_activity"),
-                }
+                })
             persist_info = await _safely_persist_result(
                 result=last_result,
                 project_id_str=req.project_id,

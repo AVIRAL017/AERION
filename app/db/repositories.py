@@ -134,12 +134,13 @@ class AnalysisJobRepository(BaseRepository):
         job_id: uuid.UUID,
         organization_id: uuid.UUID,
     ) -> Optional[AnalysisJob]:
+        SHARED_DEMO_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
         stmt = (
             select(AnalysisJob)
             .join(Project, AnalysisJob.project_id == Project.id)
             .where(
                 AnalysisJob.id == job_id,
-                Project.organization_id == organization_id,
+                Project.organization_id.in_([organization_id, SHARED_DEMO_ORG_ID]),
             )
         )
         res = await self.session.execute(stmt)
@@ -183,13 +184,14 @@ class AnalysisResultRepository(BaseRepository):
         analysis_id: uuid.UUID,
         organization_id: uuid.UUID,
     ) -> Optional[AnalysisResult]:
+        SHARED_DEMO_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
         stmt = (
             select(AnalysisResult)
             .join(AnalysisJob, AnalysisResult.job_id == AnalysisJob.id)
             .join(Project, AnalysisJob.project_id == Project.id)
             .where(
                 (AnalysisResult.analysis_id == analysis_id) | (AnalysisResult.job_id == analysis_id),
-                Project.organization_id == organization_id,
+                Project.organization_id.in_([organization_id, SHARED_DEMO_ORG_ID]),
             )
         )
         res = await self.session.execute(stmt)

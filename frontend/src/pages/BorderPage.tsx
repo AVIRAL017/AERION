@@ -548,13 +548,13 @@ export const BorderPage: React.FC = () => {
           </div>
 
           {/* Surveillance Visual Canvas */}
-          <div className="flex-1 relative bg-canvas telemetry-grid flex items-center justify-center overflow-hidden">
+          <div className="flex-1 relative bg-canvas telemetry-grid flex flex-col items-center overflow-y-auto custom-scrollbar">
             {activeAnalysisResult ? (
-              <div className="relative w-full h-full p-4 flex flex-col items-center justify-center">
+              <div className="relative w-full p-3 sm:p-4 flex flex-col items-center">
                 {/* Real Ingested Visual Container */}
-                <div className="relative border border-slate-200 rounded-xl bg-white shadow-card w-full h-full max-h-[85vh] overflow-hidden flex items-center justify-center">
+                <div className="relative border border-slate-200 rounded-xl bg-white shadow-card w-full flex flex-col items-center">
                   {analyzedImageUrl ? (
-                    <div className="relative max-w-full max-h-full flex items-center justify-center">
+                    <div className="relative w-full min-h-[480px] flex items-center justify-center p-4">
                       {/* If viewMode is 'annotated' and backend generated annotated_image_base64 exists, display the authoritative annotated visual artifact */}
                       {viewMode === 'annotated' && activeAnalysisResult.annotated_image_base64 ? (
                         <div className="relative max-w-full max-h-full flex items-center justify-center">
@@ -718,7 +718,7 @@ export const BorderPage: React.FC = () => {
                     </div>
                   ) : analyzedVideoUrl || activeAnalysisResult.annotated_video_artifact ? (
                     /* Video Evidence Container */
-                    <div className="relative max-w-full max-h-full flex flex-col items-center justify-center p-2">
+                    <div className="relative w-full flex flex-col items-center p-3 sm:p-4 space-y-3">
                       {/* Video Header & Status */}
                       <div className="w-full flex items-center justify-between pb-2 mb-2 border-b border-white/[0.08] font-mono text-xs">
                         <div className="flex items-center gap-2">
@@ -2008,24 +2008,25 @@ export const BorderPage: React.FC = () => {
 
       {/* Selected Evidence Frame Inspection Modal */}
       {selectedEvidenceFrame && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-panel border border-white/[0.1] rounded-xl max-w-2xl w-full p-5 space-y-4 shadow-2xl font-mono text-xs">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white border border-slate-200/90 rounded-xl max-w-2xl w-full p-5 space-y-4 shadow-floating font-mono text-xs text-slate-800">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-accent text-[18px]">verified</span>
-                <span className="font-bold uppercase text-paper">
+                <span className="material-symbols-outlined text-accent text-[20px]">verified</span>
+                <span className="font-bold uppercase text-slate-900 text-sm">
                   Evidence Frame #{selectedEvidenceFrame.frame_number} // TRK-{selectedEvidenceFrame.track_id}
                 </span>
               </div>
               <button
                 onClick={() => setSelectedEvidenceFrame(null)}
-                className="text-muted hover:text-paper cursor-pointer"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Close frame"
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
-            <div className="relative border border-white/[0.08] rounded overflow-hidden bg-black flex items-center justify-center max-h-[60vh]">
+            <div className="relative border border-slate-200 rounded-lg overflow-hidden bg-slate-950 flex items-center justify-center max-h-[60vh] shadow-inner">
               <img
                 src={getEvidenceUrl(selectedEvidenceFrame.artifact_key, false)}
                 alt={`Evidence Frame #${selectedEvidenceFrame.frame_number}`}
@@ -2033,17 +2034,17 @@ export const BorderPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] p-2.5 bg-graphite/70 rounded border border-white/[0.04]">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] p-3 bg-slate-50 rounded-lg border border-slate-200">
               <div>
-                <span className="text-faint block">TIMESTAMP:</span>
-                <span className="text-paper font-bold">{Number(selectedEvidenceFrame.timestamp_seconds).toFixed(1)}s</span>
+                <span className="text-slate-400 block text-[9px] uppercase">TIMESTAMP</span>
+                <span className="text-slate-800 font-bold">{Number(selectedEvidenceFrame.timestamp_seconds).toFixed(1)}s</span>
               </div>
               <div>
-                <span className="text-faint block">TRACK ID:</span>
-                <span className="text-status-ai font-bold">TRK-{selectedEvidenceFrame.track_id}</span>
+                <span className="text-slate-400 block text-[9px] uppercase">TRACK ID</span>
+                <span className="text-accent font-bold">TRK-{selectedEvidenceFrame.track_id}</span>
               </div>
               <div>
-                <span className="text-faint block">THREAT LEVEL:</span>
+                <span className="text-slate-400 block text-[9px] uppercase">THREAT LEVEL</span>
                 <span className={`font-bold ${
                   selectedEvidenceFrame.threat_level === 'CRITICAL' ? 'text-status-critical' : selectedEvidenceFrame.threat_level === 'HIGH' ? 'text-status-warning' : 'text-status-success'
                 }`}>
@@ -2051,14 +2052,14 @@ export const BorderPage: React.FC = () => {
                 </span>
               </div>
               <div>
-                <span className="text-faint block">SHA-256:</span>
-                <span className="text-accent truncate block" title={selectedEvidenceFrame.sha256}>
+                <span className="text-slate-400 block text-[9px] uppercase">SHA-256</span>
+                <span className="text-slate-700 font-semibold truncate block" title={selectedEvidenceFrame.sha256}>
                   {selectedEvidenceFrame.sha256 ? `${selectedEvidenceFrame.sha256.substring(0, 10)}...` : 'VERIFIED'}
                 </span>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-1">
+            <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
               <button
                 onClick={async () => {
                   const dlUrl = getEvidenceUrl(selectedEvidenceFrame.artifact_key, true);
@@ -2069,9 +2070,9 @@ export const BorderPage: React.FC = () => {
                     alert(e.message || 'Download failed');
                   }
                 }}
-                className="px-3 py-1.5 rounded bg-accent text-graphite font-bold text-xs hover:bg-accent/90 flex items-center gap-1 cursor-pointer"
+                className="px-3.5 py-2 rounded-lg bg-accent text-slate-950 font-bold text-xs hover:bg-accent/90 flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[14px]">download</span>
+                <span className="material-symbols-outlined text-[15px]">download</span>
                 <span>DOWNLOAD EVIDENCE JPEG</span>
               </button>
             </div>

@@ -767,12 +767,13 @@ async def get_situation_report(
         else:
             exec_summary = "Disaster damage assessment standby. Imagery input unavailable."
 
-    # Advisory
-    adv_obj = raw_payload.get("advisory")
+    # Advisory: Use existing Mistral advisory or synthesize real grounded Mistral AI advisory
+    adv_obj = raw_payload.get("advisory") or raw_payload.get("mistral_advisory")
     ai_advisory: Dict[str, Any]
-    if isinstance(adv_obj, dict):
+    if isinstance(adv_obj, dict) and (adv_obj.get("advisory_text") or adv_obj.get("summary")) and "deterministic-engine" not in str(adv_obj.get("model", "")):
         ai_advisory = {
-            "advisory_text": adv_obj.get("summary") or adv_obj.get("tactical_advisory_text", "Operational assessment completed."),
+            "advisory_text": adv_obj.get("advisory_text") or adv_obj.get("summary") or adv_obj.get("tactical_advisory_text", "Operational assessment completed."),
+            "summary": adv_obj.get("summary") or adv_obj.get("advisory_text") or adv_obj.get("tactical_advisory_text", ""),
             "model": adv_obj.get("model", "open-mistral-nemo"),
             "generated_at": adv_obj.get("generated_at_utc", utc_now_iso()),
             "disclaimer": adv_obj.get("disclaimer", "AI advisory is bounded to verified ground facts. Human verification required."),
@@ -781,22 +782,78 @@ async def get_situation_report(
             "recommended_actions": adv_obj.get("recommended_actions", []),
         }
     else:
-        # Fallback bounded advisory
-        if is_standalone_image:
+        # Generate real grounded advisory with Mistral AI
+        try:
+            from app.services.structured_intelligence import MistralAdvisoryClient
+            try:
+                from protocols import get_protocol
+            except ImportError:
+                from app.core.protocols import get_protocol
+            from app.schemas.external import AdvisoryPriority
+            
+            mistral_client = MistralAdvisoryClient()
             det_count = len(raw_detections) if has_detections_data else 0
-            adv_text = f"Visual perception analysis completed. Total detections identified: {det_count}."
-        else:
-            adv_text = (
-                f"Operational sector evaluated in {analysis_mode.upper()} mode. "
-                + (f"Total detections: {len(raw_detections)}." if is_border_mode and has_detections_data else f"Damage ratio: {damage_summary.get('damage_percentage', 0.0)}%." if not is_border_mode and damage_summary else "Maintain standard operational protocols.")
+            crossing_inds = raw_payload.get("potential_unauthorized_crossing_indicators", [])
+            num_indicators = len(crossing_inds)
+            
+            if num_indicators >= 3:
+                det_priority = AdvisoryPriority.CRITICAL
+            elif num_indicators >= 1:
+                det_priority = AdvisoryPriority.HIGH
+            elif det_count > 0:
+                det_priority = AdvisoryPriority.MEDIUM
+            else:
+                det_priority = AdvisoryPriority.LOW
+
+            evidence_pkg = {
+                "mode": analysis_mode.upper(),
+                "detection_count": det_count,
+                "crossing_indicators_count": num_indicators,
+                "indicators": crossing_inds,
+                "authoritative_border_status": "BORDER CONTEXT NOT SET" if not raw_payload.get("spatial_context") else "MONITORED",
+                "weather_status": raw_payload.get("weather", {}).get("status", "UNAVAILABLE") if isinstance(raw_payload.get("weather"), dict) else "UNAVAILABLE",
+                "vehicle_summary": raw_payload.get("vehicle_summary"),
+                "limitations": analysis_limitations + [
+                    "Visual detections derived strictly from frozen model weights.",
+                    "Perception scope reflects sensor pixel-space."
+                ],
+            }
+            proto = get_protocol("border", "person") if is_border_mode else get_protocol("disaster", "infrastructure")
+            gen_adv = await mistral_client.generate_grounded_advisory(
+                mode=analysis_mode.upper(),
+                evidence_package=evidence_pkg,
+                standard_protocol=proto,
+                deterministic_priority=det_priority,
             )
-        ai_advisory = {
-            "advisory_text": adv_text,
-            "model": "deterministic-engine (perception)",
-            "generated_at": utc_now_iso(),
-            "disclaimer": "Perception analysis reflects visible image bounding boxes. Human verification required.",
-            "status": "AVAILABLE",
-        }
+            adv_text_val = getattr(gen_adv, "summary", "") or getattr(gen_adv, "advisory_text", "")
+            ai_advisory = {
+                "advisory_text": adv_text_val,
+                "summary": adv_text_val,
+                "model": getattr(gen_adv, "model", "open-mistral-nemo"),
+                "generated_at": gen_adv.generated_at_utc.isoformat() if hasattr(gen_adv.generated_at_utc, "isoformat") else utc_now_iso(),
+                "disclaimer": gen_adv.disclaimer,
+                "status": str(gen_adv.provider_status.value if hasattr(gen_adv.provider_status, "value") else gen_adv.provider_status),
+                "key_findings": gen_adv.key_findings,
+                "recommended_actions": gen_adv.recommended_actions,
+            }
+        except Exception as mistral_exc:
+            logger.warning(f"On-demand Mistral advisory synthesis failed: {mistral_exc}")
+            if is_standalone_image:
+                det_count = len(raw_detections) if has_detections_data else 0
+                adv_text = f"Visual perception analysis completed. Total detections identified: {det_count}."
+            else:
+                adv_text = (
+                    f"Operational sector evaluated in {analysis_mode.upper()} mode. "
+                    + (f"Total detections: {len(raw_detections)}." if is_border_mode and has_detections_data else f"Damage ratio: {damage_summary.get('damage_percentage', 0.0)}%." if not is_border_mode and damage_summary else "Maintain standard operational protocols.")
+                )
+            ai_advisory = {
+                "advisory_text": adv_text,
+                "summary": adv_text,
+                "model": "deterministic-engine (perception)",
+                "generated_at": utc_now_iso(),
+                "disclaimer": "Perception analysis reflects visible image bounding boxes. Human verification required.",
+                "status": "AVAILABLE",
+            }
 
     # Derived Metrics
     derived_metrics: Dict[str, Any] = {}

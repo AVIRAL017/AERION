@@ -57,17 +57,18 @@ async def download_evidence_artifact(
 
     clean_path = Path(sanitized_path_str)
     
-    # Tenant Isolation: if the artifact path is prefixed with a tenant organization UUID, verify tenant ownership
+    # Tenant Isolation: if the artifact path is prefixed with a tenant organization UUID, verify tenant ownership.
+    # Note: The shared demonstration workspace (00000000-0000-0000-0000-000000000001) is accessible to all authenticated operators.
     user_org = payload.get("org") or payload.get("organization_id") or payload.get("org_id")
     user_role = str(payload.get("role", "")).lower()
     parts = clean_path.parts
     if len(parts) > 1:
         try:
             path_org_uuid = uuid.UUID(parts[0])
-            if user_role not in ("admin", "superadmin", "system"):
-                if str(path_org_uuid).startswith("00000000-0000-0000-0000-"):
-                    if not user_org or str(uuid.UUID(str(user_org))) != str(path_org_uuid):
-                        raise PermissionDeniedError("Access denied: evidence artifact belongs to a different organization.")
+            is_shared_demo = str(path_org_uuid).startswith("00000000-0000-0000-0000-")
+            if not is_shared_demo and user_role not in ("admin", "superadmin", "system"):
+                if not user_org or str(uuid.UUID(str(user_org))) != str(path_org_uuid):
+                    raise PermissionDeniedError("Access denied: evidence artifact belongs to a different organization.")
         except ValueError:
             pass
 
