@@ -170,6 +170,7 @@ class NormalizedAdvisoryRecord(BaseModel):
     advisory_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     mode: str = Field(description="'DISASTER_RESPONSE' or 'BORDER_SECURITY'")
     summary: str = Field(description="Executive concise summary of verified situation")
+    advisory_text: Optional[str] = Field(default=None, description="Detailed tactical advisory synthesis")
     priority: AdvisoryPriority = Field(default=AdvisoryPriority.MEDIUM)
     key_findings: List[str] = Field(default_factory=list, description="Findings directly tied to verified evidence")
     evidence_references: List[str] = Field(default_factory=list, description="IDs of evidence records grounding this advisory")

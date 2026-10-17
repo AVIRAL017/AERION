@@ -143,6 +143,11 @@ export interface SituationReport {
     status?: string;
     message?: string;
     by_class: Record<string, number>;
+    confidence_stats?: {
+      min_confidence: number;
+      max_confidence: number;
+      mean_confidence: number;
+    } | null;
     detections: Array<{
       id: string;
       class_name: string;
@@ -469,6 +474,13 @@ export interface AERIONAnalysisResultData {
   demo_zone_activity?: any | null;
   threat_level_changes?: Array<Record<string, any>> | null;
   evidence_frames?: Array<Record<string, any>> | null;
+  all_detections?: RuntimeDetection[] | null;
+  total_detections_count?: number | null;
+  detection_confidence_stats?: {
+    min_confidence: number;
+    max_confidence: number;
+    mean_confidence: number;
+  } | null;
 }
 
 

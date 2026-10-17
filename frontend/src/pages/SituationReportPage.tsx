@@ -14,6 +14,7 @@ export const SituationReportPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [selectedEvidenceFrame, setSelectedEvidenceFrame] = useState<any | null>(null);
+  const [reportActiveTab, setReportActiveTab] = useState<'timeline' | 'detections'>('timeline');
 
   const analysisId = searchParams.get('analysis_id') || undefined;
 
@@ -264,149 +265,234 @@ export const SituationReportPage: React.FC = () => {
         {/* ============================================================ */}
         {/* SECTION 3: REAL-TIME THREAT TIMELINE                         */}
         {/* ============================================================ */}
+        {/* ============================================================ */}
+        {/* SECTION 3: REAL-TIME THREAT TIMELINE & DETECTION STREAM      */}
+        {/* ============================================================ */}
         <div className="p-5 bg-white border border-slate-200/90 rounded-xl shadow-card space-y-3 font-mono text-xs">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-            <span className="text-xs font-mono text-slate-900 uppercase tracking-wider block font-bold">
-              3. REAL-TIME THREAT TIMELINE
-            </span>
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-100 text-slate-700 border border-slate-200">
-              {threatTimeline.length > 0 ? `${threatTimeline.length} CHRONOLOGICAL EVENTS` : 'NO LIVE EVENTS'}
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono text-slate-900 uppercase tracking-wider block font-bold">
+                3. TACTICAL DETECTION & THREAT STREAM
+              </span>
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                <button
+                  onClick={() => setReportActiveTab('timeline')}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                    reportActiveTab === 'timeline'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  THREAT TIMELINE ({threatTimeline.length})
+                </button>
+                <button
+                  onClick={() => setReportActiveTab('detections')}
+                  className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                    reportActiveTab === 'detections'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  ALL CONTACTS ({report?.detection_summary?.detections?.length || report?.detection_summary?.total_detections || 0})
+                </button>
+              </div>
+            </div>
+
+            {report?.detection_summary?.confidence_stats && (
+              <div className="flex items-center gap-2 text-[10px] font-mono text-slate-600 bg-slate-50 px-2.5 py-1 rounded border border-slate-200">
+                <span className="text-slate-400">CONFIDENCE:</span>
+                <span>MIN <strong className="text-slate-800">{(report.detection_summary.confidence_stats.min_confidence * 100).toFixed(1)}%</strong></span>
+                <span>•</span>
+                <span>MEAN <strong className="text-accent">{(report.detection_summary.confidence_stats.mean_confidence * 100).toFixed(1)}%</strong></span>
+                <span>•</span>
+                <span>MAX <strong className="text-status-success">{(report.detection_summary.confidence_stats.max_confidence * 100).toFixed(1)}%</strong></span>
+              </div>
+            )}
           </div>
 
-          {threatTimeline.length > 0 ? (
-            <div className="overflow-x-auto max-h-64 custom-scrollbar border border-slate-200 rounded-lg">
-              <table className="w-full text-left font-mono text-[11px] border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-500 text-[9px] uppercase">
-                    <th className="py-2 px-2.5">TIME</th>
-                    <th className="py-2 px-2.5">TRACK ID</th>
-                    <th className="py-2 px-2.5">OBJECT</th>
-                    <th className="py-2 px-2.5">ZONE STATE</th>
-                    <th className="py-2 px-2.5">THREAT LEVEL</th>
-                    <th className="py-2 px-2.5">TREND</th>
-                    <th className="py-2 px-2.5">CONF</th>
-                    <th className="py-2 px-2.5 text-right">EVIDENCE</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {threatTimeline.map((ev, i) => (
-                    <tr key={i} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-1.5 px-2.5 text-slate-500">{Number(ev.time_offset_seconds ?? (ev.frame_number ? ev.frame_number / 15 : 0)).toFixed(1)}s</td>
-                      <td className="py-1.5 px-2.5 text-accent font-bold">TRK-{ev.track_id}</td>
-                      <td className="py-1.5 px-2.5 uppercase font-medium text-slate-800">{ev.object_class || ev.class_name}</td>
-                      <td className="py-1.5 px-2.5">
-                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
-                          ev.zone_state === 'INSIDE' ? 'bg-status-critical/15 text-status-critical border border-status-critical/20' :
-                          ev.zone_state === 'APPROACHING' ? 'bg-status-warning/15 text-status-warning border border-status-warning/20' :
-                          ev.zone_state === 'EXITED' ? 'bg-accent/15 text-accent border border-accent/20' : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          {ev.zone_state || 'OUTSIDE'}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-2.5">
-                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
-                          ev.threat_level === 'CRITICAL' ? 'bg-status-critical text-white font-bold' :
-                          ev.threat_level === 'HIGH' ? 'bg-status-warning/15 text-status-warning' :
-                          ev.threat_level === 'MEDIUM' ? 'bg-amber-100 text-amber-800' :
-                          ev.threat_level === 'LOW' ? 'bg-status-success/15 text-status-success' : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          {ev.threat_level || 'UNAVAILABLE'}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-2.5 text-[10px] text-slate-500">
-                        {ev.threat_trend || 'STABLE'}
-                      </td>
-                      <td className="py-1.5 px-2.5 text-slate-500">{ev.confidence ? `${Math.round(ev.confidence * 100)}%` : '--'}</td>
-                      <td className="py-1.5 px-2.5 text-right">
-                        {ev.evidence_frame_key ? (
-                          <button
-                            onClick={() => setSelectedEvidenceFrame({
-                              artifact_key: ev.evidence_frame_key,
-                              sha256: ev.evidence_frame_sha256,
-                              frame_number: ev.frame_number,
-                              track_id: ev.track_id,
-                              timestamp_seconds: ev.time_offset_seconds,
-                              threat_level: ev.threat_level,
-                            })}
-                            className="px-2 py-0.5 rounded bg-accent/10 border border-accent/25 text-accent text-[9px] hover:bg-accent/20 font-bold cursor-pointer"
-                          >
-                            VIEW
-                          </button>
-                        ) : (
-                          <span className="text-slate-400 text-[8px]">--</span>
-                        )}
-                      </td>
+          {reportActiveTab === 'timeline' ? (
+            threatTimeline.length > 0 ? (
+              <div className="overflow-x-auto max-h-64 custom-scrollbar border border-slate-200 rounded-lg">
+                <table className="w-full text-left font-mono text-[11px] border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-500 text-[9px] uppercase">
+                      <th className="py-2 px-2.5">TIME</th>
+                      <th className="py-2 px-2.5">TRACK ID</th>
+                      <th className="py-2 px-2.5">OBJECT</th>
+                      <th className="py-2 px-2.5">ZONE STATE</th>
+                      <th className="py-2 px-2.5">THREAT LEVEL</th>
+                      <th className="py-2 px-2.5">TREND</th>
+                      <th className="py-2 px-2.5">CONF</th>
+                      <th className="py-2 px-2.5 text-right">EVIDENCE</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : report?.detection_summary?.detections && report.detection_summary.detections.length > 0 ? (
-            <div className="overflow-x-auto max-h-56 custom-scrollbar border border-slate-200 rounded-lg">
-              <table className="w-full text-left font-mono text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-500 text-[10px] uppercase">
-                    <th className="py-2 px-2.5">ID</th>
-                    <th className="py-2 px-2.5">Class</th>
-                    <th className="py-2 px-2.5">Confidence</th>
-                    <th className="py-2 px-2.5">Track</th>
-                    <th className="py-2 px-2.5">Bounding Box</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {report.detection_summary.detections.slice(0, 30).map((d) => (
-                    <tr key={d.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-1.5 px-2.5 text-slate-800">{d.id}</td>
-                      <td className="py-1.5 px-2.5 text-accent font-semibold">{d.class_name}</td>
-                      <td className="py-1.5 px-2.5 text-slate-700">{(d.confidence * 100).toFixed(1)}%</td>
-                      <td className="py-1.5 px-2.5 text-slate-500">{d.track_id ?? '-'}</td>
-                      <td className="py-1.5 px-2.5 text-slate-400 text-[10px]">
-                        {d.bbox ? `[${Math.round(d.bbox.x1)}, ${Math.round(d.bbox.y1)}, ${Math.round(d.bbox.x2)}, ${Math.round(d.bbox.y2)}]` : '--'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {threatTimeline.map((ev, i) => (
+                      <tr key={i} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-1.5 px-2.5 text-slate-500">{Number(ev.time_offset_seconds ?? (ev.frame_number ? ev.frame_number / 15 : 0)).toFixed(1)}s</td>
+                        <td className="py-1.5 px-2.5 text-accent font-bold">TRK-{ev.track_id}</td>
+                        <td className="py-1.5 px-2.5 uppercase font-medium text-slate-800">{ev.object_class || ev.class_name}</td>
+                        <td className="py-1.5 px-2.5">
+                          <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                            ev.zone_state === 'INSIDE' ? 'bg-status-critical/15 text-status-critical border border-status-critical/20' :
+                            ev.zone_state === 'APPROACHING' ? 'bg-status-warning/15 text-status-warning border border-status-warning/20' :
+                            ev.zone_state === 'EXITED' ? 'bg-accent/15 text-accent border border-accent/20' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {ev.zone_state || 'OUTSIDE'}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-2.5">
+                          <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                            ev.threat_level === 'CRITICAL' ? 'bg-status-critical text-white font-bold' :
+                            ev.threat_level === 'HIGH' ? 'bg-status-warning/15 text-status-warning' :
+                            ev.threat_level === 'MEDIUM' ? 'bg-amber-100 text-amber-800' :
+                            ev.threat_level === 'LOW' ? 'bg-status-success/15 text-status-success' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {ev.threat_level || 'UNAVAILABLE'}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-2.5 text-[10px] text-slate-500">
+                          {ev.threat_trend || 'STABLE'}
+                        </td>
+                        <td className="py-1.5 px-2.5 text-slate-500">{ev.confidence ? `${Math.round(ev.confidence * 100)}%` : '--'}</td>
+                        <td className="py-1.5 px-2.5 text-right">
+                          {ev.evidence_frame_key ? (
+                            <button
+                              onClick={() => setSelectedEvidenceFrame({
+                                artifact_key: ev.evidence_frame_key,
+                                sha256: ev.evidence_frame_sha256,
+                                frame_number: ev.frame_number,
+                                track_id: ev.track_id,
+                                timestamp_seconds: ev.time_offset_seconds,
+                                threat_level: ev.threat_level,
+                              })}
+                              className="px-2 py-0.5 rounded bg-accent/10 border border-accent/25 text-accent text-[9px] hover:bg-accent/20 font-bold cursor-pointer"
+                            >
+                              VIEW
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 text-[8px]">--</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs font-mono text-slate-500 text-center">
+                Real-time vehicle timeline data unavailable for this report session.
+              </div>
+            )
           ) : (
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs font-mono text-slate-500 text-center">
-              Real-time vehicle timeline data unavailable for this report session.
-            </div>
+            report?.detection_summary?.detections && report.detection_summary.detections.length > 0 ? (
+              <div className="overflow-x-auto max-h-64 custom-scrollbar border border-slate-200 rounded-lg">
+                <table className="w-full text-left font-mono text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-500 text-[10px] uppercase">
+                      <th className="py-2 px-2.5">FRAME</th>
+                      <th className="py-2 px-2.5">TRACK</th>
+                      <th className="py-2 px-2.5">CLASS</th>
+                      <th className="py-2 px-2.5">CONFIDENCE</th>
+                      <th className="py-2 px-2.5">BOUNDING BOX</th>
+                      <th className="py-2 px-2.5 text-right">EVIDENCE REF</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {report.detection_summary.detections.slice(0, 100).map((d, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-1.5 px-2.5 text-slate-500 font-mono">#{d.frame_number ?? '--'}</td>
+                        <td className="py-1.5 px-2.5 text-accent font-bold">TRK-{d.track_id ?? '-'}</td>
+                        <td className="py-1.5 px-2.5 text-slate-800 font-semibold uppercase">{d.class_name}</td>
+                        <td className="py-1.5 px-2.5 text-slate-700">{(d.confidence * 100).toFixed(1)}%</td>
+                        <td className="py-1.5 px-2.5 text-slate-400 text-[10px]">
+                          {d.bbox ? `[${Math.round((d.bbox as any).x1 ?? (d.bbox as any)[0] ?? 0)}, ${Math.round((d.bbox as any).y1 ?? (d.bbox as any)[1] ?? 0)}, ${Math.round((d.bbox as any).x2 ?? (d.bbox as any)[2] ?? 0)}, ${Math.round((d.bbox as any).y2 ?? (d.bbox as any)[3] ?? 0)}]` : '--'}
+                        </td>
+                        <td className="py-1.5 px-2.5 text-right text-slate-400 text-[9px] font-mono">
+                          {d.evidence_reference || '--'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs font-mono text-slate-500 text-center">
+                Detailed detection contact records unavailable for this session.
+              </div>
+            )
           )}
         </div>
 
         {/* ============================================================ */}
-        {/* SECTION 4: VEHICLE / TRACK SUMMARY                           */}
+        {/* SECTION 4: VEHICLE & TRACK INVENTORY SUMMARY                 */}
         {/* ============================================================ */}
-        <div className="p-5 bg-white border border-slate-200/90 rounded-xl shadow-card space-y-3 font-mono text-xs">
-          <span className="text-xs font-mono text-slate-900 uppercase tracking-wider block font-bold border-b border-slate-100 pb-2">
-            4. VEHICLE & TRACK INVENTORY SUMMARY
-          </span>
+        <div className="p-5 bg-white border border-slate-200/90 rounded-xl shadow-card space-y-4 font-mono text-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <span className="text-xs font-mono text-slate-900 uppercase tracking-wider block font-bold">
+              4. VEHICLE & TRACK INVENTORY SUMMARY
+            </span>
+            {vehicleSummary && (
+              <span className="text-[10px] text-slate-500 font-bold">
+                TOTAL CONTACTS: {vehicleSummary.total_vehicles_observed ?? 0}
+              </span>
+            )}
+          </div>
           {vehicleSummary ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 block uppercase">TOTAL VEHICLES OBSERVED</span>
-                <span className="text-base text-slate-900 font-bold block mt-0.5">{vehicleSummary.total_vehicles_observed ?? 0}</span>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-400 block uppercase">TOTAL VEHICLES OBSERVED</span>
+                  <span className="text-base text-slate-900 font-bold block mt-0.5">{vehicleSummary.total_vehicles_observed ?? 0}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-400 block uppercase">ACTIVE TRACKS COUNT</span>
+                  <span className="text-base text-accent font-bold block mt-0.5">{vehicleSummary.active_tracks_count ?? 0}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-400 block uppercase">MAX THREAT LEVEL</span>
+                  <span className={`text-base font-bold block mt-0.5 ${
+                    vehicleSummary.max_threat_level === 'CRITICAL' ? 'text-status-critical' : vehicleSummary.max_threat_level === 'HIGH' ? 'text-status-warning' : 'text-status-success'
+                  }`}>
+                    {vehicleSummary.max_threat_level ?? 'LOW'}
+                  </span>
+                </div>
               </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 block uppercase">ACTIVE TRACKS COUNT</span>
-                <span className="text-base text-accent font-bold block mt-0.5">{vehicleSummary.active_tracks_count ?? 0}</span>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 block uppercase">MAX THREAT LEVEL</span>
-                <span className={`text-base font-bold block mt-0.5 ${
-                  vehicleSummary.max_threat_level === 'CRITICAL' ? 'text-status-critical' : vehicleSummary.max_threat_level === 'HIGH' ? 'text-status-warning' : 'text-status-success'
-                }`}>
-                  {vehicleSummary.max_threat_level ?? 'LOW'}
-                </span>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="text-[10px] text-slate-400 block uppercase">VEHICLE CATEGORIES</span>
-                <span className="text-slate-800 text-[11px] font-medium block mt-0.5">
-                  {vehicleSummary.vehicle_categories ? Object.entries(vehicleSummary.vehicle_categories).map(([k, v]) => `${k}: ${v}`).join(', ') : 'N/A'}
-                </span>
-              </div>
+
+              {/* Verified Category Breakdown with Counts & Percentages */}
+              {(() => {
+                const categories = vehicleSummary.class_distribution || vehicleSummary.vehicle_categories || {};
+                const entries = Object.entries(categories);
+                const totalCount = entries.reduce((acc, [, val]) => acc + Number(val), 0) || vehicleSummary.total_vehicles_observed || 1;
+                return (
+                  <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                      VERIFIED TARGET CATEGORY BREAKDOWN ({entries.length} CLASSES)
+                    </span>
+                    {entries.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {entries.map(([cat, countVal]) => {
+                          const count = Number(countVal);
+                          const pct = Math.round((count / (totalCount as number)) * 100);
+                          return (
+                            <div
+                              key={cat}
+                              className="px-3 py-1.5 rounded-lg bg-white border border-slate-200/90 shadow-sm flex items-center gap-2 hover:border-accent/40 transition-all"
+                            >
+                              <span className="font-bold text-slate-800 uppercase text-[11px]">{cat}</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-accent/15 text-accent font-bold">
+                                {count} ({pct}%)
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 text-xs">No categorized detections recorded.</span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs font-mono text-slate-500 text-center">

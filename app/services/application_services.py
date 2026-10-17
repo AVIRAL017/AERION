@@ -494,9 +494,25 @@ class BorderVideoJobService:
         max_conf = max(conf_list) if conf_list else 0.0
         mean_conf = (sum(conf_list) / len(conf_list)) if conf_list else 0.0
 
+        # Determine highest observed threat level
+        max_threat = "LOW"
+        for t_hist in track_threat_history.values():
+            for entry in t_hist:
+                lvl = entry.get("level", "LOW")
+                if lvl == "CRITICAL":
+                    max_threat = "CRITICAL"
+                    break
+                elif lvl == "HIGH" and max_threat != "CRITICAL":
+                    max_threat = "HIGH"
+                elif lvl == "MEDIUM" and max_threat not in ("CRITICAL", "HIGH"):
+                    max_threat = "MEDIUM"
+
         vehicle_summary = {
             "total_vehicles_observed": len(unique_track_ids),
+            "active_tracks_count": len(unique_track_ids),
             "class_distribution": vehicle_classes,
+            "vehicle_categories": vehicle_classes,
+            "max_threat_level": max_threat,
             "approaching_count": len(vehicles_approached),
             "entered_count": zone_entry_count,
             "left_count": zone_exit_count,
@@ -522,6 +538,7 @@ class BorderVideoJobService:
             "annotated_artifact": annotated_video_artifact,
             "last_analysis_result": last_runtime_result,
             "all_detections": all_detections,
+            "detections": all_detections,
             "tracks": all_tracks,
             "unique_tracks_count": len(unique_track_ids),
             "total_detections_count": total_detections,

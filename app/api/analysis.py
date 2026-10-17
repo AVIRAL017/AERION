@@ -1927,6 +1927,8 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
                     "processed_frames": report_data.get("processed_frames"),
                     "total_video_frames": report_data.get("total_video_frames"),
                     "all_detections": report_data.get("all_detections", []),
+                    "detections": report_data.get("all_detections", []),
+                    "total_detections_count": total_detections_count,
                     "tracks": report_data.get("tracks", []),
                     "unique_tracks_count": report_data.get("unique_tracks_count", 0),
                     "detection_confidence_stats": report_data.get("detection_confidence_stats"),
@@ -1982,9 +1984,16 @@ async def _run_border_job_pipeline(job_id: str, req: CreateBorderJobRequest, use
             res_dict["processed_frames"] = report_data.get("processed_frames")
             res_dict["total_video_frames"] = report_data.get("total_video_frames")
             res_dict["all_detections"] = report_data.get("all_detections", [])
+            res_dict["detections"] = report_data.get("all_detections", [])
             res_dict["tracks"] = report_data.get("tracks", [])
             res_dict["unique_tracks_count"] = report_data.get("unique_tracks_count", 0)
             res_dict["report"] = report_data.get("report")
+            res_dict["threat_timeline"] = report_data.get("threat_timeline", [])
+            res_dict["threat_level_changes"] = report_data.get("threat_level_changes", [])
+            res_dict["evidence_frames"] = report_data.get("evidence_frames", [])
+            res_dict["vehicle_summary"] = report_data.get("vehicle_summary")
+            res_dict["demo_zone_activity"] = report_data.get("demo_zone_activity")
+            res_dict["detection_confidence_stats"] = report_data.get("detection_confidence_stats")
 
         return res_dict
 

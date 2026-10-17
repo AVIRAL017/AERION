@@ -512,10 +512,10 @@ async def get_situation_report(
     is_border_mode = analysis_mode.lower() in ("border", "border_security", "unified")
 
     # 1. Detections & Detection Summary
-    raw_detections = raw_payload.get("detections", [])
-    has_detections_data = "detections" in raw_payload
+    raw_detections = raw_payload.get("all_detections") or raw_payload.get("detections") or []
+    has_detections_data = bool(raw_detections) or ("detections" in raw_payload) or ("all_detections" in raw_payload) or bool(raw_payload.get("total_detections_count"))
     detection_summary: Optional[Dict[str, Any]] = None
-    if has_detections_data:
+    if has_detections_data or is_border_mode:
         by_class: Dict[str, int] = {}
         formatted_detections: List[Dict[str, Any]] = []
         for idx, d in enumerate(raw_detections):
@@ -529,20 +529,37 @@ async def get_situation_report(
                 "obb_points": d.get("obb_points"),
                 "track_id": d.get("track_id"),
                 "frame_number": d.get("frame_number"),
-                "evidence_reference": d.get("evidence_id") or f"EV-DET-{idx + 1:04d}",
+                "evidence_reference": d.get("evidence_id") or d.get("evidence_reference") or f"EV-DET-{idx + 1:04d}",
             })
+
+        # Check vehicle_summary class distribution fallback if by_class is empty
+        veh_sum = raw_payload.get("vehicle_summary") or {}
+        if not by_class and isinstance(veh_sum, dict):
+            c_dist = veh_sum.get("class_distribution") or veh_sum.get("vehicle_categories")
+            if c_dist and isinstance(c_dist, dict):
+                by_class = {str(k): int(v) for k, v in c_dist.items()}
+
+        tot_det_count = raw_payload.get("total_detections_count") or len(raw_detections)
+        if not tot_det_count and by_class:
+            tot_det_count = sum(by_class.values())
+
+        # Confidence statistics
+        conf_stats = raw_payload.get("detection_confidence_stats")
+        if not conf_stats:
+            conf_vals = [float(d.get("confidence", 0.0)) for d in raw_detections if d.get("confidence") is not None]
+            if conf_vals:
+                conf_stats = {
+                    "min_confidence": round(min(conf_vals), 4),
+                    "max_confidence": round(max(conf_vals), 4),
+                    "mean_confidence": round(sum(conf_vals) / len(conf_vals), 4),
+                }
+
         detection_summary = {
-            "total_detections": len(raw_detections),
+            "total_detections": tot_det_count,
             "by_class": by_class,
             "detections": formatted_detections,
-        }
-    elif is_border_mode:
-        detection_summary = {
-            "total_detections": 0,
-            "status": "UNAVAILABLE",
-            "message": "Detection data unavailable for this analysis.",
-            "by_class": {},
-            "detections": [],
+            "confidence_stats": conf_stats,
+            "vehicle_summary": veh_sum if isinstance(veh_sum, dict) and (veh_sum.get("class_distribution") or veh_sum.get("vehicle_categories") or veh_sum.get("total_vehicles_observed")) else None,
         }
 
     # 2. Damage Assessment
@@ -703,7 +720,7 @@ async def get_situation_report(
     is_standalone_image = raw_payload.get("source_type") in ("drone", "satellite") and not raw_payload.get("annotated_video_artifact") and "damage_analysis" not in raw_payload
 
     if is_standalone_image:
-        det_count = len(raw_detections) if has_detections_data else 0
+        det_count = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else 0)
         src_label = raw_payload.get("source_type", "aerial").capitalize()
         verified_facts.append(f"{src_label} image perception analysis confirmed {det_count} total detection(s).")
         if det_count == 0:
@@ -712,7 +729,7 @@ async def get_situation_report(
             for cname, count in (detection_summary.get("by_class", {}) if detection_summary else {}).items():
                 verified_facts.append(f"{cname.capitalize()}: {count}")
     elif is_border_mode:
-        det_count = len(raw_detections) if has_detections_data else 0
+        det_count = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else 0)
         if has_detections_data:
             verified_facts.append(f"Border surveillance analysis confirmed {det_count} total detection(s).")
             if det_count == 0:
@@ -744,14 +761,14 @@ async def get_situation_report(
 
     # 6. Executive Summary & Advisory
     if is_standalone_image:
-        det_count = len(raw_detections) if has_detections_data else 0
+        det_count = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else 0)
         src_label = raw_payload.get("source_type", "aerial").capitalize()
         if det_count == 0:
             exec_summary = f"{src_label} image perception completed. Zero detections returned by the model."
         else:
             exec_summary = f"{src_label} image perception completed. Verified {det_count} visual observation(s) across scene."
     elif is_border_mode:
-        det_count = len(raw_detections) if has_detections_data else 0
+        det_count = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else 0)
         if has_detections_data:
             if det_count == 0:
                 exec_summary = "Operational border surveillance completed. Zero detections returned by the analysis."
@@ -792,7 +809,7 @@ async def get_situation_report(
             from app.schemas.external import AdvisoryPriority
             
             mistral_client = MistralAdvisoryClient()
-            det_count = len(raw_detections) if has_detections_data else 0
+            det_count = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else 0)
             crossing_inds = raw_payload.get("potential_unauthorized_crossing_indicators", [])
             num_indicators = len(crossing_inds)
             
@@ -839,12 +856,13 @@ async def get_situation_report(
         except Exception as mistral_exc:
             logger.warning(f"On-demand Mistral advisory synthesis failed: {mistral_exc}")
             if is_standalone_image:
-                det_count = len(raw_detections) if has_detections_data else 0
+                det_count = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else 0)
                 adv_text = f"Visual perception analysis completed. Total detections identified: {det_count}."
             else:
+                det_count_disp = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else 0)
                 adv_text = (
                     f"Operational sector evaluated in {analysis_mode.upper()} mode. "
-                    + (f"Total detections: {len(raw_detections)}." if is_border_mode and has_detections_data else f"Damage ratio: {damage_summary.get('damage_percentage', 0.0)}%." if not is_border_mode and damage_summary else "Maintain standard operational protocols.")
+                    + (f"Total detections: {det_count_disp}." if is_border_mode and has_detections_data else f"Damage ratio: {damage_summary.get('damage_percentage', 0.0)}%." if not is_border_mode and damage_summary else "Maintain standard operational protocols.")
                 )
             ai_advisory = {
                 "advisory_text": adv_text,
@@ -858,7 +876,7 @@ async def get_situation_report(
     # Derived Metrics
     derived_metrics: Dict[str, Any] = {}
     if is_border_mode:
-        derived_metrics["total_detections"] = len(raw_detections) if has_detections_data else "UNAVAILABLE"
+        derived_metrics["total_detections"] = tot_det_count if detection_summary else (len(raw_detections) if has_detections_data else "UNAVAILABLE")
         if detection_summary and detection_summary.get("by_class"):
             derived_metrics["classes_observed"] = list(detection_summary["by_class"].keys())
     else:

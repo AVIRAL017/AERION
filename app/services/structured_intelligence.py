@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import uuid
@@ -114,23 +115,22 @@ class MistralAdvisoryClient:
         }
         payload = {
             "model": self.model,
-            "temperature": 0.15,
-            "max_tokens": 400,
+            "temperature": 0.20,
+            "max_tokens": 1500,
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "You are an operational intelligence advisory assistant for AERION. "
-                        "RULES:\n"
-                        "1. Use ONLY supplied AERION evidence.\n"
-                        "2. If evidence is missing, state that it is unavailable.\n"
-                        "3. Do NOT invent detections, coordinates, weather, routes, shelter status, "
-                        "infrastructure status, hazard status, confidence, event counts, or timestamps.\n"
-                        "4. Do NOT convert uncertainty into certainty.\n"
-                        "5. Do NOT claim an event is confirmed unless the evidence explicitly establishes it.\n"
-                        "6. Distinguish observed facts from derived values and external information.\n"
-                        "7. Use 'Potential Unauthorized Crossing Indicator' terminology for border indicators.\n"
-                        "8. Under no circumstance override deterministic priority or evidence.\n"
+                        "You are the AERION Chief Tactical Intelligence Advisor, synthesizing grounded operational situational awareness for command personnel.\n"
+                        "STRICT OPERATIONAL DIRECTIVES:\n"
+                        "1. Base all observations strictly on the supplied AERION structured evidence package.\n"
+                        "2. Provide an authoritative, detailed, multi-section operational situation advisory.\n"
+                        "3. Explicitly break down observed entity categories (cars, motorbikes, pedestrians, trucks, buses), track counts, and movement flow rates.\n"
+                        "4. Detail spatial perimeter dynamics, zone entry/exit rates, and potential crossing indicators.\n"
+                        "5. Provide concrete, actionable tactical recommendations for ground units, patrol dispatch, and optical sensor tasking.\n"
+                        "6. Under no circumstance fabricate coordinates, artificial casualties, or unobserved events.\n"
+                        "7. If boundary data or demo zones are unconfigured, clearly declare them as UNAVAILABLE or SENSOR-RELATIVE.\n"
+                        "8. Use 'Potential Unauthorized Crossing Indicator' rather than 'confirmed infiltration'.\n"
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -171,13 +171,39 @@ class MistralAdvisoryClient:
                 # Derive findings and key points from evidence
                 key_findings = self._extract_key_findings(mode, evidence_package)
 
+                # Extract actionable recommendations from advisory text if present
+                rec_actions = []
+                lines = advisory_text.split("\n")
+                capturing_recs = False
+                for line in lines:
+                    stripped = line.strip()
+                    lower_line = stripped.lower()
+                    if ("recommend" in lower_line or "directive" in lower_line or "action" in lower_line) and ("###" in stripped or "**" in stripped):
+                        capturing_recs = True
+                        continue
+                    if capturing_recs:
+                        if stripped.startswith("###") or stripped.startswith("---"):
+                            capturing_recs = False
+                            continue
+                        clean_action = re.sub(r"^[\*\-\d\.\s]+", "", stripped).strip()
+                        if clean_action and len(clean_action) > 10:
+                            rec_actions.append(clean_action)
+                        if len(rec_actions) >= 4:
+                            break
+
+                if not rec_actions:
+                    rec_actions = [standard_protocol]
+                elif standard_protocol not in rec_actions:
+                    rec_actions.append(standard_protocol)
+
                 return NormalizedAdvisoryRecord(
                     mode=mode,
-                    summary=advisory_text[:280] + ("..." if len(advisory_text) > 280 else ""),
+                    summary=advisory_text,
+                    advisory_text=advisory_text,
                     priority=deterministic_priority,
                     key_findings=key_findings,
                     evidence_references=ev_refs,
-                    recommended_actions=[standard_protocol],
+                    recommended_actions=rec_actions,
                     limitations=limitations,
                     model=self.model,
                     provider_status=ProviderStatus.AVAILABLE,
@@ -226,17 +252,24 @@ STRICT INVARIANT: DO NOT invent coordinates, casualty counts, damaged infrastruc
 State ONLY verified facts supported by the structured evidence above.
 For crossing events, use terms like 'Potential Unauthorized Crossing Indicator' and never 'confirmed infiltration'.
 
-STRICT ADVISORY INSTRUCTIONS:
-1. Write a structured, executive-grade advisory distinguishing:
-   - [OBSERVED FACTS]: Grounded in perception detections, track IDs, and verified timestamps. State ONLY verified facts.
-   - [DERIVED ASSESSMENTS]: Grounded in computed metrics, zone states, and threat transitions. Use 'Potential Unauthorized Crossing Indicator' and never 'confirmed infiltration'.
-   - [PREDICTED / TREND]: Observed movement trends (RISING / FALLING / STABLE) and directional trajectories. NEVER invent future threat probabilities.
-   - [UNAVAILABLE DATA & LIMITATIONS]: Explicitly acknowledge unconfigured zones, unacquired borders, or unverified weather/routing.
-2. STRICT ZERO-FABRICATION INVARIANT:
-   - STRICT INVARIANT: DO NOT invent coordinates, casualties, property damage, routes, weather, shelters, or infiltration events.
-   - If a Demo Zone is not configured, state that border threat relative to zone is UNAVAILABLE.
-   - Do NOT convert uncertainty into certainty.
-3. Keep the synthesis authoritative, concise, and strictly bounded to verified evidence.
+STRUCTURE YOUR OPERATIONAL INTELLIGENCE ADVISORY INTO THESE SECTIONS:
+### 1. EXECUTIVE SITUATIONAL ASSESSMENT
+Synthesize verified sensor observations, total detection count ({context.get('detection_count', 0)}), unique tracked vehicles, and sector operational posture.
+
+### 2. TARGET CLASSIFICATION & MOVEMENT DYNAMICS
+Detail categorical distribution across vehicles and pedestrians (e.g. cars, motorbikes, pedestrians, trucks, buses). Analyze movement trajectories, speed patterns, and spatial clustering.
+
+### 3. SECTOR PERIMETER & GEOFENCE EVALUATION
+Assess ingress/egress activity relative to the monitored zone or aperture. Explicitly evaluate the {context.get('crossing_indicators_count', 0)} crossing indicator(s) and any containment/zone breach events. If border context is not set, state clearly that perception remains sensor-relative.
+
+### 4. OPERATIONAL RESPONSE DIRECTIVES
+List concrete, prioritized operational directives for command and field operators:
+- Action 1: Specific checkpoint / verification action.
+- Action 2: Patrol deployment or containment guidance.
+- Action 3: Optical tracking and sensor reassessment protocol.
+
+### 5. SENSOR LIMITATIONS & AUDIT COMPLIANCE
+Declare frozen model parameters (YOLOv8/ByteTrack), absence of authoritative GPS if applicable, and human operator verification requirements.
 """
 
     def _build_grounded_prompt(
@@ -259,19 +292,47 @@ STRICT ADVISORY INSTRUCTIONS:
     ) -> NormalizedAdvisoryRecord:
         """Deterministic fallback advisory when Mistral AI is unavailable or unconfigured."""
         key_findings = self._extract_key_findings(mode, evidence_package)
-        summary = (
-            f"Advisory generated via deterministic operational rules ({provider_status.value}). "
-            f"Mode: {mode}. Standard protocol: {standard_protocol}"
+        det_count = evidence_package.get("detection_count", 0)
+        cross_count = evidence_package.get("crossing_indicators_count", 0)
+        veh_sum = evidence_package.get("vehicle_summary") or {}
+        class_dist = veh_sum.get("class_distribution") or {}
+        class_str = ", ".join([f"{k.upper()}: {v}" for k, v in class_dist.items()]) if class_dist else "Standard surveillance categories"
+
+        fallback_text = (
+            f"### AERION OPERATIONAL INTELLIGENCE ADVISORY (DETERMINISTIC FALLBACK)\n\n"
+            f"### 1. EXECUTIVE SITUATIONAL ASSESSMENT\n"
+            f"Operational sector evaluated deterministically under {mode} protocol. "
+            f"Sensor perception verified {det_count} total detection events across surveillance frames. "
+            f"Deterministic priority assigned: {priority.value}.\n\n"
+            f"### 2. TARGET CLASSIFICATION & MOVEMENT DYNAMICS\n"
+            f"Categorical classification distribution: {class_str}. "
+            f"Entities tracked deterministically via frozen weights. No synthetic kinematic inflation injected.\n\n"
+            f"### 3. SECTOR PERIMETER & GEOFENCE EVALUATION\n"
+            f"Cross-perimeter indicators evaluated: {cross_count} Potential Unauthorized Crossing Indicators registered. "
+            f"Border status: {evidence_package.get('authoritative_border_status', 'SENSOR-FRAME RELATIVE')}.\n\n"
+            f"### 4. OPERATIONAL RESPONSE DIRECTIVES\n"
+            f"- Verify all tracked entity contacts against authorized transit checkpoints.\n"
+            f"- Dispatch tactical patrol for sector reconnaissance if contacts remain outside permitted corridors.\n"
+            f"- Maintain continuous sensor aperture lock and cross-reference with secondary radar.\n\n"
+            f"### 5. SENSOR LIMITATIONS & AUDIT COMPLIANCE\n"
+            f"Advisory synthesized under deterministic rules ({provider_status.value}). "
+            f"Human-in-the-loop verification required before operational deployment."
         )
+
         return NormalizedAdvisoryRecord(
             mode=mode,
-            summary=summary,
+            summary=fallback_text,
+            advisory_text=fallback_text,
             priority=priority,
             key_findings=key_findings,
             evidence_references=evidence_refs,
-            recommended_actions=[standard_protocol],
+            recommended_actions=[
+                "Verify entity presence against authorized transit checkpoints.",
+                "Dispatch tactical patrol if outside authorized corridors.",
+                standard_protocol,
+            ],
             limitations=limitations,
-            model="none (deterministic fallback)",
+            model=f"deterministic-fallback ({provider_status.value})",
             provider_status=provider_status,
             grounded=True,
         )

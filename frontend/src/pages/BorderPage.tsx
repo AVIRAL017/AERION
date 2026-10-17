@@ -130,8 +130,14 @@ export const BorderPage: React.FC = () => {
   const [activeConfiguredZone, setActiveConfiguredZone] = useState<Array<[number, number]> | null>(null);
   const [activeSectorName, setActiveSectorName] = useState<string>('');
 
-  // Selected Evidence Frame Modal
+  // Selected Evidence Frame Modal & Framewise Detection Inspector
   const [selectedEvidenceFrame, setSelectedEvidenceFrame] = useState<any | null>(null);
+  const [activeBottomTab, setActiveBottomTab] = useState<'timeline' | 'detections'>('timeline');
+  const [selectedFrameFilter, setSelectedFrameFilter] = useState<number | 'all'>('all');
+  const [modalImgDims, setModalImgDims] = useState<{ w: number; h: number } | null>(null);
+  const [modalHighlightedDetIdx, setModalHighlightedDetIdx] = useState<number | null>(null);
+  const [modalShowBoxes, setModalShowBoxes] = useState<boolean>(true);
+  const [modalShowLabels, setModalShowLabels] = useState<boolean>(true);
 
   const getEvidenceUrl = (key: string, download = false) => {
     const cleanKey = key.split('/').map(encodeURIComponent).join('/');
@@ -267,6 +273,12 @@ export const BorderPage: React.FC = () => {
   const demoZoneActivity: any = activeAnalysisResult?.demo_zone_activity || activeAnalysisResult?.report?.demo_zone_activity || null;
   const threatLevelChanges: any[] = activeAnalysisResult?.threat_level_changes || activeAnalysisResult?.report?.threat_level_changes || [];
   const evidenceFrames: any[] = activeAnalysisResult?.evidence_frames || activeAnalysisResult?.report?.evidence_frames || [];
+  const allDetections: any[] = activeAnalysisResult?.all_detections || activeAnalysisResult?.detections || activeAnalysisResult?.report?.all_detections || activeAnalysisResult?.report?.detections || [];
+  const confidenceStats = activeAnalysisResult?.detection_confidence_stats || activeAnalysisResult?.report?.detection_confidence_stats || null;
+  const categories: Record<string, number> = vehicleSummary?.class_distribution || vehicleSummary?.vehicle_categories || {};
+  const totalDetectionsCount = activeAnalysisResult?.annotated_video_artifact?.total_detections_count 
+    ?? activeAnalysisResult?.total_detections_count 
+    ?? allDetections.length;
 
   const handleVideoTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const t = e.currentTarget.currentTime;
@@ -982,12 +994,13 @@ export const BorderPage: React.FC = () => {
                       {/* Overview Grid: Vehicle Summary + Demo Zone Activity */}
                       <div className="w-full mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
                         {/* Vehicle / Track Summary */}
-                        <div className="p-2.5 bg-panel/80 border border-white/[0.06] rounded font-mono text-xs space-y-1">
+                        <div className="p-2.5 bg-panel/80 border border-white/[0.06] rounded font-mono text-xs space-y-2">
                           <div className="flex items-center justify-between text-[10px] text-muted">
-                            <span className="font-bold text-accent uppercase">VEHICLE INVENTORY & TRACKS</span>
-                            <span>TOTAL: {vehicleSummary?.total_vehicles_observed ?? (activeAnalysisResult.tracks?.length || 0)}</span>
+                            <span className="font-bold text-accent uppercase">VEHICLE & SENSOR PERCEPTION INVENTORY</span>
+                            <span className="text-paper font-bold">TOTAL CONTACTS: {totalDetectionsCount}</span>
                           </div>
-                          <div className="grid grid-cols-3 gap-2 text-[10px] pt-1">
+
+                          <div className="grid grid-cols-3 gap-2 text-[10px]">
                             <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
                               <span className="text-faint block text-[8px]">ACTIVE TRACKS</span>
                               <span className="text-paper font-bold">{vehicleSummary?.active_tracks_count ?? activeAnalysisResult.tracks?.length ?? 0}</span>
@@ -1001,16 +1014,47 @@ export const BorderPage: React.FC = () => {
                               </span>
                             </div>
                             <div className="p-1.5 bg-graphite/40 rounded border border-white/[0.04]">
-                              <span className="text-faint block text-[8px]">CATEGORIES</span>
-                              <span className="text-paper font-semibold truncate block">
-                                {vehicleSummary?.vehicle_categories ? Object.entries(vehicleSummary.vehicle_categories).map(([k, v]) => `${k}:${v}`).join(', ') : 'VEHICLES'}
+                              <span className="text-faint block text-[8px]">CONFIDENCE</span>
+                              <span className="text-status-success font-bold">
+                                {confidenceStats ? `${Math.round(confidenceStats.mean_confidence * 100)}% MEAN` : 'VERIFIED'}
                               </span>
                             </div>
                           </div>
+
+                          {/* Category Distribution Pills with Counts & Percentages */}
+                          {Object.keys(categories).length > 0 && (
+                            <div className="pt-1 border-t border-white/[0.04] space-y-1">
+                              <span className="text-[8px] text-faint uppercase block">CONFIRMED CATEGORY BREAKDOWN ({Object.keys(categories).length} CLASSES)</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {Object.entries(categories).map(([cat, cnt]) => {
+                                  const count = Number(cnt);
+                                  const pct = Math.round((count / (totalDetectionsCount || 1)) * 100);
+                                  return (
+                                    <span
+                                      key={cat}
+                                      className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.08] text-[9px] flex items-center gap-1 hover:border-accent/40 transition-colors"
+                                    >
+                                      <span className="text-paper uppercase font-semibold">{cat}</span>
+                                      <span className="text-accent font-bold">{count} ({pct}%)</span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {confidenceStats && (
+                            <div className="flex items-center justify-between text-[8px] text-faint pt-1 border-t border-white/[0.04]">
+                              <span>MIN: {(confidenceStats.min_confidence * 100).toFixed(1)}%</span>
+                              <span>MEAN: {(confidenceStats.mean_confidence * 100).toFixed(1)}%</span>
+                              <span>MAX: {(confidenceStats.max_confidence * 100).toFixed(1)}%</span>
+                              <span>SAMPLES: {allDetections.length}</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Demo Zone Activity */}
-                        <div className="p-2.5 bg-panel/80 border border-white/[0.06] rounded font-mono text-xs space-y-1">
+                        <div className="p-2.5 bg-panel/80 border border-white/[0.06] rounded font-mono text-xs space-y-2">
                           <div className="flex items-center justify-between text-[10px] text-muted">
                             <span className="font-bold text-accent uppercase">DEMO ZONE SURVEILLANCE</span>
                             <span className={`px-1.5 py-0.2 rounded text-[9px] ${
@@ -1037,169 +1081,282 @@ export const BorderPage: React.FC = () => {
                               </div>
                             </div>
                           ) : (
-                            <div className="p-2 bg-graphite/40 rounded border border-white/[0.04] text-[10px] text-faint flex items-center justify-between">
+                            <div className="p-2.5 bg-graphite/40 rounded border border-white/[0.04] text-[10px] text-faint flex flex-col justify-between h-[calc(100%-2rem)]">
                               <span>BORDER CONTEXT NOT SET — Threat levels evaluated without containment.</span>
-                              <button
-                                onClick={() => setIsZoneConfigOpen(true)}
-                                className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-accent text-[9px] hover:bg-elevated/80 cursor-pointer"
-                              >
-                                CONFIGURE ZONE
-                              </button>
+                              <div className="flex justify-end pt-2">
+                                <button
+                                  onClick={() => setIsZoneConfigOpen(true)}
+                                  className="px-2 py-0.5 rounded bg-elevated border border-white/[0.1] text-accent text-[9px] hover:bg-elevated/80 cursor-pointer"
+                                >
+                                  CONFIGURE ZONE
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>
                       </div>
 
-                      {/* Synchronized Real-Time Vehicle Threat Timeline Table */}
+                      {/* Interactive Dual-Mode Intelligence Stream (Timeline & Framewise Explorer) */}
                       <div className="w-full mt-2 bg-graphite/80 border border-white/[0.08] rounded p-2.5 text-xs font-mono">
-                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/[0.06] text-[10px]">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 mb-2 border-b border-white/[0.06] text-[10px] gap-2">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-accent uppercase">REAL-TIME VEHICLE THREAT TIMELINE</span>
-                            <span className="px-1.5 py-0.2 rounded bg-elevated text-paper text-[9px]">
-                              PLAYHEAD: {currentVideoTime.toFixed(1)}s
-                            </span>
+                            <div className="flex items-center bg-elevated/60 p-0.5 rounded border border-white/[0.08]">
+                              <button
+                                onClick={() => setActiveBottomTab('timeline')}
+                                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${
+                                  activeBottomTab === 'timeline'
+                                    ? 'bg-accent text-graphite font-black shadow-sm'
+                                    : 'text-faint hover:text-paper'
+                                }`}
+                              >
+                                ⚡ THREAT TIMELINE ({threatTimeline.length})
+                              </button>
+                              <button
+                                onClick={() => setActiveBottomTab('detections')}
+                                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer ${
+                                  activeBottomTab === 'detections'
+                                    ? 'bg-accent text-graphite font-black shadow-sm'
+                                    : 'text-faint hover:text-paper'
+                                }`}
+                              >
+                                🎯 FRAMEWISE DETECTIONS ({allDetections.length})
+                              </button>
+                            </div>
+                            {activeBottomTab === 'timeline' && (
+                              <span className="px-1.5 py-0.2 rounded bg-elevated text-paper text-[9px]">
+                                PLAYHEAD: {currentVideoTime.toFixed(1)}s
+                              </span>
+                            )}
                           </div>
+
                           <div className="flex items-center gap-2 text-[9px] text-faint">
-                            <span className="hidden sm:inline">CLICK ROW TO SEEK VIDEO</span>
-                            <span>EVENTS: {threatTimeline.length > 0 ? threatTimeline.length : (activeAnalysisResult.detections?.length || 0)}</span>
+                            {activeBottomTab === 'timeline' ? (
+                              <span className="hidden sm:inline">CLICK ROW TO SEEK VIDEO</span>
+                            ) : (
+                              <span>CLICK ROW TO INSPECT RECOGNIZED ENTITY</span>
+                            )}
                           </div>
                         </div>
 
-                        {threatTimeline.length > 0 ? (
-                          <div className="overflow-x-auto max-h-56 custom-scrollbar">
-                            <table className="w-full text-left font-mono text-[10px] border-collapse">
-                              <thead>
-                                <tr className="border-b border-white/[0.06] text-faint text-[9px] uppercase">
-                                  <th className="py-1 px-1.5">TIME</th>
-                                  <th className="py-1 px-1.5">TRACK</th>
-                                  <th className="py-1 px-1.5">OBJECT</th>
-                                  <th className="py-1 px-1.5">ZONE STATE</th>
-                                  <th className="py-1 px-1.5">THREAT LEVEL</th>
-                                  <th className="py-1 px-1.5">TREND</th>
-                                  <th className="py-1 px-1.5">CONF</th>
-                                  <th className="py-1 px-1.5 text-right">EVIDENCE</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-white/[0.03]">
-                                {threatTimeline.map((ev: any, idx: number) => {
-                                  const evTime = ev.time_offset_seconds ?? ev.timestamp_seconds ?? (ev.frame_number ? ev.frame_number / 15 : 0);
-                                  const isActive = activeTimelineIndex === idx;
-                                  return (
-                                    <tr
-                                      key={idx}
-                                      onClick={() => handleSeekToTimelineEvent(ev, idx)}
-                                      className={`cursor-pointer transition-colors ${
-                                        isActive
-                                          ? 'bg-accent/20 border-l-2 border-accent text-accent font-semibold'
-                                          : 'hover:bg-white/[0.03] text-paper'
-                                      }`}
-                                    >
-                                      <td className="py-1 px-1.5 font-mono text-faint">{Number(evTime).toFixed(1)}s</td>
-                                      <td className="py-1 px-1.5 text-status-ai font-bold">TRK-{ev.track_id}</td>
-                                      <td className="py-1 px-1.5 uppercase font-medium">{ev.object_class || ev.class_name}</td>
-                                      <td className="py-1 px-1.5">
-                                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
-                                          ev.zone_state === 'INSIDE'
-                                            ? 'bg-status-critical/20 text-status-critical border border-status-critical/30'
-                                            : ev.zone_state === 'APPROACHING'
-                                            ? 'bg-status-warning/20 text-status-warning border border-status-warning/30'
-                                            : ev.zone_state === 'EXITED'
-                                            ? 'bg-status-ai/20 text-status-ai border border-status-ai/30'
-                                            : 'bg-elevated text-faint'
-                                        }`}>
-                                          {ev.zone_state || 'OUTSIDE'}
-                                        </span>
-                                      </td>
-                                      <td className="py-1 px-1.5">
-                                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
-                                          ev.threat_level === 'CRITICAL'
-                                            ? 'bg-status-critical text-graphite font-black'
-                                            : ev.threat_level === 'HIGH'
-                                            ? 'bg-status-warning/20 text-status-warning'
-                                            : ev.threat_level === 'MEDIUM'
-                                            ? 'bg-status-warning/15 text-status-warning/80'
-                                            : ev.threat_level === 'LOW'
-                                            ? 'bg-status-success/15 text-status-success'
-                                            : 'bg-elevated text-faint'
-                                        }`}>
-                                          {ev.threat_level || 'UNAVAILABLE'}
-                                        </span>
-                                      </td>
-                                      <td className="py-1 px-1.5">
-                                        <span className="flex items-center gap-0.5 text-[9px]">
-                                          <span className="material-symbols-outlined text-[11px]">
-                                            {ev.threat_trend === 'ESCALATING' ? 'trending_up' : ev.threat_trend === 'DE_ESCALATING' ? 'trending_down' : 'trending_flat'}
+                        {activeBottomTab === 'timeline' ? (
+                          threatTimeline.length > 0 ? (
+                            <div className="overflow-x-auto max-h-56 custom-scrollbar">
+                              <table className="w-full text-left font-mono text-[10px] border-collapse">
+                                <thead>
+                                  <tr className="border-b border-white/[0.06] text-faint text-[9px] uppercase">
+                                    <th className="py-1 px-1.5">TIME</th>
+                                    <th className="py-1 px-1.5">TRACK</th>
+                                    <th className="py-1 px-1.5">OBJECT</th>
+                                    <th className="py-1 px-1.5">ZONE STATE</th>
+                                    <th className="py-1 px-1.5">THREAT LEVEL</th>
+                                    <th className="py-1 px-1.5">TREND</th>
+                                    <th className="py-1 px-1.5">CONF</th>
+                                    <th className="py-1 px-1.5 text-right">EVIDENCE</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/[0.03]">
+                                  {threatTimeline.map((ev: any, idx: number) => {
+                                    const evTime = ev.time_offset_seconds ?? ev.timestamp_seconds ?? (ev.frame_number ? ev.frame_number / 15 : 0);
+                                    const isActive = activeTimelineIndex === idx;
+                                    return (
+                                      <tr
+                                        key={idx}
+                                        onClick={() => handleSeekToTimelineEvent(ev, idx)}
+                                        className={`cursor-pointer transition-colors ${
+                                          isActive
+                                            ? 'bg-accent/20 border-l-2 border-accent text-accent font-semibold'
+                                            : 'hover:bg-white/[0.03] text-paper'
+                                        }`}
+                                      >
+                                        <td className="py-1 px-1.5 font-mono text-faint">{Number(evTime).toFixed(1)}s</td>
+                                        <td className="py-1 px-1.5 text-status-ai font-bold">TRK-{ev.track_id}</td>
+                                        <td className="py-1 px-1.5 uppercase font-medium">{ev.object_class || ev.class_name}</td>
+                                        <td className="py-1 px-1.5">
+                                          <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                                            ev.zone_state === 'INSIDE'
+                                              ? 'bg-status-critical/20 text-status-critical border border-status-critical/30'
+                                              : ev.zone_state === 'APPROACHING'
+                                              ? 'bg-status-warning/20 text-status-warning border border-status-warning/30'
+                                              : ev.zone_state === 'EXITED'
+                                              ? 'bg-status-ai/20 text-status-ai border border-status-ai/30'
+                                              : 'bg-elevated text-faint'
+                                          }`}>
+                                            {ev.zone_state || 'OUTSIDE'}
                                           </span>
-                                          <span className="text-[8px]">{ev.threat_trend || 'STABLE'}</span>
-                                        </span>
-                                      </td>
-                                      <td className="py-1 px-1.5 text-faint">{ev.confidence ? `${Math.round(ev.confidence * 100)}%` : '--'}</td>
-                                      <td className="py-1 px-1.5 text-right">
-                                        {ev.evidence_frame_key ? (
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setSelectedEvidenceFrame({
-                                                artifact_key: ev.evidence_frame_key,
-                                                sha256: ev.evidence_frame_sha256,
-                                                frame_number: ev.frame_number,
-                                                track_id: ev.track_id,
-                                                timestamp_seconds: evTime,
-                                                threat_level: ev.threat_level,
-                                              });
-                                            }}
-                                            className="px-1.5 py-0.5 rounded bg-accent/15 border border-accent/30 text-accent text-[8px] hover:bg-accent/25 cursor-pointer"
-                                          >
-                                            VIEW
-                                          </button>
-                                        ) : (
-                                          <span className="text-faint text-[8px]">--</span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        ) : activeAnalysisResult.detections && activeAnalysisResult.detections.length > 0 ? (
-                          <div className="overflow-x-auto max-h-56 custom-scrollbar">
-                            <table className="w-full text-left font-mono text-[10px] border-collapse">
-                              <thead>
-                                <tr className="border-b border-white/[0.06] text-faint text-[9px] uppercase">
-                                  <th className="py-1 px-1.5">FRAME</th>
-                                  <th className="py-1 px-1.5">TRACK</th>
-                                  <th className="py-1 px-1.5">CLASS</th>
-                                  <th className="py-1 px-1.5">CONF</th>
-                                  <th className="py-1 px-1.5">BBOX</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-white/[0.03]">
-                                {activeAnalysisResult.detections.slice(0, 50).map((d: any, idx: number) => (
-                                  <tr
-                                    key={idx}
-                                    onClick={() => setSelectedRuntimeDetection(d)}
-                                    className={`cursor-pointer transition-colors ${
-                                      selectedRuntimeDetection === d
-                                        ? 'bg-accent/20 border-l-2 border-accent text-accent font-semibold'
-                                        : 'hover:bg-white/[0.03] text-paper'
+                                        </td>
+                                        <td className="py-1 px-1.5">
+                                          <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                                            ev.threat_level === 'CRITICAL'
+                                              ? 'bg-status-critical text-graphite font-black'
+                                              : ev.threat_level === 'HIGH'
+                                              ? 'bg-status-warning/20 text-status-warning'
+                                              : ev.threat_level === 'MEDIUM'
+                                              ? 'bg-status-warning/15 text-status-warning/80'
+                                              : ev.threat_level === 'LOW'
+                                              ? 'bg-status-success/15 text-status-success'
+                                              : 'bg-elevated text-faint'
+                                          }`}>
+                                            {ev.threat_level || 'UNAVAILABLE'}
+                                          </span>
+                                        </td>
+                                        <td className="py-1 px-1.5">
+                                          <span className="flex items-center gap-0.5 text-[9px]">
+                                            <span className="material-symbols-outlined text-[11px]">
+                                              {ev.threat_trend === 'ESCALATING' ? 'trending_up' : ev.threat_trend === 'DE_ESCALATING' ? 'trending_down' : 'trending_flat'}
+                                            </span>
+                                            <span className="text-[8px]">{ev.threat_trend || 'STABLE'}</span>
+                                          </span>
+                                        </td>
+                                        <td className="py-1 px-1.5 text-faint">{ev.confidence ? `${Math.round(ev.confidence * 100)}%` : '--'}</td>
+                                        <td className="py-1 px-1.5 text-right">
+                                          {ev.evidence_frame_key ? (
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedEvidenceFrame({
+                                                  artifact_key: ev.evidence_frame_key,
+                                                  sha256: ev.evidence_frame_sha256,
+                                                  frame_number: ev.frame_number,
+                                                  track_id: ev.track_id,
+                                                  timestamp_seconds: evTime,
+                                                  threat_level: ev.threat_level,
+                                                });
+                                              }}
+                                              className="px-1.5 py-0.5 rounded bg-accent/15 border border-accent/30 text-accent text-[8px] hover:bg-accent/25 cursor-pointer"
+                                            >
+                                              VIEW
+                                            </button>
+                                          ) : (
+                                            <span className="text-faint text-[8px]">--</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-graphite/40 rounded border border-white/[0.04] text-[10px] text-muted text-center">
+                              No live timeline events recorded.
+                            </div>
+                          )
+                        ) : (
+                          /* Framewise Detections Explorer */
+                          <div className="space-y-2">
+                            {/* Frame Filter Bar */}
+                            {(() => {
+                              const uniqueFrames = Array.from(new Set(allDetections.map((d: any) => d.frame_number).filter(Boolean))).sort((a: any, b: any) => a - b);
+                              return uniqueFrames.length > 1 ? (
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar text-[9px]">
+                                  <span className="text-faint uppercase">FILTER:</span>
+                                  <button
+                                    onClick={() => setSelectedFrameFilter('all')}
+                                    className={`px-2 py-0.5 rounded cursor-pointer ${
+                                      selectedFrameFilter === 'all'
+                                        ? 'bg-accent text-graphite font-bold'
+                                        : 'bg-elevated text-faint hover:text-paper'
                                     }`}
                                   >
-                                    <td className="py-1 px-1.5 font-mono text-faint">#{d.frame_number ?? '--'}</td>
-                                    <td className="py-1 px-1.5 text-status-ai font-bold">TRK-{d.track_id ?? '--'}</td>
-                                    <td className="py-1 px-1.5 uppercase font-medium">{d.class_name}</td>
-                                    <td className="py-1 px-1.5 text-accent">{Math.round((d.confidence ?? 1) * 100)}%</td>
-                                    <td className="py-1 px-1.5 text-faint text-[9px] truncate">
-                                      {d.bbox ? `[${Math.round(d.bbox.x1)}, ${Math.round(d.bbox.y1)}, ${Math.round(d.bbox.x2)}, ${Math.round(d.bbox.y2)}]` : '--'}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        ) : (
-                          <div className="p-3 bg-graphite/40 rounded border border-white/[0.04] text-[10px] text-muted text-center">
-                            No detections or timeline events recorded.
+                                    ALL ({allDetections.length})
+                                  </button>
+                                  {uniqueFrames.slice(0, 15).map((fNum: any) => {
+                                    const count = allDetections.filter((d: any) => d.frame_number === fNum).length;
+                                    return (
+                                      <button
+                                        key={fNum}
+                                        onClick={() => setSelectedFrameFilter(fNum)}
+                                        className={`px-2 py-0.5 rounded cursor-pointer whitespace-nowrap ${
+                                          selectedFrameFilter === fNum
+                                            ? 'bg-accent text-graphite font-bold'
+                                            : 'bg-elevated text-faint hover:text-paper'
+                                        }`}
+                                      >
+                                        FRAME #{fNum} ({count})
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null;
+                            })()}
+
+                            {allDetections.length > 0 ? (
+                              <div className="overflow-x-auto max-h-56 custom-scrollbar">
+                                <table className="w-full text-left font-mono text-[10px] border-collapse">
+                                  <thead>
+                                    <tr className="border-b border-white/[0.06] text-faint text-[9px] uppercase">
+                                      <th className="py-1 px-1.5">FRAME</th>
+                                      <th className="py-1 px-1.5">TIME</th>
+                                      <th className="py-1 px-1.5">TRACK</th>
+                                      <th className="py-1 px-1.5">CLASS</th>
+                                      <th className="py-1 px-1.5">CONF</th>
+                                      <th className="py-1 px-1.5">BBOX</th>
+                                      <th className="py-1 px-1.5 text-right">INSPECT</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-white/[0.03]">
+                                    {allDetections
+                                      .filter((d: any) => selectedFrameFilter === 'all' || d.frame_number === selectedFrameFilter)
+                                      .slice(0, 100)
+                                      .map((d: any, idx: number) => {
+                                        const approxSec = d.timestamp_seconds ?? (d.frame_number ? (d.frame_number / 15).toFixed(1) : '--');
+                                        return (
+                                          <tr
+                                            key={idx}
+                                            onClick={() => {
+                                              setSelectedRuntimeDetection(d);
+                                              const matchingEv = evidenceFrames.find((ef: any) => ef.frame_number === d.frame_number);
+                                              setSelectedEvidenceFrame({
+                                                artifact_key: matchingEv?.artifact_key || (evidenceFrames[0]?.artifact_key ?? ''),
+                                                sha256: matchingEv?.sha256 || evidenceFrames[0]?.sha256,
+                                                frame_number: d.frame_number,
+                                                track_id: d.track_id,
+                                                timestamp_seconds: approxSec,
+                                                threat_level: d.threat_level || 'MONITORED',
+                                              });
+                                            }}
+                                            className="hover:bg-white/[0.04] text-paper cursor-pointer transition-colors"
+                                          >
+                                            <td className="py-1 px-1.5 font-mono text-faint">#{d.frame_number ?? '--'}</td>
+                                            <td className="py-1 px-1.5 text-faint">{approxSec}s</td>
+                                            <td className="py-1 px-1.5 text-status-ai font-bold">TRK-{d.track_id ?? '--'}</td>
+                                            <td className="py-1 px-1.5 uppercase font-medium">{d.class_name}</td>
+                                            <td className="py-1 px-1.5 text-accent">{Math.round((d.confidence ?? 1) * 100)}%</td>
+                                            <td className="py-1 px-1.5 text-faint text-[9px] truncate">
+                                              {d.bbox
+                                                ? `[${Math.round(d.bbox.x1 ?? d.bbox[0] ?? 0)}, ${Math.round(d.bbox.y1 ?? d.bbox[1] ?? 0)}, ${Math.round(d.bbox.x2 ?? d.bbox[2] ?? 0)}, ${Math.round(d.bbox.y2 ?? d.bbox[3] ?? 0)}]`
+                                                : '--'}
+                                            </td>
+                                            <td className="py-1 px-1.5 text-right">
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const matchingEv = evidenceFrames.find((ef: any) => ef.frame_number === d.frame_number);
+                                                  setSelectedEvidenceFrame({
+                                                    artifact_key: matchingEv?.artifact_key || (evidenceFrames[0]?.artifact_key ?? ''),
+                                                    sha256: matchingEv?.sha256 || evidenceFrames[0]?.sha256,
+                                                    frame_number: d.frame_number,
+                                                    track_id: d.track_id,
+                                                    timestamp_seconds: approxSec,
+                                                    threat_level: d.threat_level || 'MONITORED',
+                                                  });
+                                                }}
+                                                className="px-1.5 py-0.5 rounded bg-accent/15 border border-accent/30 text-accent text-[8px] hover:bg-accent/25 cursor-pointer font-bold"
+                                              >
+                                                FRAME
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="p-3 bg-graphite/40 rounded border border-white/[0.04] text-[10px] text-muted text-center">
+                                Zero framewise detections recorded.
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2006,79 +2163,251 @@ export const BorderPage: React.FC = () => {
         </div>
       )}
 
-      {/* Selected Evidence Frame Inspection Modal */}
-      {selectedEvidenceFrame && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white border border-slate-200/90 rounded-xl max-w-2xl w-full p-5 space-y-4 shadow-floating font-mono text-xs text-slate-800">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-accent text-[20px]">verified</span>
-                <span className="font-bold uppercase text-slate-900 text-sm">
-                  Evidence Frame #{selectedEvidenceFrame.frame_number} // TRK-{selectedEvidenceFrame.track_id}
-                </span>
-              </div>
-              <button
-                onClick={() => setSelectedEvidenceFrame(null)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Close frame"
-              >
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
-            </div>
+      {/* Selected Evidence Frame Inspection Modal & Framewise Detection Recognition */}
+      {selectedEvidenceFrame && (() => {
+        const frameDetections = allDetections.filter((d: any) => Number(d.frame_number) === Number(selectedEvidenceFrame.frame_number));
+        return (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in overflow-y-auto">
+            <div className="bg-white border border-slate-200/90 rounded-xl max-w-4xl w-full p-5 space-y-4 shadow-floating font-mono text-xs text-slate-800 my-auto">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-2.5 gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-accent text-[20px]">verified</span>
+                  <div>
+                    <span className="font-bold uppercase text-slate-900 text-sm block">
+                      Evidence Frame #{selectedEvidenceFrame.frame_number} // TRK-{selectedEvidenceFrame.track_id}
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {frameDetections.length > 0
+                        ? `${frameDetections.length} RECOGNIZED ENTITIES IN THIS FRAME`
+                        : 'SINGLE TRACK EVIDENCE KEYFRAME'}
+                    </span>
+                  </div>
+                </div>
 
-            <div className="relative border border-slate-200 rounded-lg overflow-hidden bg-slate-950 flex items-center justify-center max-h-[60vh] shadow-inner">
-              <img
-                src={getEvidenceUrl(selectedEvidenceFrame.artifact_key, false)}
-                alt={`Evidence Frame #${selectedEvidenceFrame.frame_number}`}
-                className="max-w-full max-h-[55vh] object-contain"
-              />
-            </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded border border-slate-200 text-[10px]">
+                    <button
+                      onClick={() => setModalShowBoxes(!modalShowBoxes)}
+                      className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                        modalShowBoxes ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'
+                      }`}
+                    >
+                      BOXES: {modalShowBoxes ? 'ON' : 'OFF'}
+                    </button>
+                    <button
+                      onClick={() => setModalShowLabels(!modalShowLabels)}
+                      className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                        modalShowLabels ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'
+                      }`}
+                    >
+                      LABELS: {modalShowLabels ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <span className="text-slate-400 block text-[9px] uppercase">TIMESTAMP</span>
-                <span className="text-slate-800 font-bold">{Number(selectedEvidenceFrame.timestamp_seconds).toFixed(1)}s</span>
+                  <button
+                    onClick={() => {
+                      setSelectedEvidenceFrame(null);
+                      setModalHighlightedDetIdx(null);
+                    }}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Close frame"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                  </button>
+                </div>
               </div>
-              <div>
-                <span className="text-slate-400 block text-[9px] uppercase">TRACK ID</span>
-                <span className="text-accent font-bold">TRK-{selectedEvidenceFrame.track_id}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[9px] uppercase">THREAT LEVEL</span>
-                <span className={`font-bold ${
-                  selectedEvidenceFrame.threat_level === 'CRITICAL' ? 'text-status-critical' : selectedEvidenceFrame.threat_level === 'HIGH' ? 'text-status-warning' : 'text-status-success'
-                }`}>
-                  {selectedEvidenceFrame.threat_level}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[9px] uppercase">SHA-256</span>
-                <span className="text-slate-700 font-semibold truncate block" title={selectedEvidenceFrame.sha256}>
-                  {selectedEvidenceFrame.sha256 ? `${selectedEvidenceFrame.sha256.substring(0, 10)}...` : 'VERIFIED'}
-                </span>
-              </div>
-            </div>
 
-            <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
-              <button
-                onClick={async () => {
-                  const dlUrl = getEvidenceUrl(selectedEvidenceFrame.artifact_key, true);
-                  const filename = `AERION_evidence_frame_${selectedEvidenceFrame.frame_number}_trk${selectedEvidenceFrame.track_id}.jpg`;
-                  try {
-                    await downloadAuthenticatedArtifact(dlUrl, filename);
-                  } catch (e: any) {
-                    alert(e.message || 'Download failed');
-                  }
-                }}
-                className="px-3.5 py-2 rounded-lg bg-accent text-slate-950 font-bold text-xs hover:bg-accent/90 flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[15px]">download</span>
-                <span>DOWNLOAD EVIDENCE JPEG</span>
-              </button>
+              {/* Visual Frame Canvas with High-Precision SVG Detection Overlays */}
+              <div className="relative border border-slate-200 rounded-lg overflow-hidden bg-slate-950 flex items-center justify-center max-h-[55vh] shadow-inner select-none">
+                <img
+                  src={getEvidenceUrl(selectedEvidenceFrame.artifact_key, false)}
+                  alt={`Evidence Frame #${selectedEvidenceFrame.frame_number}`}
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    if (img.naturalWidth && img.naturalHeight) {
+                      setModalImgDims({ w: img.naturalWidth, h: img.naturalHeight });
+                    }
+                  }}
+                  className="max-w-full max-h-[55vh] object-contain block mx-auto"
+                />
+
+                {/* Interactive SVG Bounding Box Overlays */}
+                {modalShowBoxes && modalImgDims && frameDetections.length > 0 && (
+                  <svg
+                    className="absolute inset-0 w-full h-full pointer-events-auto"
+                    viewBox={`0 0 ${modalImgDims.w} ${modalImgDims.h}`}
+                    preserveAspectRatio="xMidYMid meet"
+                  >
+                    {frameDetections.map((det: any, idx: number) => {
+                      const b = det.bbox;
+                      const x1 = b?.x1 ?? (Array.isArray(b) ? b[0] : 0);
+                      const y1 = b?.y1 ?? (Array.isArray(b) ? b[1] : 0);
+                      const x2 = b?.x2 ?? (Array.isArray(b) ? b[2] : 0);
+                      const y2 = b?.y2 ?? (Array.isArray(b) ? b[3] : 0);
+                      const bw = Math.max(8, x2 - x1);
+                      const bh = Math.max(8, y2 - y1);
+                      const isHighlighted = modalHighlightedDetIdx === idx;
+                      const shortClass = (det.class_name || 'VEHICLE').toUpperCase().replace(/_/g, ' ');
+                      const confPct = Math.round((det.confidence ?? 1) * 100);
+                      const label = `TRK-${det.track_id ?? '?'} ${shortClass} ${confPct}%`;
+                      const strokeColor = isHighlighted ? '#38D5F5' : '#EF4444';
+                      const fillColor = isHighlighted ? 'rgba(56, 213, 245, 0.35)' : 'rgba(239, 68, 68, 0.15)';
+                      const badgeW = Math.max(60, label.length * 7 + 10);
+                      const badgeY = y1 > 20 ? y1 - 18 : y1 + 2;
+                      const textY = y1 > 20 ? y1 - 6 : y1 + 14;
+
+                      return (
+                        <g
+                          key={idx}
+                          onMouseEnter={() => setModalHighlightedDetIdx(idx)}
+                          onMouseLeave={() => setModalHighlightedDetIdx(null)}
+                          onClick={() => setModalHighlightedDetIdx(idx)}
+                          className="cursor-pointer transition-all"
+                        >
+                          <rect
+                            x={x1}
+                            y={y1}
+                            width={bw}
+                            height={bh}
+                            fill={fillColor}
+                            stroke={strokeColor}
+                            strokeWidth={isHighlighted ? 3 : 1.8}
+                            rx={2}
+                          />
+                          {modalShowLabels && (
+                            <g>
+                              <rect
+                                x={x1}
+                                y={badgeY}
+                                width={badgeW}
+                                height={16}
+                                fill={strokeColor}
+                                rx={2}
+                              />
+                              <text
+                                x={x1 + 4}
+                                y={textY}
+                                fill={isHighlighted ? '#000000' : '#FFFFFF'}
+                                fontSize={9}
+                                fontWeight="bold"
+                                fontFamily="monospace"
+                              >
+                                {label}
+                              </text>
+                            </g>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                )}
+              </div>
+
+              {/* Provenance & Frame Metadata Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <span className="text-slate-400 block text-[9px] uppercase">TIMESTAMP</span>
+                  <span className="text-slate-800 font-bold">{Number(selectedEvidenceFrame.timestamp_seconds).toFixed(1)}s</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[9px] uppercase">PRIMARY TRACK ID</span>
+                  <span className="text-accent font-bold">TRK-{selectedEvidenceFrame.track_id}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[9px] uppercase">THREAT LEVEL</span>
+                  <span className={`font-bold ${
+                    selectedEvidenceFrame.threat_level === 'CRITICAL' ? 'text-status-critical' : selectedEvidenceFrame.threat_level === 'HIGH' ? 'text-status-warning' : 'text-status-success'
+                  }`}>
+                    {selectedEvidenceFrame.threat_level}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[9px] uppercase">FRAME SHA-256</span>
+                  <span className="text-slate-700 font-semibold truncate block" title={selectedEvidenceFrame.sha256}>
+                    {selectedEvidenceFrame.sha256 ? `${selectedEvidenceFrame.sha256.substring(0, 12)}...` : 'VERIFIED'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Framewise Entity Recognition Table */}
+              {frameDetections.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-[10px] border-b border-slate-100 pb-1">
+                    <span className="font-bold text-slate-800 uppercase">
+                      FRAME #{selectedEvidenceFrame.frame_number} DETECTIONS INVENTORY ({frameDetections.length} CONTACTS)
+                    </span>
+                    <span className="text-slate-400 text-[9px]">HOVER ROW TO HIGHLIGHT ON IMAGE</span>
+                  </div>
+                  <div className="overflow-x-auto max-h-36 custom-scrollbar border border-slate-200 rounded-lg">
+                    <table className="w-full text-left font-mono text-[10px] border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200 text-slate-500 uppercase text-[9px]">
+                          <th className="py-1 px-2">TRACK ID</th>
+                          <th className="py-1 px-2">CLASS</th>
+                          <th className="py-1 px-2">CONFIDENCE</th>
+                          <th className="py-1 px-2">BOUNDING BOX</th>
+                          <th className="py-1 px-2 text-right">STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {frameDetections.map((det: any, idx: number) => {
+                          const isHighlighted = modalHighlightedDetIdx === idx;
+                          const b = det.bbox;
+                          const bboxStr = b
+                            ? `[${Math.round(b.x1 ?? b[0] ?? 0)}, ${Math.round(b.y1 ?? b[1] ?? 0)}, ${Math.round(b.x2 ?? b[2] ?? 0)}, ${Math.round(b.y2 ?? b[3] ?? 0)}]`
+                            : '--';
+                          return (
+                            <tr
+                              key={idx}
+                              onMouseEnter={() => setModalHighlightedDetIdx(idx)}
+                              onMouseLeave={() => setModalHighlightedDetIdx(null)}
+                              className={`transition-colors cursor-pointer ${
+                                isHighlighted ? 'bg-accent/15 text-slate-900 font-bold' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <td className="py-1 px-2 text-accent font-bold">TRK-{det.track_id ?? '--'}</td>
+                              <td className="py-1 px-2 uppercase font-semibold">{det.class_name}</td>
+                              <td className="py-1 px-2 text-slate-800 font-medium">{Math.round((det.confidence ?? 1) * 100)}%</td>
+                              <td className="py-1 px-2 text-slate-500 text-[9px]">{bboxStr}</td>
+                              <td className="py-1 px-2 text-right">
+                                <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold ${
+                                  det.threat_level === 'CRITICAL' ? 'bg-status-critical/15 text-status-critical' :
+                                  det.threat_level === 'HIGH' ? 'bg-status-warning/15 text-status-warning' :
+                                  'bg-status-success/15 text-status-success'
+                                }`}>
+                                  {det.threat_level || 'VERIFIED'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
+                <button
+                  onClick={async () => {
+                    const dlUrl = getEvidenceUrl(selectedEvidenceFrame.artifact_key, true);
+                    const filename = `AERION_evidence_frame_${selectedEvidenceFrame.frame_number}_trk${selectedEvidenceFrame.track_id}.jpg`;
+                    try {
+                      await downloadAuthenticatedArtifact(dlUrl, filename);
+                    } catch (e: any) {
+                      alert(e.message || 'Download failed');
+                    }
+                  }}
+                  className="px-3.5 py-2 rounded-lg bg-accent text-slate-950 font-bold text-xs hover:bg-accent/90 flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[15px]">download</span>
+                  <span>DOWNLOAD EVIDENCE JPEG</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
