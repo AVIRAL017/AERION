@@ -13,6 +13,7 @@ Safety & Architectural Invariants:
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import shutil
@@ -2715,7 +2716,8 @@ async def recompute_border_analysis(
     # Ensure all data in raw_payload is strictly JSON-serializable (no raw datetime objects)
     try:
         raw_payload_safe = json.loads(json.dumps(raw_payload, default=str))
-    except Exception:
+    except Exception as ser_err:
+        logger.warning(f"Error making raw_payload JSON-safe: {ser_err}")
         raw_payload_safe = raw_payload
 
     # Persist in DB and JobManager cache
