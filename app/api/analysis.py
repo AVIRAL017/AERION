@@ -2702,6 +2702,8 @@ async def recompute_border_analysis(
     raw_payload["threat_level_changes"] = recomputed_changes
     raw_payload["advisory"] = adv_dict
     raw_payload["mistral_advisory"] = adv_dict
+    raw_payload["advisory_summary"] = adv_dict.get("summary") or ""
+    raw_payload["executive_summary"] = adv_dict.get("summary") or ""
     if spatial_context:
         raw_payload["spatial_context"] = spatial_context
         raw_payload["geo_context"] = spatial_context
@@ -2710,16 +2712,27 @@ async def recompute_border_analysis(
         raw_payload["weather"] = weather_data
         raw_payload["external_context"] = {"weather": weather_data}
 
+    # Ensure all data in raw_payload is strictly JSON-serializable (no raw datetime objects)
+    try:
+        raw_payload_safe = json.loads(json.dumps(raw_payload, default=str))
+    except Exception:
+        raw_payload_safe = raw_payload
+
     # Persist in DB and JobManager cache
     try:
         if db_result:
-            db_result.raw_payload = raw_payload
+            db_result.raw_payload = raw_payload_safe
+            session.add(db_result)
             await session.commit()
     except Exception as db_save_err:
         logger.warning(f"Failed to persist recomputed raw_payload to DB: {db_save_err}")
+        try:
+            await session.rollback()
+        except Exception:
+            pass
 
     if job_rec:
-        job_rec.result = raw_payload
+        job_rec.result = raw_payload_safe
 
     meta = MetaBlock(
         timestamp=utc_now_iso(),
