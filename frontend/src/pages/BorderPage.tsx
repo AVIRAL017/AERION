@@ -125,10 +125,32 @@ export const BorderPage: React.FC = () => {
   const [activeTimelineIndex, setActiveTimelineIndex] = useState<number | null>(null);
   const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
 
-  // Explicit Border Zone Configuration State (neutral "BORDER CONTEXT NOT SET" unless user configures)
+  // Explicit Border Zone Configuration & Drag-to-Draw State
   const [isZoneConfigOpen, setIsZoneConfigOpen] = useState<boolean>(false);
   const [activeConfiguredZone, setActiveConfiguredZone] = useState<Array<[number, number]> | null>(null);
   const [activeSectorName, setActiveSectorName] = useState<string>('');
+
+  // Video Drawing & Dragging State
+  const videoContainerRef = useRef<HTMLDivElement | null>(null);
+  const [videoDims, setVideoDims] = useState<{ w: number; h: number }>({ w: 1280, h: 720 });
+  const [isDrawingZone, setIsDrawingZone] = useState<boolean>(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
+  const [isRecomputing, setIsRecomputing] = useState<boolean>(false);
+  const [recomputeError, setRecomputeError] = useState<string | null>(null);
+  const [recomputeSuccess, setRecomputeSuccess] = useState<string | null>(null);
+
+  // Form State for Recompute Modal
+  const [formZonePolygon, setFormZonePolygon] = useState<number[][] | null>(null);
+  const [formSectorName, setFormSectorName] = useState<string>('NORTHERN DEFENSE SECTOR');
+  const [formLat, setFormLat] = useState<number>(32.65);
+  const [formLon, setFormLon] = useState<number>(74.85);
+  const [formLocationLabel, setFormLocationLabel] = useState<string>('Kathua Border Outpost [32.65, 74.85]');
+  const [formTemp, setFormTemp] = useState<number>(26.5);
+  const [formCondition, setFormCondition] = useState<string>('Clear');
+  const [formWind, setFormWind] = useState<number>(4.2);
+  const [formVisibility, setFormVisibility] = useState<number>(10.0);
+  const [isFetchingWeather, setIsFetchingWeather] = useState<boolean>(false);
 
   // Selected Evidence Frame Modal & Framewise Detection Inspector
   const [selectedEvidenceFrame, setSelectedEvidenceFrame] = useState<any | null>(null);
@@ -327,6 +349,144 @@ export const BorderPage: React.FC = () => {
     }
   };
 
+  const effectiveZone = activeConfiguredZone || (demoZoneActivity?.zone_configured && demoZoneActivity?.zone_geometry ? demoZoneActivity.zone_geometry : null);
+  const effectiveSectorName = activeSectorName || demoZoneActivity?.sector_name || '';
+
+  const getVideoCoords = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!videoContainerRef.current) return null;
+    const rect = videoContainerRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const vw = videoDims.w || 1280;
+    const vh = videoDims.h || 720;
+    const scaleX = vw / rect.width;
+    const scaleY = vh / rect.height;
+    const clientX = Math.max(rect.left, Math.min(e.clientX, rect.right));
+    const clientY = Math.max(rect.top, Math.min(e.clientY, rect.bottom));
+    const x = Math.max(0, Math.min(vw, (clientX - rect.left) * scaleX));
+    const y = Math.max(0, Math.min(vh, (clientY - rect.top) * scaleY));
+    return { x, y };
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawingZone) return;
+    e.preventDefault();
+    const coords = getVideoCoords(e);
+    if (coords) {
+      setDragStart(coords);
+      setDragCurrent(coords);
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawingZone || !dragStart) return;
+    e.preventDefault();
+    const coords = getVideoCoords(e);
+    if (coords) {
+      setDragCurrent(coords);
+    }
+  };
+
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDrawingZone || !dragStart) return;
+    e.preventDefault();
+    const coords = getVideoCoords(e) || dragCurrent;
+    if (coords && dragStart) {
+      const x1 = Math.min(dragStart.x, coords.x);
+      const y1 = Math.min(dragStart.y, coords.y);
+      const x2 = Math.max(dragStart.x, coords.x);
+      const y2 = Math.max(dragStart.y, coords.y);
+      const w = x2 - x1;
+      const h = y2 - y1;
+      if (w >= 20 && h >= 20) {
+        const drawnPolygon = [
+          [Math.round(x1), Math.round(y1)],
+          [Math.round(x2), Math.round(y1)],
+          [Math.round(x2), Math.round(y2)],
+          [Math.round(x1), Math.round(y2)],
+        ];
+        setFormZonePolygon(drawnPolygon);
+        setActiveConfiguredZone(drawnPolygon as any);
+        setIsDrawingZone(false);
+        setIsZoneConfigOpen(true);
+      }
+    }
+    setDragStart(null);
+    setDragCurrent(null);
+  };
+
+  const handleFetchWeather = async () => {
+    setIsFetchingWeather(true);
+    try {
+      const res = await situationsApi.getWeather(situation?.id || '00000000-0000-0000-0000-000000000001', formLat, formLon);
+      if (res.success && res.data && res.data.status === 'AVAILABLE') {
+        const w = res.data;
+        if (w.temperature_c !== null && w.temperature_c !== undefined) setFormTemp(Number(w.temperature_c));
+        if (w.conditions) setFormCondition(w.conditions);
+        if (w.wind_speed_ms !== null && w.wind_speed_ms !== undefined) setFormWind(Number(w.wind_speed_ms));
+        if (w.visibility_km !== null && w.visibility_km !== undefined) setFormVisibility(Number(w.visibility_km));
+      }
+    } catch (e) {
+      console.warn('Could not auto-fetch weather:', e);
+    } finally {
+      setIsFetchingWeather(false);
+    }
+  };
+
+  const handleRecompute = async () => {
+    const analysisId = activeAnalysisResult?.analysis_id || searchParams.get('analysis_id');
+    if (!analysisId) {
+      setRecomputeError('No active analysis loaded to recompute.');
+      return;
+    }
+    const zoneToUse = formZonePolygon || effectiveZone || [
+      [140, 90],
+      [820, 90],
+      [820, 520],
+      [140, 520],
+    ];
+
+    setIsRecomputing(true);
+    setRecomputeError(null);
+    try {
+      const res = await analysisApi.recomputeBorderAnalysis(analysisId, {
+        zone_polygon: zoneToUse,
+        sector_name: formSectorName || 'OPERATIONAL BORDER ZONE',
+        latitude: formLat,
+        longitude: formLon,
+        location_label: formLocationLabel,
+        weather: {
+          temperature_c: formTemp,
+          conditions: formCondition,
+          wind_speed_ms: formWind,
+          visibility_km: formVisibility,
+        },
+      });
+
+      if (res.success && res.data) {
+        setActiveAnalysisResult(res.data);
+        setActiveConfiguredZone(zoneToUse as any);
+        setActiveSectorName(formSectorName || 'OPERATIONAL BORDER ZONE');
+        if (res.data.location_context || res.data.spatial_context) {
+          setOperatorLocation(res.data.location_context || res.data.spatial_context);
+        }
+        if (res.data.weather) {
+          setWeather(res.data.weather);
+        }
+        setRecomputeSuccess('Analysis successfully recomputed with threat zone, location coordinates, and live weather.');
+        setTimeout(() => {
+          setRecomputeSuccess(null);
+          setIsZoneConfigOpen(false);
+        }, 1200);
+      } else {
+        setRecomputeError(typeof res.error === 'string' ? res.error : (res.error as any)?.message || 'Recomputation failed');
+      }
+    } catch (err: any) {
+      setRecomputeError(err.message || 'Failed to recompute analysis.');
+    } finally {
+      setIsRecomputing(false);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full w-full overflow-hidden bg-graphite">
       {/* Mobile / Tablet Responsive Tab Switcher (<lg) */}
@@ -371,28 +531,42 @@ export const BorderPage: React.FC = () => {
             <div className="flex items-center gap-2.5 font-mono text-[11px] shrink-0">
               <span className="text-muted uppercase tracking-wider text-[10px]">SECTOR:</span>
               <span className="text-paper font-medium text-[11px]">
-                {activeSectorName || (activeConfiguredZone ? 'CUSTOM BORDER ZONE' : 'BORDER CONTEXT NOT SET')}
+                {effectiveSectorName || (effectiveZone ? 'CUSTOM BORDER ZONE' : 'BORDER CONTEXT NOT SET')}
               </span>
               <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                activeConfiguredZone
+                effectiveZone
                   ? 'bg-status-success/15 text-status-success border border-status-success/30 font-bold'
                   : 'bg-elevated text-muted border border-white/[0.08]'
               }`}>
-                {activeConfiguredZone ? 'ZONE ACTIVE' : 'NO DEMO ZONE CONFIGURED'}
+                {effectiveZone ? 'ZONE ACTIVE' : 'NO DEMO ZONE CONFIGURED'}
               </span>
 
-              {/* Zone Configuration Trigger */}
+              {/* Draw Border Zone on Video Toggle */}
+              <button
+                onClick={() => setIsDrawingZone(!isDrawingZone)}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
+                  isDrawingZone
+                    ? 'bg-amber-500 text-slate-950 font-bold border border-amber-300 shadow animate-pulse'
+                    : 'bg-elevated/80 border border-white/[0.1] text-paper hover:text-amber-400 hover:border-amber-400/40'
+                }`}
+                title="Click and drag directly on video to draw operational threat border zone"
+              >
+                <span className="material-symbols-outlined text-[12px]">{isDrawingZone ? 'cancel' : 'draw'}</span>
+                <span>{isDrawingZone ? 'CANCEL DRAW' : 'DRAW ZONE ON VIDEO'}</span>
+              </button>
+
+              {/* Zone Configuration & Recompute Trigger */}
               <button
                 onClick={() => setIsZoneConfigOpen(true)}
                 className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 transition-all cursor-pointer ${
-                  activeConfiguredZone
-                    ? 'bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25'
+                  effectiveZone
+                    ? 'bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 font-bold'
                     : 'bg-elevated/80 border border-white/[0.1] text-muted hover:text-accent hover:border-accent/40'
                 }`}
-                title="Configure or clear operational border zone boundary"
+                title="Configure or recompute operational border zone boundary and live weather"
               >
                 <span className="material-symbols-outlined text-[12px]">polyline</span>
-                <span>{activeConfiguredZone ? 'EDIT ZONE' : 'CONFIGURE DEMO ZONE'}</span>
+                <span>{effectiveZone ? 'EDIT & RECOMPUTE' : 'CONFIGURE DEMO ZONE'}</span>
               </button>
 
               {/* Location Provenance Badge */}
@@ -742,9 +916,28 @@ export const BorderPage: React.FC = () => {
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded bg-elevated/80 border border-white/[0.1] text-status-ai text-[10px] font-medium">
-                            PRE-RENDERED / IMMUTABLE ARTIFACT
-                          </span>
+                          <button
+                            onClick={() => setIsDrawingZone(!isDrawingZone)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                              isDrawingZone
+                                ? 'bg-amber-500 text-slate-950 border border-amber-300 shadow animate-pulse'
+                                : 'bg-elevated/80 border border-white/[0.15] text-amber-400 hover:bg-amber-400/10 hover:border-amber-400'
+                            }`}
+                            title="Click and drag directly on video to draw operational threat border zone"
+                          >
+                            <span className="material-symbols-outlined text-[13px]">{isDrawingZone ? 'close' : 'draw'}</span>
+                            <span>{isDrawingZone ? 'CANCEL DRAW' : '✏️ DRAW BORDER ZONE'}</span>
+                          </button>
+
+                          <button
+                            onClick={() => setIsZoneConfigOpen(true)}
+                            className="px-2.5 py-1 rounded bg-accent/15 border border-accent/40 text-accent hover:bg-accent/25 text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer"
+                            title="Configure threat border zone, location coordinates, and weather telemetry to recompute"
+                          >
+                            <span className="material-symbols-outlined text-[13px]">tune</span>
+                            <span>CONFIGURE & RECOMPUTE</span>
+                          </button>
+
                           <button
                             onClick={() => { setActiveAnalysisResult(null); setAnalyzedImageUrl(null); setAnalyzedVideoUrl(null); setSelectedRuntimeDetection(null); }}
                             className="px-2 py-0.5 rounded bg-elevated/80 border border-white/[0.1] text-[10px] font-mono text-muted hover:text-paper hover:border-accent flex items-center gap-1 transition-all cursor-pointer"
@@ -756,8 +949,17 @@ export const BorderPage: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Video Player Box */}
+                      {/* Video Player Box with Direct Threat Zone Overlay & Drag-to-Draw Canvas */}
                       <div className="relative border border-white/[0.1] rounded overflow-hidden max-h-[65vh] w-full flex items-center justify-center bg-black shadow-2xl">
+                        {isDrawingZone && (
+                          <div className="absolute top-3 inset-x-0 flex justify-center pointer-events-none z-30">
+                            <div className="px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-mono text-xs font-bold shadow-lg flex items-center gap-2 border border-amber-300">
+                              <span className="material-symbols-outlined text-[16px] animate-pulse">draw</span>
+                              <span>CLICK & DRAG ACROSS VIDEO TO DEFINE THREAT BORDER ZONE</span>
+                            </div>
+                          </div>
+                        )}
+
                         {(viewMode === 'annotated' && activeAnalysisResult.annotated_video_artifact?.artifact_key) ? (
                           videoError ? (
                             <div className="p-8 text-center font-mono text-xs text-muted max-w-xl mx-auto flex flex-col items-center">
@@ -822,32 +1024,198 @@ export const BorderPage: React.FC = () => {
                               </div>
                             </div>
                           ) : (
+                            <div
+                              ref={videoContainerRef}
+                              className={`relative inline-flex items-center justify-center max-w-full max-h-[62vh] select-none ${
+                                isDrawingZone ? 'cursor-crosshair' : ''
+                              }`}
+                              onMouseDown={handleMouseDown}
+                              onMouseMove={handleMouseMove}
+                              onMouseUp={handleMouseUp}
+                            >
+                              <video
+                                ref={videoPlayerRef}
+                                key={`annotated-${activeAnalysisResult.annotated_video_artifact.artifact_key}`}
+                                src={getEvidenceUrl(activeAnalysisResult.annotated_video_artifact.artifact_key, false)}
+                                controls={!isDrawingZone}
+                                autoPlay
+                                loop
+                                muted
+                                onLoadedMetadata={(e) => {
+                                  const v = e.currentTarget;
+                                  if (v.videoWidth && v.videoHeight) {
+                                    setVideoDims({ w: v.videoWidth, h: v.videoHeight });
+                                  }
+                                }}
+                                onTimeUpdate={handleVideoTimeUpdate}
+                                onError={handleVideoError}
+                                className={`max-w-full max-h-[62vh] block object-contain select-none transform-gpu will-change-transform ${
+                                  isDrawingZone ? 'pointer-events-none' : ''
+                                }`}
+                              />
+
+                              {/* Interactive Threat Border Zone SVG Overlay */}
+                              <svg
+                                className={`absolute inset-0 w-full h-full ${isDrawingZone ? 'pointer-events-auto' : 'pointer-events-none'}`}
+                                viewBox={`0 0 ${videoDims.w} ${videoDims.h}`}
+                                preserveAspectRatio="xMidYMid meet"
+                              >
+                                {/* Active Configured Threat Zone */}
+                                {effectiveZone && effectiveZone.length >= 3 && (() => {
+                                  const ptsStr = effectiveZone.map((p: any) => `${p[0]},${p[1]}`).join(' ');
+                                  const p1 = effectiveZone[0];
+                                  const incursionCnt = demoZoneActivity?.incursion_count ?? 0;
+                                  const insideCnt = demoZoneActivity?.active_threats ?? (demoZoneActivity?.vehicles_inside?.length ?? 0);
+                                  return (
+                                    <g>
+                                      <polygon
+                                        points={ptsStr}
+                                        fill="rgba(56, 213, 245, 0.18)"
+                                        stroke="#38D5F5"
+                                        strokeWidth={3}
+                                        strokeDasharray="8 4"
+                                      />
+                                      {effectiveZone.map((pt: any, i: number) => (
+                                        <g key={`zone-pt-${i}`}>
+                                          <circle cx={pt[0]} cy={pt[1]} r={5} fill="#38D5F5" stroke="#07090C" strokeWidth={1.5} />
+                                          <text x={pt[0] + 7} y={pt[1] + 4} fill="#38D5F5" fontSize={11} fontFamily="monospace" fontWeight="bold">
+                                            P{i + 1}
+                                          </text>
+                                        </g>
+                                      ))}
+                                      <g transform={`translate(${p1[0]}, ${Math.max(24, p1[1] - 8)})`}>
+                                        <rect x={0} y={-20} width={300} height={22} fill="#07090CEE" stroke="#38D5F5" strokeWidth={1} rx={3} />
+                                        <text x={8} y={-5} fill="#38D5F5" fontSize={10} fontFamily="monospace" fontWeight="bold">
+                                          RESTRICTED ZONE: {effectiveSectorName || 'MONITORED PERIMETER'} ({incursionCnt} INCURSIONS | {insideCnt} INSIDE)
+                                        </text>
+                                      </g>
+                                    </g>
+                                  );
+                                })()}
+
+                                {/* Real-time Drag-to-Draw Preview Box */}
+                                {dragStart && dragCurrent && (() => {
+                                  const x = Math.min(dragStart.x, dragCurrent.x);
+                                  const y = Math.min(dragStart.y, dragCurrent.y);
+                                  const w = Math.abs(dragCurrent.x - dragStart.x);
+                                  const h = Math.abs(dragCurrent.y - dragStart.y);
+                                  return (
+                                    <g>
+                                      <rect
+                                        x={x}
+                                        y={y}
+                                        width={w}
+                                        height={h}
+                                        fill="rgba(245, 158, 11, 0.25)"
+                                        stroke="#F59E0B"
+                                        strokeWidth={3}
+                                        strokeDasharray="6 3"
+                                      />
+                                      <rect x={x} y={Math.max(4, y - 22)} width={210} height={20} fill="#F59E0B" rx={3} />
+                                      <text x={x + 6} y={Math.max(18, y - 8)} fill="#000000" fontSize={10} fontFamily="monospace" fontWeight="bold">
+                                        DRAGGING: {Math.round(w)} x {Math.round(h)} px
+                                      </text>
+                                    </g>
+                                  );
+                                })()}
+                              </svg>
+                            </div>
+                          )
+                        ) : analyzedVideoUrl ? (
+                          <div
+                            ref={videoContainerRef}
+                            className={`relative inline-flex items-center justify-center max-w-full max-h-[62vh] select-none ${
+                              isDrawingZone ? 'cursor-crosshair' : ''
+                            }`}
+                            onMouseDown={handleMouseDown}
+                            onMouseMove={handleMouseMove}
+                            onMouseUp={handleMouseUp}
+                          >
                             <video
                               ref={videoPlayerRef}
-                              key={`annotated-${activeAnalysisResult.annotated_video_artifact.artifact_key}`}
-                              src={getEvidenceUrl(activeAnalysisResult.annotated_video_artifact.artifact_key, false)}
-                              controls
+                              key={`raw-${analyzedVideoUrl}`}
+                              src={analyzedVideoUrl}
+                              controls={!isDrawingZone}
                               autoPlay
                               loop
                               muted
+                              onLoadedMetadata={(e) => {
+                                const v = e.currentTarget;
+                                if (v.videoWidth && v.videoHeight) {
+                                  setVideoDims({ w: v.videoWidth, h: v.videoHeight });
+                                }
+                              }}
                               onTimeUpdate={handleVideoTimeUpdate}
                               onError={handleVideoError}
-                              className="max-w-full max-h-[62vh] object-contain select-none transform-gpu will-change-transform"
+                              className={`max-w-full max-h-[62vh] block object-contain select-none transform-gpu will-change-transform ${
+                                isDrawingZone ? 'pointer-events-none' : ''
+                              }`}
                             />
-                          )
-                        ) : analyzedVideoUrl ? (
-                          <video
-                            ref={videoPlayerRef}
-                            key={`raw-${analyzedVideoUrl}`}
-                            src={analyzedVideoUrl}
-                            controls
-                            autoPlay
-                            loop
-                            muted
-                            onTimeUpdate={handleVideoTimeUpdate}
-                            onError={handleVideoError}
-                            className="max-w-full max-h-[62vh] object-contain select-none transform-gpu will-change-transform"
-                          />
+
+                            {/* Threat Border Zone SVG Overlay */}
+                            <svg
+                              className={`absolute inset-0 w-full h-full ${isDrawingZone ? 'pointer-events-auto' : 'pointer-events-none'}`}
+                              viewBox={`0 0 ${videoDims.w} ${videoDims.h}`}
+                              preserveAspectRatio="xMidYMid meet"
+                            >
+                              {effectiveZone && effectiveZone.length >= 3 && (() => {
+                                const ptsStr = effectiveZone.map((p: any) => `${p[0]},${p[1]}`).join(' ');
+                                const p1 = effectiveZone[0];
+                                const incursionCnt = demoZoneActivity?.incursion_count ?? 0;
+                                const insideCnt = demoZoneActivity?.active_threats ?? (demoZoneActivity?.vehicles_inside?.length ?? 0);
+                                return (
+                                  <g>
+                                    <polygon
+                                      points={ptsStr}
+                                      fill="rgba(56, 213, 245, 0.18)"
+                                      stroke="#38D5F5"
+                                      strokeWidth={3}
+                                      strokeDasharray="8 4"
+                                    />
+                                    {effectiveZone.map((pt: any, i: number) => (
+                                      <g key={`zone-pt-raw-${i}`}>
+                                        <circle cx={pt[0]} cy={pt[1]} r={5} fill="#38D5F5" stroke="#07090C" strokeWidth={1.5} />
+                                        <text x={pt[0] + 7} y={pt[1] + 4} fill="#38D5F5" fontSize={11} fontFamily="monospace" fontWeight="bold">
+                                          P{i + 1}
+                                        </text>
+                                      </g>
+                                    ))}
+                                    <g transform={`translate(${p1[0]}, ${Math.max(24, p1[1] - 8)})`}>
+                                      <rect x={0} y={-20} width={300} height={22} fill="#07090CEE" stroke="#38D5F5" strokeWidth={1} rx={3} />
+                                      <text x={8} y={-5} fill="#38D5F5" fontSize={10} fontFamily="monospace" fontWeight="bold">
+                                        RESTRICTED ZONE: {effectiveSectorName || 'MONITORED PERIMETER'} ({incursionCnt} INCURSIONS | {insideCnt} INSIDE)
+                                      </text>
+                                    </g>
+                                  </g>
+                                );
+                              })()}
+
+                              {dragStart && dragCurrent && (() => {
+                                const x = Math.min(dragStart.x, dragCurrent.x);
+                                const y = Math.min(dragStart.y, dragCurrent.y);
+                                const w = Math.abs(dragCurrent.x - dragStart.x);
+                                const h = Math.abs(dragCurrent.y - dragStart.y);
+                                return (
+                                  <g>
+                                    <rect
+                                      x={x}
+                                      y={y}
+                                      width={w}
+                                      height={h}
+                                      fill="rgba(245, 158, 11, 0.25)"
+                                      stroke="#F59E0B"
+                                      strokeWidth={3}
+                                      strokeDasharray="6 3"
+                                    />
+                                    <rect x={x} y={Math.max(4, y - 22)} width={210} height={20} fill="#F59E0B" rx={3} />
+                                    <text x={x + 6} y={Math.max(18, y - 8)} fill="#000000" fontSize={10} fontFamily="monospace" fontWeight="bold">
+                                      DRAGGING: {Math.round(w)} x {Math.round(h)} px
+                                    </text>
+                                  </g>
+                                );
+                              })()}
+                            </svg>
+                          </div>
                         ) : (
                           <div className="p-12 text-center font-mono text-xs text-muted">
                             <span className="material-symbols-outlined text-3xl text-accent block mb-2">videocam</span>
@@ -2408,6 +2776,328 @@ export const BorderPage: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* ============================================================ */}
+      {/* COMPREHENSIVE THREAT BORDER ZONE & WEATHER RECOMPUTE MODAL  */}
+      {/* ============================================================ */}
+      {isZoneConfigOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="relative w-full max-w-2xl bg-panel border border-white/[0.12] rounded-xl shadow-2xl p-5 space-y-4 my-8 text-paper font-sans">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-white/[0.08] pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-accent text-2xl">polyline</span>
+                <div>
+                  <h3 className="text-base font-bold text-paper font-mono uppercase tracking-wide">
+                    CONFIGURE THREAT BORDER ZONE & WEATHER
+                  </h3>
+                  <p className="text-xs text-muted font-mono">
+                    MANUAL VECTOR PERIMETER & REAL-TIME GEO-WEATHER RECOMPUTATION
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsZoneConfigOpen(false)}
+                className="p-1 rounded text-muted hover:text-paper hover:bg-white/[0.06] transition-colors"
+                aria-label="Close"
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+
+            {/* Error & Success Alerts */}
+            {recomputeError && (
+              <div className="p-3 rounded-lg bg-status-critical/15 border border-status-critical/30 text-status-critical text-xs font-mono flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm">warning</span>
+                <span>{recomputeError}</span>
+              </div>
+            )}
+            {recomputeSuccess && (
+              <div className="p-3 rounded-lg bg-status-success/15 border border-status-success/30 text-status-success text-xs font-mono flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm">check_circle</span>
+                <span>{recomputeSuccess}</span>
+              </div>
+            )}
+
+            {/* Section 1: Threat Border Zone Perimeter */}
+            <div className="space-y-2 p-3 bg-elevated/40 border border-white/[0.06] rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono font-bold text-accent uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm">crop_free</span>
+                  1. THREAT BORDER ZONE PERIMETER (PIXEL COORDINATES)
+                </span>
+                <button
+                  onClick={() => {
+                    setIsZoneConfigOpen(false);
+                    setIsDrawingZone(true);
+                  }}
+                  className="px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-mono text-[11px] font-bold flex items-center gap-1 hover:bg-amber-400 transition-all cursor-pointer shadow"
+                >
+                  <span className="material-symbols-outlined text-[13px]">draw</span>
+                  <span>DRAG ON VIDEO TO DRAW</span>
+                </button>
+              </div>
+
+              {/* Current Zone Coordinates Preview */}
+              <div className="p-2 rounded bg-black/40 border border-white/[0.06] font-mono text-xs">
+                {formZonePolygon || effectiveZone ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-muted">
+                      <span>POLYGON VERTICES:</span>
+                      <span className="text-status-success font-semibold">CUSTOM PERIMETER LOADED</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(formZonePolygon || effectiveZone).map((pt: any, i: number) => (
+                        <span key={i} className="px-2 py-0.5 rounded bg-accent/15 border border-accent/30 text-accent text-[11px]">
+                          P{i + 1}: [{Math.round(pt[0])}, {Math.round(pt[1])}]
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-faint text-center py-1">
+                    NO ZONE DEFINED — CLICK "DRAG ON VIDEO TO DRAW" OR SELECT A PRESET BELOW
+                  </div>
+                )}
+              </div>
+
+              {/* Sector Name Input */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">SECTOR NAME / DESIGNATION</label>
+                  <input
+                    type="text"
+                    value={formSectorName}
+                    onChange={(e) => setFormSectorName(e.target.value)}
+                    placeholder="e.g. NORTHERN DEFENSE SECTOR"
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">QUICK PERIMETER PRESETS</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const p = [[140, 90], [820, 90], [820, 520], [140, 520]];
+                        setFormZonePolygon(p);
+                        setActiveConfiguredZone(p as any);
+                        setFormSectorName('NORTHERN DEFENSE SECTOR');
+                      }}
+                      className="px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.1] text-faint hover:text-paper font-mono text-[10px] border border-white/[0.06]"
+                    >
+                      NORTH SECTOR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const p = [[80, 120], [640, 120], [640, 480], [80, 480]];
+                        setFormZonePolygon(p);
+                        setActiveConfiguredZone(p as any);
+                        setFormSectorName('WESTERN BUFFER CORRIDOR');
+                      }}
+                      className="px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.1] text-faint hover:text-paper font-mono text-[10px] border border-white/[0.06]"
+                    >
+                      WEST BUFFER
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const p = [[500, 100], [1180, 100], [1180, 600], [500, 600]];
+                        setFormZonePolygon(p);
+                        setActiveConfiguredZone(p as any);
+                        setFormSectorName('EASTERN OUTPOST ZONE');
+                      }}
+                      className="px-2 py-1 rounded bg-white/[0.05] hover:bg-white/[0.1] text-faint hover:text-paper font-mono text-[10px] border border-white/[0.06]"
+                    >
+                      EAST OUTPOST
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Location Coordinates */}
+            <div className="space-y-2 p-3 bg-elevated/40 border border-white/[0.06] rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono font-bold text-accent uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm">location_on</span>
+                  2. GEOGRAPHICAL LOCATION CONTEXT
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormLat(32.65);
+                      setFormLon(74.85);
+                      setFormLocationLabel('Kathua Border Outpost [32.65, 74.85]');
+                    }}
+                    className="px-2 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] text-faint hover:text-paper font-mono text-[10px] border border-white/[0.06]"
+                  >
+                    KATHUA
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormLat(31.60);
+                      setFormLon(74.57);
+                      setFormLocationLabel('Wagah Border Sector [31.60, 74.57]');
+                    }}
+                    className="px-2 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] text-faint hover:text-paper font-mono text-[10px] border border-white/[0.06]"
+                  >
+                    WAGAH
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormLat(34.20);
+                      setFormLon(74.34);
+                      setFormLocationLabel('Baramulla Sector [34.20, 74.34]');
+                    }}
+                    className="px-2 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] text-faint hover:text-paper font-mono text-[10px] border border-white/[0.06]"
+                  >
+                    BARAMULLA
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">LATITUDE (°N)</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={formLat}
+                    onChange={(e) => setFormLat(parseFloat(e.target.value) || 0)}
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">LONGITUDE (°E)</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={formLon}
+                    onChange={(e) => setFormLon(parseFloat(e.target.value) || 0)}
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">LOCATION LABEL</label>
+                  <input
+                    type="text"
+                    value={formLocationLabel}
+                    onChange={(e) => setFormLocationLabel(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Weather Telemetry */}
+            <div className="space-y-2 p-3 bg-elevated/40 border border-white/[0.06] rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono font-bold text-accent uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm">cloud</span>
+                  3. ATMOSPHERIC & WEATHER TELEMETRY
+                </span>
+                <button
+                  type="button"
+                  onClick={handleFetchWeather}
+                  disabled={isFetchingWeather}
+                  className="px-2.5 py-1 rounded bg-accent/15 border border-accent/40 text-accent hover:bg-accent/25 text-[11px] font-mono font-semibold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <span className={`material-symbols-outlined text-[13px] ${isFetchingWeather ? 'animate-spin' : ''}`}>sync</span>
+                  <span>{isFetchingWeather ? 'FETCHING WEATHER...' : 'FETCH LIVE WEATHER'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">TEMPERATURE (°C)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={formTemp}
+                    onChange={(e) => setFormTemp(parseFloat(e.target.value) || 0)}
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">CONDITIONS</label>
+                  <select
+                    value={formCondition}
+                    onChange={(e) => setFormCondition(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  >
+                    <option value="Clear">Clear</option>
+                    <option value="Overcast">Overcast</option>
+                    <option value="Rain">Rain</option>
+                    <option value="Fog">Fog</option>
+                    <option value="Haze">Haze</option>
+                    <option value="Mist">Mist</option>
+                    <option value="Thunderstorm">Thunderstorm</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">WIND SPEED (M/S)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={formWind}
+                    onChange={(e) => setFormWind(parseFloat(e.target.value) || 0)}
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-mono text-muted uppercase block mb-1">VISIBILITY (KM)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={formVisibility}
+                    onChange={(e) => setFormVisibility(parseFloat(e.target.value) || 0)}
+                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/[0.1] text-paper font-mono text-xs focus:border-accent focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/[0.08]">
+              <div className="text-[10px] font-mono text-faint max-w-xs">
+                Ray-casting evaluates track geometry against border zone, updating incursions, containment, timeline & Mistral synthesis.
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsZoneConfigOpen(false)}
+                  className="px-3.5 py-2 rounded-lg bg-elevated border border-white/[0.1] text-paper text-xs font-mono hover:bg-white/[0.06] transition-all cursor-pointer"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRecompute}
+                  disabled={isRecomputing}
+                  className="px-4 py-2 rounded-lg bg-accent text-slate-950 text-xs font-mono font-bold hover:bg-accent/90 flex items-center gap-1.5 shadow transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isRecomputing ? (
+                    <>
+                      <span className="material-symbols-outlined text-[15px] animate-spin">progress_activity</span>
+                      <span>RECOMPUTING ANALYSIS...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-[15px]">bolt</span>
+                      <span>RECOMPUTE THREAT & WEATHER</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

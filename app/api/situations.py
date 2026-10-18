@@ -934,6 +934,7 @@ async def get_situation_report(
             "status": "UNAVAILABLE",
             "reason": "Emergency shelter registry not queried for this mission context.",
         },
+        weather=raw_payload.get("weather") or (raw_payload.get("external_context", {}).get("weather") if isinstance(raw_payload.get("external_context"), dict) else None),
     )
 
     meta = MetaBlock(

@@ -535,11 +535,31 @@ def generate_situation_report_pdf(
         )
         ax1.text(0.06, 0.555, integrity_lines, color=text_accent, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
 
-        # 4. Perception Scope & Geographic Status
-        ax1.text(0.06, 0.405, "4. OPERATIONAL SCOPE & GEOGRAPHIC LOCALIZATION", color=text_title, fontsize=7.8, fontweight="bold")
+        # 4. Perception Scope, Geographic Status & Operational Zone
+        ax1.text(0.06, 0.415, "4. OPERATIONAL SCOPE, GEOGRAPHIC LOCALIZATION & THREAT ZONE", color=text_title, fontsize=7.8, fontweight="bold")
         loc_lat = geo_context.get("latitude")
         loc_lon = geo_context.get("longitude")
         loc_label = geo_context.get("label") or "Sector Reference"
+
+        demo_zone = report_data.get("demo_zone_activity") or {}
+        weather_obj = report_data.get("weather") or (report_data.get("external_context", {}).get("weather") if isinstance(report_data.get("external_context"), dict) else {}) or {}
+
+        zone_summary_line = ""
+        if demo_zone.get("zone_configured"):
+            z_sec = demo_zone.get("sector_name") or "RESTRICTED BORDER ZONE"
+            z_inc = demo_zone.get("incursion_count", 0)
+            z_act = demo_zone.get("active_threats", 0)
+            z_ext = demo_zone.get("exit_count", 0)
+            zone_summary_line = f"THREAT BORDER ZONE: ACTIVE [{z_sec}] | INCURSIONS: {z_inc} | INSIDE: {z_act} | EXITS: {z_ext}\n"
+
+        weather_summary_line = ""
+        if weather_obj and (weather_obj.get("status") == "AVAILABLE" or weather_obj.get("temperature_c") is not None):
+            temp = weather_obj.get("temperature_c")
+            temp_str = f"{temp:.1f}°C" if isinstance(temp, (int, float)) else f"{temp}°C" if temp else "--"
+            w_cond = weather_obj.get("conditions") or weather_obj.get("flight_suitability") or "Monitored"
+            w_spd = weather_obj.get("wind_speed_ms") or weather_obj.get("wind_speed_mps") or "--"
+            w_vis = weather_obj.get("visibility_km") or "--"
+            weather_summary_line = f"LOCAL WEATHER:     {temp_str}, {w_cond} | WIND: {w_spd} m/s | VISIBILITY: {w_vis} km\n"
 
         if loc_lat is not None and loc_lon is not None:
             loc_prec = str(geo_context.get("location_precision") or "APPROXIMATE_REGIONAL").upper()
@@ -552,6 +572,8 @@ def generate_situation_report_pdf(
                 f"PRECISION LEVEL:   {loc_prec} (REGIONAL REFERENCE COORDINATE)\n"
                 f"PROVENANCE SOURCE: {geo_context.get('location_source', 'OPERATOR_DECLARED')}\n"
                 f"{border_sublines}"
+                f"{zone_summary_line}"
+                f"{weather_summary_line}"
                 f"SAFETY INVARIANT:  Perception inference is sensor-decoupled from coordinates."
             )
         else:
@@ -559,40 +581,50 @@ def generate_situation_report_pdf(
                 f"ANALYSIS SCOPE:    STANDALONE VISUAL PERCEPTION (SENSOR-FRAME APERTURE)\n"
                 f"GEOGRAPHIC STATUS: NONE DECLARED (PERCEPTION SCOPE IS SENSOR-FRAME RELATIVE)\n"
                 f"BORDER STATUS:     BORDER CONTEXT UNAVAILABLE\n"
+                f"{zone_summary_line}"
+                f"{weather_summary_line}"
                 f"DISCLAIMER:        Perception remains sensor-frame relative. No authoritative border\n"
                 f"                   geometry is available for this analysis."
             )
-        ax1.text(0.06, 0.385, geo_lines, color=text_body, fontsize=6.5, fontfamily="monospace", bbox=card_props, va="top")
+        ax1.text(0.06, 0.395, geo_lines, color=text_body, fontsize=6.2, fontfamily="monospace", bbox=card_props, va="top")
 
-        # 5. Real-Time Mistral AI Advisory Block
-        ax1.text(0.06, 0.250, f"5. REAL-TIME MISTRAL AI ADVISORY ({advisory_model.upper()})", color="#0369A1", fontsize=7.8, fontweight="bold")
+        # 5. AI Intelligence Summary & Grounded Mistral AI Advisory Block
+        ax1.text(0.06, 0.258, f"5. OPERATIONAL AI SUMMARY & GROUNDED MISTRAL ADVISORY ({advisory_model.upper()})", color="#0369A1", fontsize=7.8, fontweight="bold")
+
+        advisory_summary = str(ai_advisory.get("summary") or report_data.get("executive_summary") or "").strip()
+        if not advisory_summary:
+            advisory_summary = "Deterministic operational synthesis computed from verified detection tracks, sensor telemetry, and boundary geometry."
 
         advisory_display_parts = []
-        if advisory_text:
+        # Prominent AI Intelligence Summary
+        advisory_display_parts.append(f"AI INTELLIGENCE SUMMARY (OPERATIONAL SYNTHESIS):\n{advisory_summary}")
+
+        if advisory_text and advisory_text != advisory_summary:
             clean_lines = [l.strip() for l in advisory_text.split("\n") if l.strip()]
-            advisory_display_parts.append("\n".join(clean_lines[:8]))
-        else:
-            advisory_display_parts.append(
-                f"Real-time operational advisory synthesized by Mistral AI ({advisory_model}). "
-                f"Evaluated {total_detections_count} detections across surveillance footage. "
-                "Perception verified against immutable sensor frames."
-            )
+            advisory_display_parts.append(f"GROUNDED MISTRAL TACTICAL ADVISORY:\n" + "\n".join(clean_lines[:5]))
 
         if advisory_findings:
-            advisory_display_parts.append("KEY FINDINGS: " + "; ".join(advisory_findings[:2]))
+            advisory_display_parts.append("KEY OPERATIONAL FINDINGS: " + "; ".join(advisory_findings[:2]))
 
         if advisory_recommendations:
             advisory_display_parts.append("RECOMMENDED ACTIONS: " + "; ".join(advisory_recommendations[:2]))
 
-        advisory_rendered_text = "\n\n".join(advisory_display_parts)
-        ax1.text(0.06, 0.230, advisory_rendered_text, color="#0C4A6E", fontsize=6.0, fontfamily="sans-serif", bbox=advisory_card_props, va="top", wrap=True)
+        def _sanitize_pdf_text(txt: str) -> str:
+            txt = txt.replace("✅", "[VERIFIED]").replace("🚨", "[ALERT]").replace("🔍", "[INSPECT]")
+            txt = txt.replace("⚠️", "[WARNING]").replace("📌", "[NOTE]").replace("⚡", "[FAST]").replace("•", "-")
+            return "".join(c for c in txt if ord(c) < 0xFFF0)
+
+        advisory_rendered_text = _sanitize_pdf_text("\n\n".join(advisory_display_parts))
+        if len(advisory_rendered_text) > 750:
+            advisory_rendered_text = advisory_rendered_text[:747] + "..."
+        ax1.text(0.06, 0.238, advisory_rendered_text, color="#0C4A6E", fontsize=5.8, fontfamily="sans-serif", bbox=advisory_card_props, va="top", wrap=True)
 
         # 6. Disclaimer & Human-in-the-loop statement
         exec_statement = (
             "HUMAN VERIFICATION STATEMENT: Detections and tracking metrics are derived deterministically from\n"
             "frozen model weights. AI advisory is explanatory synthesis and requires operator confirmation."
         )
-        ax1.text(0.06, 0.075, exec_statement, color=text_muted, fontsize=6.0, fontfamily="monospace")
+        ax1.text(0.06, 0.062, exec_statement, color=text_muted, fontsize=5.8, fontfamily="monospace")
 
         pdf.savefig(fig1, facecolor=fig1.get_facecolor(), edgecolor="none")
         plt.close(fig1)

@@ -316,4 +316,5 @@ class SituationReportResponse(BaseModel):
     spatial_context: Optional[Dict[str, Any]] = None
     routing_summary: Optional[Dict[str, Any]] = None
     shelter_summary: Optional[Dict[str, Any]] = None
+    weather: Optional[Dict[str, Any]] = None
 

@@ -269,6 +269,22 @@ export const analysisApi = {
     return apiClient.get<AERIONAnalysisResultData>(`/analysis/${analysisId}`, options);
   },
 
+  recomputeBorderAnalysis: async (analysisId: string, payload: {
+    zone_polygon: number[][];
+    sector_name?: string;
+    latitude?: number;
+    longitude?: number;
+    location_label?: string;
+    weather?: {
+      temperature_c?: number;
+      conditions?: string;
+      wind_speed_ms?: number;
+      visibility_km?: number;
+    };
+  }, options?: RequestInit): Promise<APIEnvelope<any>> => {
+    return apiClient.post(`/analysis/${analysisId}/recompute`, payload, options);
+  },
+
   submitBorderJob: async (payload: {
     video_path?: string;
     video_base64?: string;
